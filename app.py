@@ -1,5 +1,6 @@
 import re
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 
 from models.match import Match
@@ -335,15 +336,44 @@ def analysis_dataframe(matches: list[Match]) -> pd.DataFrame:
     ])
 
 
-# ── Coupon HTML renderer ───────────────────────────────────────────────────────
-def _pick_html(label: str, selected: bool, multi: bool) -> str:
-    if not selected:
-        return f'<div class="nt-pick">{label}</div>'
-    cls = "sel-multi" if multi else "sel"
-    return f'<div class="nt-pick {cls}">{label}</div>'
+# ── Optimizer decision table ───────────────────────────────────────────────────
+def render_decision_table(matches: list[Match], picks: dict) -> None:
+    """Transparency table: shows WHY each match got its coverage level."""
+    _label = {1: "Single", 2: "Half Cover", 3: "Full Cover"}
+
+    rows = []
+    for m in matches:
+        n          = len(picks[m.number])
+        picks_str  = " / ".join(picks[m.number])
+        rows.append({
+            "#":        m.number,
+            "Match":    m.label,
+            "Conf":     round(m.confidence * 100, 1),
+            "Coverage": _label[n],
+            "Picks":    picks_str,
+        })
+
+    df = pd.DataFrame(rows)
+
+    def _style_cov(val: str) -> str:
+        return {
+            "Full Cover": "background-color:#f8d7da; color:#721c24; font-weight:bold",
+            "Half Cover": "background-color:#fff3cd; color:#856404; font-weight:bold",
+            "Single":     "background-color:#d1ecf1; color:#0c5460",
+        }.get(val, "")
+
+    styled = (
+        df.style
+        .map(_style_cov,        subset=["Coverage"])
+        .map(_style_confidence, subset=["Conf"])
+        .format({"Conf": "{:.1f}%"})
+        .set_properties(subset=["Picks"], **{"font-weight": "bold"})
+    )
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
 
-def render_coupon_html(
+# ── Coupon card (rendered via components.v1.html to avoid markdown stripping) ──
+def render_coupon_card(
     matches: list[Match],
     picks: dict,
     total_rows: int,
@@ -352,80 +382,97 @@ def render_coupon_html(
 ) -> None:
     total_cost = total_rows * cost_per_row
     remaining  = budget - total_cost
+    rem_color  = "#28a745" if remaining >= 0 else "#dc3545"
 
-    rows_html = ""
-    for m in matches:
-        match_picks = picks[m.number]
-        multi       = len(match_picks) > 1
-        is_banker   = m.classification == "banker"
-        conf_pct    = round(m.confidence * 100)
-        fill_color  = _conf_color(conf_pct)
-        label       = m.label if len(m.label) <= 30 else m.label[:29] + "…"
-
-        banker_badge = (
-            ' <span style="background:#f9a825;color:#000;font-size:9px;'
-            'padding:1px 5px;border-radius:3px;font-weight:900;'
-            'vertical-align:middle;">★ BANKER</span>'
-            if is_banker else ""
+    def circle(label: str, selected: bool, multi: bool) -> str:
+        if selected:
+            bg, fg, bd = ("#003087", "#fff", "#003087") if not multi else ("#c0392b", "#fff", "#c0392b")
+        else:
+            bg, fg, bd = ("#f0f2f6", "#aaa", "#ccc")
+        return (
+            f'<div style="width:36px;height:36px;border-radius:50%;'
+            f'background:{bg};color:{fg};border:2px solid {bd};'
+            f'display:flex;align-items:center;justify-content:center;'
+            f'font-size:12px;font-weight:800;">{label}</div>'
         )
 
-        h_html = _pick_html("H", "H" in match_picks, multi)
-        u_html = _pick_html("U", "U" in match_picks, multi)
-        b_html = _pick_html("B", "B" in match_picks, multi)
+    _cov_color = {1: "#0c5460", 2: "#856404", 3: "#721c24"}
+    _cov_label = {1: "Single", 2: "Half Cover", 3: "Full Cover"}
 
-        row_class = "nt-row nt-banker" if is_banker else "nt-row"
+    match_rows = ""
+    for idx, m in enumerate(matches):
+        mp    = picks[m.number]
+        n     = len(mp)
+        multi = n > 1
+        bg    = "#f8fafe" if idx % 2 == 0 else "#ffffff"
 
-        rows_html += f"""
-        <div class="{row_class}">
-            <span class="nt-num">{m.number}</span>
-            <span class="nt-match">{label}{banker_badge}</span>
-            <div class="nt-conf">
-                <div class="nt-conf-fill"
-                     style="width:{conf_pct}%; background:{fill_color};"></div>
-                <span class="nt-conf-label">{conf_pct}%</span>
-            </div>
-            {h_html}{u_html}{b_html}
-        </div>
-        """
+        match_rows += (
+            f'<div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;'
+            f'padding:8px 16px;background:{bg};border-bottom:1px solid #e2ecf8;align-items:center;">'
+            f'  <span style="color:#999;font-size:11px;font-weight:700;text-align:center;">{m.number}</span>'
+            f'  <div>'
+            f'    <div style="font-size:13px;font-weight:600;color:#1a1a2e;">{m.label}</div>'
+            f'    <div style="font-size:10px;font-weight:700;color:{_cov_color[n]};margin-top:1px;">'
+            f'      {_cov_label[n]}'
+            f'    </div>'
+            f'  </div>'
+            f'  <div style="display:flex;gap:5px;">'
+            f'    {circle("H","H" in mp, multi)}'
+            f'    {circle("U","U" in mp, multi)}'
+            f'    {circle("B","B" in mp, multi)}'
+            f'  </div>'
+            f'</div>'
+        )
 
-    html = f"""
-    <div class="nt-coupon">
-        <div class="nt-header">
-            <div class="nt-header-left">
-                <div class="nt-title">TIPPEKUPONGEN</div>
-                <div class="nt-sub">Norsk Tipping &middot; Analyseresultat</div>
-            </div>
-            <div class="nt-logo">⚽</div>
-        </div>
-        <div class="nt-col-hdr">
-            <span>#</span>
-            <span class="nt-match-col">Kamp</span>
-            <span>Conf</span>
-            <span>H</span>
-            <span>U</span>
-            <span>B</span>
-        </div>
-        {rows_html}
-        <div class="nt-footer">
-            <div class="nt-footer-cell">
-                <div class="nt-footer-label">Rekker</div>
-                <div class="nt-footer-val">{total_rows}</div>
-            </div>
-            <div class="nt-footer-cell">
-                <div class="nt-footer-label">Kostnad</div>
-                <div class="nt-footer-val">{total_cost:.2f} NOK</div>
-            </div>
-            <div class="nt-footer-cell">
-                <div class="nt-footer-label">Gjenstår</div>
-                <div class="nt-footer-val"
-                     style="color:{'#28a745' if remaining >= 0 else '#dc3545'}">
-                    {remaining:+.2f} NOK
-                </div>
-            </div>
-        </div>
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>*{{margin:0;padding:0;box-sizing:border-box;}}</style>
+</head><body style="font-family:'Segoe UI',Arial,sans-serif;background:transparent;">
+<div style="border:3px solid #003087;border-radius:12px;overflow:hidden;
+            box-shadow:0 4px 16px rgba(0,48,135,.15);">
+  <div style="background:linear-gradient(135deg,#002060,#0052cc);
+              color:#fff;padding:14px 20px;
+              display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <div style="font-size:20px;font-weight:900;letter-spacing:4px;">TIPPEKUPONGEN</div>
+      <div style="font-size:11px;opacity:.7;margin-top:2px;">Norsk Tipping &middot; Analyseresultat</div>
     </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
+    <div style="font-size:30px;">&#9917;</div>
+  </div>
+  <div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;
+              padding:6px 16px;background:#dce8f8;
+              border-bottom:2px solid #003087;
+              font-size:10px;font-weight:800;color:#003087;
+              text-transform:uppercase;letter-spacing:1px;">
+    <span style="text-align:center;">#</span>
+    <span>Kamp</span>
+    <div style="display:flex;gap:5px;">
+      <span style="width:36px;text-align:center;">H</span>
+      <span style="width:36px;text-align:center;">U</span>
+      <span style="width:36px;text-align:center;">B</span>
+    </div>
+  </div>
+  <div>{match_rows}</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);
+              background:#dce8f8;border-top:2px solid #003087;">
+    <div style="padding:10px 16px;text-align:center;border-right:1px solid #c5d8f0;">
+      <div style="font-size:10px;font-weight:600;color:#5577aa;text-transform:uppercase;letter-spacing:1px;">Rekker</div>
+      <div style="font-size:20px;font-weight:900;color:#002060;">{total_rows}</div>
+    </div>
+    <div style="padding:10px 16px;text-align:center;border-right:1px solid #c5d8f0;">
+      <div style="font-size:10px;font-weight:600;color:#5577aa;text-transform:uppercase;letter-spacing:1px;">Kostnad</div>
+      <div style="font-size:20px;font-weight:900;color:#002060;">{total_cost:.2f} NOK</div>
+    </div>
+    <div style="padding:10px 16px;text-align:center;">
+      <div style="font-size:10px;font-weight:600;color:#5577aa;text-transform:uppercase;letter-spacing:1px;">Gjenstår</div>
+      <div style="font-size:20px;font-weight:900;color:{rem_color};">{remaining:+.2f} NOK</div>
+    </div>
+  </div>
+</div>
+</body></html>"""
+
+    card_height = 60 + 35 + len(matches) * 56 + 58
+    components.html(html, height=card_height, scrolling=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -591,20 +638,31 @@ if st.session_state.analysis:
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
-    # ── Coupon visualization ──────────────────────────────────────────────────
+    # ── Optimized coupon ──────────────────────────────────────────────────────
     st.subheader("Optimized Coupon")
-    render_coupon_html(matches, picks, total_rows, budget, cost_per_row)
+    st.caption(
+        "Most uncertain matches are upgraded first. "
+        "Half Cover = top-2 outcomes by probability. Full Cover = all three."
+    )
+    render_decision_table(matches, picks)
+    render_coupon_card(matches, picks, total_rows, budget, cost_per_row)
 
-    # ── Classification guide ──────────────────────────────────────────────────
-    with st.expander("Classification guide"):
+    # ── How the optimizer works ───────────────────────────────────────────────
+    with st.expander("How the optimizer works"):
         st.markdown("""
-| Type | Trigger | Recommended action |
-|---|---|---|
-| **Banker** | Confidence ≥ 60% | Single pick — no cover needed |
-| **Standard** | One outcome leads clearly | Single pick |
-| **Half Cover** | Top two outcomes within 13pp | Cover both top outcomes |
-| **Full Cover** | All three within 10pp | Cover all three |
-| **Uncertain** | No outcome reaches 45% | Full cover or skip |
+**Algorithm — depth-first, uncertainty-first:**
 
-**Confidence bar color:** Green ≥ 60% · Yellow-green 52–60% · Yellow 45–52% · Red < 45%
+1. All 12 matches start as **single picks** (1 row total).
+2. Matches are sorted by confidence ascending — least confident first.
+3. For each match the optimizer upgrades it one level at a time:
+   - **1 pick → 2 picks (Half Cover):** costs ×2 rows. Picks the top-2 outcomes by probability.
+   - **2 picks → 3 picks (Full Cover):** costs ×1.5 rows. Picks all three outcomes.
+4. It keeps upgrading the same match until the next upgrade exceeds the budget, then moves to the next most uncertain match.
+5. High-confidence matches are processed last and are typically left as singles.
+
+| Coverage | Row cost | Assigned when |
+|---|---|---|
+| **Single** | ×1 | High confidence or budget exhausted |
+| **Half Cover** | ×2 | Medium uncertainty — top-2 picks by probability |
+| **Full Cover** | ×3 | Low confidence — all three outcomes covered |
         """)
