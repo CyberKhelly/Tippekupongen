@@ -62,13 +62,34 @@ st.markdown("""
     gap: 6px !important;
 }
 
+/* ── Logo lockup ────────────────────────────────────────────────── */
+.logo-lockup {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+}
+.logo-badge {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 32%, #1d3870 0%, #090e1c 100%);
+    border: 2px solid #f5c518;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 0 20px rgba(245,197,24,0.18),
+                0 3px 10px rgba(0,0,0,0.55),
+                inset 0 1px 0 rgba(255,255,255,0.07);
+}
+
 /* ── App wordmark ───────────────────────────────────────────────── */
 .app-wordmark {
-    font-size: 1.55rem;
+    font-size: 1.6rem;
     font-weight: 900;
     color: #ffffff;
-    letter-spacing: -0.5px;
-    line-height: 1;
+    letter-spacing: -0.3px;
+    line-height: 1.05;
 }
 .app-wordmark .q { color: #f5c518; }
 
@@ -77,18 +98,19 @@ st.markdown("""
     color: #5a7a96;
     font-weight: 500;
     white-space: nowrap;
+    padding-top: 4px;
 }
 .app-subtitle {
-    font-size: 0.67rem;
+    font-size: 0.65rem;
     color: #2e4a64;
-    margin-top: 3px;
+    margin-top: 2px;
 }
 
 /* ── Header row ─────────────────────────────────────────────────── */
 .app-header-row {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     padding-bottom: 1rem;
     margin-bottom: 1.25rem;
     border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -483,10 +505,31 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 # ── Full-width header ──────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header-row">
-  <div>
-    <div class="app-wordmark">Tippe<span class="q">Q</span>pongen</div>
-    <div class="app-subtitle">Basert på estimerte odds · oppdateres ukentlig</div>
+
+  <div class="logo-lockup">
+    <!-- Badge: circular gold-bordered container with football stitch icon -->
+    <div class="logo-badge">
+      <svg viewBox="0 0 32 32" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+        <!-- Central pentagon (classic football centre patch) -->
+        <polygon points="16,9 22.7,13.8 20.1,21.7 11.9,21.7 9.3,13.8"
+                 fill="rgba(245,197,24,0.12)" stroke="#f5c518"
+                 stroke-width="1.35" stroke-linejoin="round"/>
+        <!-- Five stitch lines radiating to the circle edge -->
+        <line x1="16"   y1="9"    x2="16"   y2="2"    stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
+        <line x1="22.7" y1="13.8" x2="29.3" y2="11.7" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
+        <line x1="20.1" y1="21.7" x2="24.2" y2="27.3" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
+        <line x1="11.9" y1="21.7" x2="7.8"  y2="27.3" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
+        <line x1="9.3"  y1="13.8" x2="2.7"  y2="11.7" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
+      </svg>
+    </div>
+
+    <!-- Wordmark + subtitle -->
+    <div>
+      <div class="app-wordmark">Tippe<span class="q">Q</span>pongen</div>
+      <div class="app-subtitle">Basert på estimerte odds · oppdateres ukentlig</div>
+    </div>
   </div>
+
   <div class="app-meta-date">Uke 23 · 2026</div>
 </div>
 """, unsafe_allow_html=True)
