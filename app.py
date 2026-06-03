@@ -490,6 +490,13 @@ with st.expander("Load or Paste Fixtures", expanded=not has_teams):
 
 st.divider()
 
+# ── Seed odds defaults into session state on first load ────────────────────────
+# Avoids Streamlit warning when _apply_matches sets state AND value= is also set.
+for _i in range(1, NUM_MATCHES + 1):
+    st.session_state.setdefault(f"oh_{_i}", 2.00)
+    st.session_state.setdefault(f"ou_{_i}", 3.40)
+    st.session_state.setdefault(f"ob_{_i}", 3.60)
+
 # ── Match input form ───────────────────────────────────────────────────────────
 with st.form("coupon_form"):
 
@@ -512,17 +519,17 @@ with st.form("coupon_form"):
         )
         oh = c[3].number_input(
             "H", min_value=1.01, max_value=100.0,
-            value=2.00, step=0.05, format="%.2f",
+            step=0.05, format="%.2f",
             key=f"oh_{i}", label_visibility="collapsed",
         )
         ou = c[4].number_input(
             "U", min_value=1.01, max_value=100.0,
-            value=3.40, step=0.05, format="%.2f",
+            step=0.05, format="%.2f",
             key=f"ou_{i}", label_visibility="collapsed",
         )
         ob = c[5].number_input(
             "B", min_value=1.01, max_value=100.0,
-            value=3.60, step=0.05, format="%.2f",
+            step=0.05, format="%.2f",
             key=f"ob_{i}", label_visibility="collapsed",
         )
         raw_inputs.append((i, home, away, oh, ou, ob))
