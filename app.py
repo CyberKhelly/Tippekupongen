@@ -6,6 +6,7 @@ from models.match import Match
 from analysis.probability import process_match
 from analysis.classifier import classify_match, classification_label
 from analysis.optimizer import optimize_coupon
+from data.coupon_week23_2026 import COUPONS
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -16,66 +17,22 @@ st.set_page_config(
 
 NUM_MATCHES = 12
 
-# ── This week's real Tippekupongen fixtures (uke 23, 2026) ────────────────────
-# Source: tippetips.info — odds must be entered manually from your bookmaker.
-THIS_WEEK = {
-    "Midtuke (frist fre. 5. juni 17:55)": [
-        ("Deutschland",  "Norge"),
-        ("Østerrike",    "Slovenia"),
-        ("Polen",        "Frankrike"),
-        ("Ukraina",      "Island"),
-        ("Skottland",    "Israel"),
-        ("Italia",       "Serbia"),
-        ("Tyrkia",       "Nord-Irland"),
-        ("Danmark",      "Sverige"),
-        ("Irland",       "Nederland"),
-        ("Spania",       "England"),
-        ("Varhaug",      "Hinna"),
-        ("Salangen",     "Ulfstind"),
-    ],
-    "Lørdag (frist lør. 6. juni 14:55)": [
-        ("Paris Saint-Germain", "Arsenal"),
-        ("Molde",               "Sandefjord"),
-        ("Moss",                "Stabæk"),
-        ("Odd",                 "Lyn"),
-        ("Vidar",               "Træff"),
-        ("Rosenborg Kvinner",   "LSK Kvinner"),
-        ("Gamle Oslo",          "Frigg"),
-        ("Spjelkavik",          "Byåsen"),
-        ("Fana",                "Førde"),
-        ("Vindbjart",           "Madla"),
-        ("Fløya",               "Skedsmo"),
-        ("AIK",                 "Sirius"),
-    ],
-    "Søndag (frist søn. 7. juni 15:55)": [
-        ("Bryne",       "Hødd"),
-        ("Egersund",    "Strømsgodset"),
-        ("Kongsvinger", "Åsane"),
-        ("Ranheim",     "Sandnes Ulf"),
-        ("Raufoss",     "Haugesund"),
-        ("Strømmen",    "Sogndal"),
-        ("Pors",        "Mjøndalen"),
-        ("Notodden",    "Jerv"),
-        ("Arendal",     "Sotra"),
-        ("Levanger",    "Junkeren"),
-        ("Rana",        "Stjørdals-Blink"),
-        ("Tromsdalen",  "Skeid"),
-    ],
-}
+# Coupon options for the dropdown — built from the data file
+_COUPON_OPTIONS = {v["label"]: k for k, v in COUPONS.items()}
 
 EXAMPLE_FIXTURES = [
-    ("Arsenal",     "Chelsea"),
-    ("Man City",    "Liverpool"),
-    ("Rosenborg",   "Molde"),
-    ("Brann",       "Viking"),
-    ("Odd",         "Sarpsborg"),
-    ("Real Madrid", "Barcelona"),
-    ("Juventus",    "Inter Milan"),
-    ("Dortmund",    "Bayern"),
-    ("Ajax",        "PSV"),
-    ("Feyenoord",   "AZ Alkmaar"),
-    ("Celtic",      "Rangers"),
-    ("Bodo/Glimt",  "Lillestrom"),
+    ("Arsenal",     "Chelsea",      1.85, 3.60, 4.20),
+    ("Man City",    "Liverpool",    2.10, 3.40, 3.50),
+    ("Rosenborg",   "Molde",        1.50, 4.00, 6.00),
+    ("Brann",       "Viking",       2.60, 3.10, 2.80),
+    ("Odd",         "Sarpsborg",    2.20, 3.20, 3.30),
+    ("Real Madrid", "Barcelona",    2.00, 3.50, 3.80),
+    ("Juventus",    "Inter Milan",  2.30, 3.20, 3.10),
+    ("Dortmund",    "Bayern",       3.80, 3.50, 1.95),
+    ("Ajax",        "PSV",          2.00, 3.40, 3.70),
+    ("Feyenoord",   "AZ Alkmaar",   2.10, 3.20, 3.50),
+    ("Celtic",      "Rangers",      2.40, 3.30, 2.90),
+    ("Bodo/Glimt",  "Lillestrom",   1.40, 4.50, 8.00),
 ]
 
 # ── Global CSS ─────────────────────────────────────────────────────────────────
@@ -316,20 +273,25 @@ def parse_fixtures(text: str) -> list[tuple[str, str]]:
 
 
 # ── Callbacks ──────────────────────────────────────────────────────────────────
-def cb_load_this_week():
-    key = st.session_state.get("coupon_selector", list(THIS_WEEK.keys())[0])
-    fixtures = THIS_WEEK[key]
-    for i, (home, away) in enumerate(fixtures, 1):
+def _apply_matches(matches: list[tuple]) -> None:
+    """Write a list of (home, away, oh, ou, ob) tuples into session state."""
+    for i, (home, away, oh, ou, ob) in enumerate(matches, 1):
         st.session_state[f"home_{i}"] = home
         st.session_state[f"away_{i}"] = away
+        st.session_state[f"oh_{i}"]   = float(oh)
+        st.session_state[f"ou_{i}"]   = float(ou)
+        st.session_state[f"ob_{i}"]   = float(ob)
     st.session_state.analysis = None
+
+
+def cb_load_this_week():
+    label = st.session_state.get("coupon_selector", list(_COUPON_OPTIONS.keys())[0])
+    key   = _COUPON_OPTIONS[label]
+    _apply_matches(COUPONS[key]["matches"])
 
 
 def cb_load_example():
-    for i, (home, away) in enumerate(EXAMPLE_FIXTURES, 1):
-        st.session_state[f"home_{i}"] = home
-        st.session_state[f"away_{i}"] = away
-    st.session_state.analysis = None
+    _apply_matches(EXAMPLE_FIXTURES)
 
 
 def cb_parse_fixtures():
@@ -338,11 +300,9 @@ def cb_parse_fixtures():
     if not fixtures:
         st.session_state["_parse_error"] = "No valid fixtures found. Check the format."
         return
-    for i, (home, away) in enumerate(fixtures[:NUM_MATCHES], 1):
-        st.session_state[f"home_{i}"] = home
-        st.session_state[f"away_{i}"] = away
+    padded = [(h, a, 2.00, 3.40, 3.60) for h, a in fixtures[:NUM_MATCHES]]
+    _apply_matches(padded)
     st.session_state["_parse_error"] = None
-    st.session_state.analysis = None
 
 
 # ── Data helpers ───────────────────────────────────────────────────────────────
@@ -487,7 +447,7 @@ with st.expander("Load or Paste Fixtures", expanded=not has_teams):
     sel_col, btn_col = st.columns([3, 1])
     sel_col.selectbox(
         "Kupong",
-        options=list(THIS_WEEK.keys()),
+        options=list(_COUPON_OPTIONS.keys()),
         key="coupon_selector",
         label_visibility="collapsed",
     )
@@ -498,8 +458,8 @@ with st.expander("Load or Paste Fixtures", expanded=not has_teams):
         use_container_width=True,
     )
     st.caption(
-        "Kampene er hentet fra tippetips.info. "
-        "Du må selv legge inn odds fra din bookmaker (f.eks. Norsk Tipping Oddsen)."
+        "Kamper og odds hentes fra data/coupon_week23_2026.py. "
+        "Odds er estimert — rediger filen for å bruke live-odds fra bookmaker."
     )
 
     st.divider()
