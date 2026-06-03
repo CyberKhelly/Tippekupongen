@@ -52,40 +52,92 @@ st.markdown("""
 }
 
 /* ── Column layout ──────────────────────────────────────────────── */
-/* Outer main split: generous gap */
+/* Outer main split */
 [data-testid="stHorizontalBlock"] {
     gap: 2rem !important;
     align-items: flex-start !important;
 }
-/* Inner button rows (inside a column): tight gap, must not wrap */
+/*
+ * Inner button rows (inside a left/right panel column).
+ * CSS grid with grid-auto-flow:column + minmax(0,1fr) is the most
+ * robust way to force N equal-width cells on exactly one row —
+ * more reliable than flex-wrap:nowrap which Streamlit can override.
+ */
 [data-testid="column"] [data-testid="stHorizontalBlock"] {
-    gap: 6px !important;
-    flex-wrap: nowrap !important;
+    display: grid !important;
+    grid-auto-flow: column !important;
+    grid-auto-columns: minmax(0, 1fr) !important;
+    gap: 5px !important;
+    align-items: stretch !important;
 }
 [data-testid="column"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
     min-width: 0 !important;
-    flex: 1 1 0% !important;
+    width: 100% !important;
+}
+[data-testid="column"] [data-testid="stHorizontalBlock"] > [data-testid="column"] > div > div {
+    width: 100% !important;
 }
 
-/* ── Logo lockup ────────────────────────────────────────────────── */
+/* ── Logo mark ──────────────────────────────────────────────────── */
 .logo-lockup {
     display: flex;
     align-items: center;
-    gap: 13px;
+    gap: 14px;
 }
-.logo-badge {
-    width: 46px;
-    height: 46px;
+/*
+ * Premium football badge — pure CSS, no SVG, no external assets.
+ * Circular badge with a radial gradient suggesting ball depth,
+ * inner ring (::before) echoing a football panel divider, and a
+ * small highlight dot (::after) for the ball-surface reflection.
+ */
+.logo-mark {
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
-    background: radial-gradient(circle at 38% 32%, #1d3870 0%, #090e1c 100%);
-    border: 2px solid #f5c518;
+    background: radial-gradient(circle at 36% 30%, #1e3d7c 0%, #07101e 100%);
+    border: 2.5px solid #f5c518;
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
     flex-shrink: 0;
-    box-shadow: 0 0 20px rgba(245,197,24,0.18),
-                0 3px 10px rgba(0,0,0,0.55),
-                inset 0 1px 0 rgba(255,255,255,0.07);
+    box-shadow:
+        0 0 24px rgba(245,197,24,0.22),
+        0 4px 16px rgba(0,0,0,0.65),
+        inset 0 1px 0 rgba(255,255,255,0.09);
+}
+/* Inner ring: football panel boundary */
+.logo-mark::before {
+    content: '';
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(245,197,24,0.25);
+    pointer-events: none;
+}
+/* Highlight dot: ball surface glint */
+.logo-mark::after {
+    content: '';
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+.logo-q-letter {
+    font-size: 20px;
+    font-weight: 900;
+    color: #f5c518;
+    font-family: Arial, sans-serif;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+    text-shadow: 0 0 12px rgba(245,197,24,0.5);
+    letter-spacing: -1px;
 }
 
 /* ── App wordmark ───────────────────────────────────────────────── */
@@ -146,7 +198,7 @@ st.markdown("""
 .budget-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
+    gap: 5px;
     margin-top: 3px;
     margin-bottom: 0.85rem;
 }
@@ -222,24 +274,29 @@ button[kind="secondary"]:hover {
 
 /* ── Right panel ─────────────────────────────────────────────────── */
 .panel-title {
-    font-size: 0.6rem;
+    font-size: 0.85rem;
     font-weight: 700;
-    color: #2e4a64;
+    color: #c8d8e8;
     text-transform: uppercase;
-    letter-spacing: 1.8px;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    margin-bottom: 0.5rem;
+    letter-spacing: 1.5px;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    margin-bottom: 0.6rem;
 }
 .footnote {
-    font-size: 0.62rem;
-    color: #2e4a64;
+    font-size: 0.75rem;
+    color: #4a6a88;
     margin-top: 0.85rem;
-    line-height: 1.6;
+    line-height: 1.65;
     padding-top: 0.7rem;
-    border-top: 1px solid rgba(255,255,255,0.04);
+    border-top: 1px solid rgba(255,255,255,0.05);
 }
-.footnote strong { color: #3d6080; }
+.footnote strong { color: #6a90b0; }
+
+/* Remove bottom border from last analysis row to prevent phantom line */
+.analysis-tbl tbody tr:last-child td {
+    border-bottom: none !important;
+}
 
 /* ── Misc ────────────────────────────────────────────────────────── */
 hr { border-color: rgba(255,255,255,0.05) !important; margin: 0.75rem 0 !important; }
@@ -495,7 +552,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 
     html = (
         '<div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(255,255,255,0.05);">'
-        '<table style="width:100%;border-collapse:collapse;'
+        '<table class="analysis-tbl" style="width:100%;border-collapse:collapse;'
         'font-family:\'Segoe UI\',system-ui,Arial,sans-serif;">'
         f'<thead>{thead}</thead>'
         f'<tbody>{rows_html}</tbody>'
@@ -512,15 +569,8 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 st.markdown("""
 <div class="app-header-row">
   <div class="logo-lockup">
-    <div class="logo-badge">
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;">
-        <span style="font-size:21px;font-weight:900;color:#f5c518;
-                     font-family:'Segoe UI',system-ui,Arial,sans-serif;
-                     line-height:1;text-shadow:0 0 10px rgba(245,197,24,0.45);">Q</span>
-        <div style="width:5px;height:5px;border-radius:50%;
-                    background:#f5c518;opacity:0.6;
-                    box-shadow:0 0 6px rgba(245,197,24,0.6);"></div>
-      </div>
+    <div class="logo-mark">
+      <span class="logo-q-letter">Q</span>
     </div>
     <div>
       <div class="app-wordmark">Tippe<span class="q">Q</span>pongen</div>
@@ -613,13 +663,11 @@ with left_col:
 # ║  RIGHT PANEL — analysis table (always visible)       ║
 # ╚══════════════════════════════════════════════════════╝
 with right_col:
-    st.markdown('<div class="panel-title">Se kampanalyse</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">Kampanalyse</div>', unsafe_allow_html=True)
     render_analysis_table(matches, picks)
     st.markdown("""
 <div class="footnote">
-<strong>Dekning:</strong> Single ×1 · Halvdekk ×2 · Heldekkende ×3 —
-optimizer velger kombinasjonen som bruker budsjettet <em>fullt ut</em>.<br>
-<strong>Gjennomsnittlig trygghet:</strong> gjennomsnittlig sannsynlighet for det sterkeste
-enkeltutfallet — <em>ikke</em> sannsynligheten for at hele kupongen vinner.
+<strong>Dekning:</strong> Single ×1 &nbsp;·&nbsp; Halvdekk ×2 &nbsp;·&nbsp; Heldekkende ×3<br>
+<strong>Trygghet:</strong> Sannsynlighet for det sterkeste enkeltutfallet — ikke for at hele kupongen vinner.
 </div>
 """, unsafe_allow_html=True)
