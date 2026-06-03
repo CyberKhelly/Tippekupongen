@@ -16,6 +16,53 @@ st.set_page_config(
 
 NUM_MATCHES = 12
 
+# ── This week's real Tippekupongen fixtures (uke 23, 2026) ────────────────────
+# Source: tippetips.info — odds must be entered manually from your bookmaker.
+THIS_WEEK = {
+    "Midtuke (frist fre. 5. juni 17:55)": [
+        ("Deutschland",  "Norge"),
+        ("Østerrike",    "Slovenia"),
+        ("Polen",        "Frankrike"),
+        ("Ukraina",      "Island"),
+        ("Skottland",    "Israel"),
+        ("Italia",       "Serbia"),
+        ("Tyrkia",       "Nord-Irland"),
+        ("Danmark",      "Sverige"),
+        ("Irland",       "Nederland"),
+        ("Spania",       "England"),
+        ("Varhaug",      "Hinna"),
+        ("Salangen",     "Ulfstind"),
+    ],
+    "Lørdag (frist lør. 6. juni 14:55)": [
+        ("Paris Saint-Germain", "Arsenal"),
+        ("Molde",               "Sandefjord"),
+        ("Moss",                "Stabæk"),
+        ("Odd",                 "Lyn"),
+        ("Vidar",               "Træff"),
+        ("Rosenborg Kvinner",   "LSK Kvinner"),
+        ("Gamle Oslo",          "Frigg"),
+        ("Spjelkavik",          "Byåsen"),
+        ("Fana",                "Førde"),
+        ("Vindbjart",           "Madla"),
+        ("Fløya",               "Skedsmo"),
+        ("AIK",                 "Sirius"),
+    ],
+    "Søndag (frist søn. 7. juni 15:55)": [
+        ("Bryne",       "Hødd"),
+        ("Egersund",    "Strømsgodset"),
+        ("Kongsvinger", "Åsane"),
+        ("Ranheim",     "Sandnes Ulf"),
+        ("Raufoss",     "Haugesund"),
+        ("Strømmen",    "Sogndal"),
+        ("Pors",        "Mjøndalen"),
+        ("Notodden",    "Jerv"),
+        ("Arendal",     "Sotra"),
+        ("Levanger",    "Junkeren"),
+        ("Rana",        "Stjørdals-Blink"),
+        ("Tromsdalen",  "Skeid"),
+    ],
+}
+
 EXAMPLE_FIXTURES = [
     ("Arsenal",     "Chelsea"),
     ("Man City",    "Liverpool"),
@@ -269,6 +316,15 @@ def parse_fixtures(text: str) -> list[tuple[str, str]]:
 
 
 # ── Callbacks ──────────────────────────────────────────────────────────────────
+def cb_load_this_week():
+    key = st.session_state.get("coupon_selector", list(THIS_WEEK.keys())[0])
+    fixtures = THIS_WEEK[key]
+    for i, (home, away) in enumerate(fixtures, 1):
+        st.session_state[f"home_{i}"] = home
+        st.session_state[f"away_{i}"] = away
+    st.session_state.analysis = None
+
+
 def cb_load_example():
     for i, (home, away) in enumerate(EXAMPLE_FIXTURES, 1):
         st.session_state[f"home_{i}"] = home
@@ -426,12 +482,34 @@ st.caption(
 has_teams = any(st.session_state.get(f"home_{i}") for i in range(1, NUM_MATCHES + 1))
 with st.expander("Load or Paste Fixtures", expanded=not has_teams):
 
+    # ── This week's real coupon ────────────────────────────────────────────────
+    st.markdown("**Denne uken (uke 23, 2026)** — velg kupong og trykk Last inn:")
+    sel_col, btn_col = st.columns([3, 1])
+    sel_col.selectbox(
+        "Kupong",
+        options=list(THIS_WEEK.keys()),
+        key="coupon_selector",
+        label_visibility="collapsed",
+    )
+    btn_col.button(
+        "Last inn",
+        on_click=cb_load_this_week,
+        type="primary",
+        use_container_width=True,
+    )
+    st.caption(
+        "Kampene er hentet fra tippetips.info. "
+        "Du må selv legge inn odds fra din bookmaker (f.eks. Norsk Tipping Oddsen)."
+    )
+
+    st.divider()
+
     st.button(
         "Load Example Coupon",
         on_click=cb_load_example,
-        help="Fill all 12 matches with example fixtures for testing.",
+        help="Fill all 12 matches with generic example fixtures for testing.",
     )
-    st.markdown("**Or paste your Tippekupongen fixtures:**")
+    st.markdown("**Or paste your own fixtures:**")
     st.text_area(
         "Fixtures",
         key="paste_input",
