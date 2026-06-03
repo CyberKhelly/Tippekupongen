@@ -57,9 +57,14 @@ st.markdown("""
     gap: 2rem !important;
     align-items: flex-start !important;
 }
-/* Inner button rows (inside a column): tight gap */
+/* Inner button rows (inside a column): tight gap, must not wrap */
 [data-testid="column"] [data-testid="stHorizontalBlock"] {
     gap: 6px !important;
+    flex-wrap: nowrap !important;
+}
+[data-testid="column"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    min-width: 0 !important;
+    flex: 1 1 0% !important;
 }
 
 /* ── Logo lockup ────────────────────────────────────────────────── */
@@ -416,9 +421,10 @@ body{{font-family:'Segoe UI',system-ui,Arial,sans-serif;background:transparent;}
 </div>
 </body></html>"""
 
-    # Each row: 6px top-pad + 12px name (line-height 1.3) + 1px gap + 9px note (line-height 1.3) + 6px bot-pad ≈ 40px
-    row_h = 40
-    height = 46 + 24 + len(matches) * row_h + 44
+    # row_h: 12px pad + (12px×1.3 name + 1px gap + 9px×1.3 note) + 1px border = 42px
+    # header 52px, col-header 22px, footer 52px (includes 1.5px border-top + 2px outer border)
+    row_h  = 42
+    height = 52 + 22 + len(matches) * row_h + 52
     components.html(html, height=height, scrolling=False)
 
 
@@ -505,31 +511,22 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 # ── Full-width header ──────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header-row">
-
   <div class="logo-lockup">
-    <!-- Badge: circular gold-bordered container with football stitch icon -->
     <div class="logo-badge">
-      <svg viewBox="0 0 32 32" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
-        <!-- Central pentagon (classic football centre patch) -->
-        <polygon points="16,9 22.7,13.8 20.1,21.7 11.9,21.7 9.3,13.8"
-                 fill="rgba(245,197,24,0.12)" stroke="#f5c518"
-                 stroke-width="1.35" stroke-linejoin="round"/>
-        <!-- Five stitch lines radiating to the circle edge -->
-        <line x1="16"   y1="9"    x2="16"   y2="2"    stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
-        <line x1="22.7" y1="13.8" x2="29.3" y2="11.7" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
-        <line x1="20.1" y1="21.7" x2="24.2" y2="27.3" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
-        <line x1="11.9" y1="21.7" x2="7.8"  y2="27.3" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
-        <line x1="9.3"  y1="13.8" x2="2.7"  y2="11.7" stroke="#f5c518" stroke-width="1.1" opacity="0.55"/>
-      </svg>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;">
+        <span style="font-size:21px;font-weight:900;color:#f5c518;
+                     font-family:'Segoe UI',system-ui,Arial,sans-serif;
+                     line-height:1;text-shadow:0 0 10px rgba(245,197,24,0.45);">Q</span>
+        <div style="width:5px;height:5px;border-radius:50%;
+                    background:#f5c518;opacity:0.6;
+                    box-shadow:0 0 6px rgba(245,197,24,0.6);"></div>
+      </div>
     </div>
-
-    <!-- Wordmark + subtitle -->
     <div>
       <div class="app-wordmark">Tippe<span class="q">Q</span>pongen</div>
       <div class="app-subtitle">Basert på estimerte odds · oppdateres ukentlig</div>
     </div>
   </div>
-
   <div class="app-meta-date">Uke 23 · 2026</div>
 </div>
 """, unsafe_allow_html=True)
