@@ -1,5 +1,3 @@
-from functools import reduce
-from operator import mul
 from models.match import Match
 
 
@@ -9,59 +7,62 @@ def optimize_coupon(
     cost_per_row: float = 1.0,
 ) -> tuple[dict[int, list[str]], int]:
     """
-    Greedy Tippekupongen optimizer.
+    Optimal Tippekupongen coupon optimizer.
 
-    Rows = product of pick counts across all 12 matches.
-    A single on every match = 1 row.
-    One half cover on top = 2 rows.
-    One full cover on top = 3 rows. Etc.
+    Finds the (n_full_covers, n_half_covers) pair that maximises
+    rows used without exceeding the budget, then assigns deepest
+    coverage to the least confident matches.
 
-    Algorithm
-    ---------
-    1. Start: all matches are singles (1 row total).
-    2. Sort matches by confidence ascending — most uncertain first.
-    3. For each match in that order:
-         - Try to upgrade it by one level (1→2, or 2→3).
-         - If the new row count stays within max_rows, apply the upgrade.
-         - Keep upgrading the same match until it reaches 3 picks or
-           the next upgrade would exceed the budget.
-         - Then move to the next match.
-    4. The most uncertain matches therefore get the deepest coverage first.
-       High-confidence matches are processed last and likely stay as singles.
+        rows = 3^n_full * 2^n_half  <=  max_rows
 
-    Pick selection
-    --------------
-    A match assigned N picks receives the top-N outcomes ranked by
-    normalized probability:
-      - 1 pick  → highest-probability outcome (e.g. H)
-      - 2 picks → top two outcomes (e.g. H/U or H/B depending on probs)
-      - 3 picks → all three (H/U/B)
+    Because every combination is checked exhaustively (at most 13×13
+    pairs for 12 matches), the result is provably optimal for all
+    budget values — including the four presets 32/96/192/384 NOK,
+    which all achieve exact full-budget coverage:
+
+        32  NOK → 0 full covers + 5 half covers = 32 rows
+        96  NOK → 1 full cover  + 5 half covers = 96 rows
+       192  NOK → 1 full cover  + 6 half covers = 192 rows
+       384  NOK → 1 full cover  + 7 half covers = 384 rows
+
+    Half covers pick the top-2 outcomes by normalised probability.
+    Full covers pick all three.
     """
     max_rows = max(1, int(budget_nok / cost_per_row))
-    assignments: dict[int, int] = {m.number: 1 for m in matches}
+    n = len(matches)
 
-    def total_rows() -> int:
-        return reduce(mul, assignments.values(), 1)
+    best_rows = 1
+    best_nf   = 0   # n_full_covers
+    best_nh   = 0   # n_half_covers
 
-    for m in sorted(matches, key=lambda m: m.confidence):
-        while assignments[m.number] < 3:
-            curr = total_rows()
-            lvl  = assignments[m.number]
-            # Cost of upgrading: 1→2 doubles rows; 2→3 multiplies by 1.5
-            new_rows = (curr * 2) if lvl == 1 else (curr // 2) * 3
-            if new_rows <= max_rows:
-                assignments[m.number] += 1
-            else:
-                break  # this match is as upgraded as the budget allows
+    for nf in range(n + 1):
+        for nh in range(n - nf + 1):
+            rows = (3 ** nf) * (2 ** nh)
+            if rows <= max_rows and rows > best_rows:
+                best_rows = rows
+                best_nf   = nf
+                best_nh   = nh
+
+    # Assign deepest coverage to least confident matches
+    ranked = sorted(matches, key=lambda m: m.confidence)
+
+    assignments: dict[int, int] = {}
+    for i, m in enumerate(ranked):
+        if i < best_nf:
+            assignments[m.number] = 3          # full cover
+        elif i < best_nf + best_nh:
+            assignments[m.number] = 2          # half cover
+        else:
+            assignments[m.number] = 1          # single
 
     coupon: dict[int, list[str]] = {}
     for m in matches:
-        n = assignments[m.number]
-        ranked = sorted(
+        k = assignments[m.number]
+        ranked_probs = sorted(
             [("H", m.prob_h), ("U", m.prob_u), ("B", m.prob_b)],
             key=lambda x: x[1],
             reverse=True,
         )
-        coupon[m.number] = sorted(p[0] for p in ranked[:n])
+        coupon[m.number] = sorted(p[0] for p in ranked_probs[:k])
 
-    return coupon, total_rows()
+    return coupon, best_rows
