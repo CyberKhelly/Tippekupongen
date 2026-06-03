@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import pandas as pd
 
@@ -15,8 +16,202 @@ st.set_page_config(
 
 NUM_MATCHES = 12
 
-# ── Classification styling ─────────────────────────────────────────────────────
-_CLS_STYLE: dict[str, str] = {
+EXAMPLE_FIXTURES = [
+    ("Arsenal",     "Chelsea"),
+    ("Man City",    "Liverpool"),
+    ("Rosenborg",   "Molde"),
+    ("Brann",       "Viking"),
+    ("Odd",         "Sarpsborg"),
+    ("Real Madrid", "Barcelona"),
+    ("Juventus",    "Inter Milan"),
+    ("Dortmund",    "Bayern"),
+    ("Ajax",        "PSV"),
+    ("Feyenoord",   "AZ Alkmaar"),
+    ("Celtic",      "Rangers"),
+    ("Bodo/Glimt",  "Lillestrom"),
+]
+
+# ── Global CSS ─────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* ── Coupon card ── */
+.nt-coupon {
+    max-width: 700px;
+    margin: 0 auto 1.5rem auto;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    border: 3px solid #003087;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 6px 20px rgba(0,48,135,0.18);
+}
+.nt-header {
+    background: linear-gradient(135deg, #002060 0%, #0052cc 100%);
+    color: #fff;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.nt-header-left {}
+.nt-title {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    line-height: 1;
+}
+.nt-sub {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-top: 3px;
+    letter-spacing: 1px;
+}
+.nt-logo { font-size: 34px; }
+.nt-col-hdr {
+    display: grid;
+    grid-template-columns: 28px 1fr 72px 38px 38px 38px;
+    gap: 4px;
+    padding: 7px 16px;
+    background: #dce8f8;
+    border-bottom: 2px solid #003087;
+    font-size: 11px;
+    font-weight: 800;
+    color: #003087;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.nt-col-hdr span { text-align: center; }
+.nt-col-hdr span.nt-match-col { text-align: left; }
+.nt-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 72px 38px 38px 38px;
+    gap: 4px;
+    padding: 6px 16px;
+    border-bottom: 1px solid #e2ecf8;
+    align-items: center;
+}
+.nt-row:last-of-type { border-bottom: none; }
+.nt-row:nth-child(even) { background: #f4f8ff; }
+.nt-row:nth-child(odd)  { background: #ffffff; }
+.nt-row.nt-banker       { background: #fffde7 !important; }
+.nt-num {
+    font-size: 12px;
+    color: #888;
+    font-weight: 700;
+    text-align: center;
+}
+.nt-match {
+    font-size: 13px;
+    color: #1a1a2e;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 4px;
+}
+/* Confidence pill */
+.nt-conf {
+    position: relative;
+    height: 20px;
+    background: #e5e5e5;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+}
+.nt-conf-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    border-radius: 10px;
+}
+.nt-conf-label {
+    position: relative;
+    z-index: 1;
+    font-size: 10px;
+    font-weight: 800;
+    color: #fff;
+    padding-left: 7px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+    white-space: nowrap;
+}
+/* Pick circles */
+.nt-pick {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid #ccc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    color: #bbb;
+    margin: 0 auto;
+    background: #f7f7f7;
+}
+.nt-pick.sel {
+    background: #003087;
+    color: #fff;
+    border-color: #003087;
+    box-shadow: 0 2px 8px rgba(0,48,135,0.35);
+}
+.nt-pick.sel-multi {
+    background: #c0392b;
+    color: #fff;
+    border-color: #c0392b;
+    box-shadow: 0 2px 8px rgba(192,57,43,0.35);
+}
+/* Footer */
+.nt-footer {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    background: #dce8f8;
+    border-top: 2px solid #003087;
+    font-size: 13px;
+    font-weight: 700;
+    color: #002060;
+}
+.nt-footer-cell {
+    padding: 10px 16px;
+    text-align: center;
+    border-right: 1px solid #c5d8f0;
+}
+.nt-footer-cell:last-child { border-right: none; }
+.nt-footer-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #5577aa;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.nt-footer-val {
+    font-size: 16px;
+    font-weight: 900;
+    color: #002060;
+}
+
+/* ── Mobile ── */
+@media screen and (max-width: 680px) {
+    .nt-title { font-size: 17px; letter-spacing: 2px; }
+    .nt-logo  { font-size: 26px; }
+    .nt-col-hdr, .nt-row {
+        grid-template-columns: 22px 1fr 56px 30px 30px 30px;
+        padding: 5px 8px;
+        gap: 2px;
+    }
+    .nt-match { font-size: 11px; }
+    .nt-pick  { width: 26px; height: 26px; font-size: 10px; }
+    .nt-conf  { height: 16px; }
+    .nt-conf-label { font-size: 9px; }
+}
+
+/* ── Streamlit tweaks ── */
+div[data-testid="stForm"] { border: none; padding: 0; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Classification and confidence styling ──────────────────────────────────────
+_CLS_STYLE = {
     "Banker":     "color:#155724; background-color:#d4edda; font-weight:bold",
     "Standard":   "color:#0c5460; background-color:#d1ecf1",
     "Half Cover": "color:#856404; background-color:#fff3cd",
@@ -24,14 +219,77 @@ _CLS_STYLE: dict[str, str] = {
     "Uncertain":  "color:#4a235a; background-color:#e8d5f5",
 }
 
-_COVER_STYLE: dict[int, str] = {
-    1: "",
-    2: "color:#856404; background-color:#fff3cd",
-    3: "color:#721c24; background-color:#f8d7da",
-}
+# Confidence fill color for the HTML coupon bar
+def _conf_color(pct: float) -> str:
+    if pct >= 60:
+        return "#28a745"
+    if pct >= 52:
+        return "#85c740"
+    if pct >= 45:
+        return "#ffc107"
+    return "#dc3545"
+
+# Confidence cell style for the analysis dataframe
+def _style_confidence(val: float) -> str:
+    if val >= 60:
+        return "background-color:#d4edda; color:#155724; font-weight:bold"
+    if val >= 52:
+        return "background-color:#e8f5d0; color:#3a6b1a"
+    if val >= 45:
+        return "background-color:#fff3cd; color:#856404"
+    return "background-color:#f8d7da; color:#721c24"
+
+def _style_type(val: str) -> str:
+    return _CLS_STYLE.get(val, "")
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Session state ──────────────────────────────────────────────────────────────
+if "analysis" not in st.session_state:
+    st.session_state.analysis = None
+
+
+# ── Parse fixtures ─────────────────────────────────────────────────────────────
+def parse_fixtures(text: str) -> list[tuple[str, str]]:
+    fixtures = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Strip leading "1 ", "1. ", "1) " etc.
+        line = re.sub(r"^\d+[\.\)\s]\s*", "", line).strip()
+        # Try separators in order of preference
+        for sep in (" - ", " – ", "-"):
+            if sep in line:
+                parts = line.split(sep, 1)
+                home, away = parts[0].strip(), parts[1].strip()
+                if home and away:
+                    fixtures.append((home, away))
+                    break
+    return fixtures
+
+
+# ── Callbacks ──────────────────────────────────────────────────────────────────
+def cb_load_example():
+    for i, (home, away) in enumerate(EXAMPLE_FIXTURES, 1):
+        st.session_state[f"home_{i}"] = home
+        st.session_state[f"away_{i}"] = away
+    st.session_state.analysis = None
+
+
+def cb_parse_fixtures():
+    text = st.session_state.get("paste_input", "")
+    fixtures = parse_fixtures(text)
+    if not fixtures:
+        st.session_state["_parse_error"] = "No valid fixtures found. Check the format."
+        return
+    for i, (home, away) in enumerate(fixtures[:NUM_MATCHES], 1):
+        st.session_state[f"home_{i}"] = home
+        st.session_state[f"away_{i}"] = away
+    st.session_state["_parse_error"] = None
+    st.session_state.analysis = None
+
+
+# ── Data helpers ───────────────────────────────────────────────────────────────
 def build_matches(raw: list[tuple]) -> list[Match]:
     matches = []
     for i, home, away, oh, ou, ob in raw:
@@ -48,141 +306,260 @@ def build_matches(raw: list[tuple]) -> list[Match]:
 def analysis_dataframe(matches: list[Match]) -> pd.DataFrame:
     return pd.DataFrame([
         {
-            "#":           m.number,
-            "Match":       m.label,
-            "H %":         round(m.prob_h * 100, 1),
-            "U %":         round(m.prob_u * 100, 1),
-            "B %":         round(m.prob_b * 100, 1),
-            "Pick":        m.recommendation,
-            "Confidence":  round(m.confidence * 100, 1),
-            "Type":        classification_label(m.classification),
+            "#":          m.number,
+            "Match":      m.label,
+            "H %":        round(m.prob_h * 100, 1),
+            "U %":        round(m.prob_u * 100, 1),
+            "B %":        round(m.prob_b * 100, 1),
+            "Pick":       m.recommendation,
+            "Confidence": round(m.confidence * 100, 1),
+            "Type":       classification_label(m.classification),
         }
         for m in matches
     ])
 
 
-def coupon_dataframe(matches: list[Match], picks: dict) -> pd.DataFrame:
-    _coverage = {1: "Single", 2: "Half cover", 3: "Full cover"}
-    return pd.DataFrame([
-        {
-            "#":         m.number,
-            "Match":     m.label,
-            "Picks":     " / ".join(picks[m.number]),
-            "Coverage":  _coverage[len(picks[m.number])]
-                         + (" ★" if m.classification == "banker" else ""),
-            "_n":        len(picks[m.number]),
-        }
-        for m in matches
-    ])
+# ── Coupon HTML renderer ───────────────────────────────────────────────────────
+def _pick_html(label: str, selected: bool, multi: bool) -> str:
+    if not selected:
+        return f'<div class="nt-pick">{label}</div>'
+    cls = "sel-multi" if multi else "sel"
+    return f'<div class="nt-pick {cls}">{label}</div>'
 
 
-# ── Style functions ────────────────────────────────────────────────────────────
-def _style_type(val: str) -> str:
-    return _CLS_STYLE.get(val, "")
+def render_coupon_html(
+    matches: list[Match],
+    picks: dict,
+    total_rows: int,
+    budget: float,
+    cost_per_row: float,
+) -> None:
+    total_cost = total_rows * cost_per_row
+    remaining  = budget - total_cost
+
+    rows_html = ""
+    for m in matches:
+        match_picks = picks[m.number]
+        multi       = len(match_picks) > 1
+        is_banker   = m.classification == "banker"
+        conf_pct    = round(m.confidence * 100)
+        fill_color  = _conf_color(conf_pct)
+        label       = m.label if len(m.label) <= 30 else m.label[:29] + "…"
+
+        banker_badge = (
+            ' <span style="background:#f9a825;color:#000;font-size:9px;'
+            'padding:1px 5px;border-radius:3px;font-weight:900;'
+            'vertical-align:middle;">★ BANKER</span>'
+            if is_banker else ""
+        )
+
+        h_html = _pick_html("H", "H" in match_picks, multi)
+        u_html = _pick_html("U", "U" in match_picks, multi)
+        b_html = _pick_html("B", "B" in match_picks, multi)
+
+        row_class = "nt-row nt-banker" if is_banker else "nt-row"
+
+        rows_html += f"""
+        <div class="{row_class}">
+            <span class="nt-num">{m.number}</span>
+            <span class="nt-match">{label}{banker_badge}</span>
+            <div class="nt-conf">
+                <div class="nt-conf-fill"
+                     style="width:{conf_pct}%; background:{fill_color};"></div>
+                <span class="nt-conf-label">{conf_pct}%</span>
+            </div>
+            {h_html}{u_html}{b_html}
+        </div>
+        """
+
+    html = f"""
+    <div class="nt-coupon">
+        <div class="nt-header">
+            <div class="nt-header-left">
+                <div class="nt-title">TIPPEKUPONGEN</div>
+                <div class="nt-sub">Norsk Tipping &middot; Analyseresultat</div>
+            </div>
+            <div class="nt-logo">⚽</div>
+        </div>
+        <div class="nt-col-hdr">
+            <span>#</span>
+            <span class="nt-match-col">Kamp</span>
+            <span>Conf</span>
+            <span>H</span>
+            <span>U</span>
+            <span>B</span>
+        </div>
+        {rows_html}
+        <div class="nt-footer">
+            <div class="nt-footer-cell">
+                <div class="nt-footer-label">Rekker</div>
+                <div class="nt-footer-val">{total_rows}</div>
+            </div>
+            <div class="nt-footer-cell">
+                <div class="nt-footer-label">Kostnad</div>
+                <div class="nt-footer-val">{total_cost:.2f} NOK</div>
+            </div>
+            <div class="nt-footer-cell">
+                <div class="nt-footer-label">Gjenstår</div>
+                <div class="nt-footer-val"
+                     style="color:{'#28a745' if remaining >= 0 else '#dc3545'}">
+                    {remaining:+.2f} NOK
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
-def _style_confidence(val: float) -> str:
-    if val >= 60:
-        return "color:#155724; font-weight:bold"
-    if val < 45:
-        return "color:#721c24"
-    return ""
+# ══════════════════════════════════════════════════════════════════════════════
+# Page layout
+# ══════════════════════════════════════════════════════════════════════════════
 
-
-def _style_coverage(col: pd.Series) -> list[str]:
-    return [_COVER_STYLE.get(row, "") for row in col]
-
-
-# ── Page header ────────────────────────────────────────────────────────────────
 st.title("⚽ Tippekupongen Analyser")
 st.caption(
-    "Enter bookmaker odds for all 12 matches, then click **Analyse Coupon** "
-    "to get probability-based recommendations and an optimized coupon."
+    "Enter odds for all 12 matches and get probability-based recommendations "
+    "and an optimized coupon within your budget."
 )
 
-# ── Input form ─────────────────────────────────────────────────────────────────
+# ── Load / Paste fixtures ──────────────────────────────────────────────────────
+has_teams = any(st.session_state.get(f"home_{i}") for i in range(1, NUM_MATCHES + 1))
+with st.expander("Load or Paste Fixtures", expanded=not has_teams):
+
+    st.button(
+        "Load Example Coupon",
+        on_click=cb_load_example,
+        help="Fill all 12 matches with example fixtures for testing.",
+    )
+    st.markdown("**Or paste your Tippekupongen fixtures:**")
+    st.text_area(
+        "Fixtures",
+        key="paste_input",
+        height=160,
+        placeholder=(
+            "1 Tyskland - Norge\n"
+            "2 Østerrike - Slovenia\n"
+            "3 Polen - Frankrike\n"
+            "..."
+        ),
+        label_visibility="collapsed",
+    )
+    st.button("Parse Fixtures", on_click=cb_parse_fixtures, type="primary")
+
+    err = st.session_state.get("_parse_error")
+    if err:
+        st.error(err)
+
+st.divider()
+
+# ── Match input form ───────────────────────────────────────────────────────────
 with st.form("coupon_form"):
 
-    # Column headers
-    hdr = st.columns([0.35, 2.4, 2.4, 0.9, 0.9, 0.9])
-    for col, label in zip(hdr, ["#", "Home team", "Away team", "H odds", "U odds", "B odds"]):
+    # Header row
+    hdr = st.columns([0.3, 2.5, 2.5, 0.85, 0.85, 0.85])
+    for col, label in zip(hdr, ["#", "Home team", "Away team", "H", "U", "B"]):
         col.markdown(f"**{label}**")
 
     raw_inputs: list[tuple] = []
     for i in range(1, NUM_MATCHES + 1):
-        c = st.columns([0.35, 2.4, 2.4, 0.9, 0.9, 0.9])
+        c = st.columns([0.3, 2.5, 2.5, 0.85, 0.85, 0.85])
         c[0].markdown(f"**{i}**")
-        home = c[1].text_input("h", placeholder=f"Home {i}",  key=f"home_{i}", label_visibility="collapsed")
-        away = c[2].text_input("a", placeholder=f"Away {i}",  key=f"away_{i}", label_visibility="collapsed")
-        oh   = c[3].number_input("H", min_value=1.01, max_value=100.0, value=2.00, step=0.05, format="%.2f", key=f"oh_{i}", label_visibility="collapsed")
-        ou   = c[4].number_input("U", min_value=1.01, max_value=100.0, value=3.40, step=0.05, format="%.2f", key=f"ou_{i}", label_visibility="collapsed")
-        ob   = c[5].number_input("B", min_value=1.01, max_value=100.0, value=3.60, step=0.05, format="%.2f", key=f"ob_{i}", label_visibility="collapsed")
+        home = c[1].text_input(
+            "home", placeholder=f"Home {i}",
+            key=f"home_{i}", label_visibility="collapsed",
+        )
+        away = c[2].text_input(
+            "away", placeholder=f"Away {i}",
+            key=f"away_{i}", label_visibility="collapsed",
+        )
+        oh = c[3].number_input(
+            "H", min_value=1.01, max_value=100.0,
+            value=2.00, step=0.05, format="%.2f",
+            key=f"oh_{i}", label_visibility="collapsed",
+        )
+        ou = c[4].number_input(
+            "U", min_value=1.01, max_value=100.0,
+            value=3.40, step=0.05, format="%.2f",
+            key=f"ou_{i}", label_visibility="collapsed",
+        )
+        ob = c[5].number_input(
+            "B", min_value=1.01, max_value=100.0,
+            value=3.60, step=0.05, format="%.2f",
+            key=f"ob_{i}", label_visibility="collapsed",
+        )
         raw_inputs.append((i, home, away, oh, ou, ob))
 
     st.divider()
 
     bc = st.columns([1, 1, 4])
-    budget      = bc[0].number_input("Budget (NOK)",        min_value=1.0,  value=192.0, step=8.0)
-    cost_per_row = bc[1].number_input("Cost per row (NOK)", min_value=0.10, value=1.0,   step=0.10)
-    submitted   = st.form_submit_button("Analyse Coupon", type="primary")
+    budget       = bc[0].number_input("Budget (NOK)",        min_value=1.0,  value=192.0, step=8.0)
+    cost_per_row = bc[1].number_input("Cost per row (NOK)",  min_value=0.10, value=1.0,   step=0.10)
+    submitted    = st.form_submit_button("Analyse Coupon", type="primary")
 
-# ── Results ────────────────────────────────────────────────────────────────────
+# ── Run analysis and store in session state ────────────────────────────────────
 if submitted:
     matches = build_matches(raw_inputs)
     picks, total_rows = optimize_coupon(matches, budget, cost_per_row)
+    st.session_state.analysis = {
+        "matches":      matches,
+        "picks":        picks,
+        "total_rows":   total_rows,
+        "budget":       budget,
+        "cost_per_row": cost_per_row,
+    }
 
-    bankers   = [m for m in matches if m.classification == "banker"]
-    covers    = [m for m in matches if m.classification in ("uncertain", "full_cover", "half_cover")]
-    avg_conf  = sum(m.confidence for m in matches) / len(matches)
-    total_cost = total_rows * cost_per_row
+# ── Render results from session state (persists across reruns) ─────────────────
+if st.session_state.analysis:
+    a             = st.session_state.analysis
+    matches       = a["matches"]
+    picks         = a["picks"]
+    total_rows    = a["total_rows"]
+    budget        = a["budget"]
+    cost_per_row  = a["cost_per_row"]
+    total_cost    = total_rows * cost_per_row
 
-    # ── Summary metrics ────────────────────────────────────────────────────────
+    bankers  = [m for m in matches if m.classification == "banker"]
+    covers   = [m for m in matches if m.classification in ("uncertain", "full_cover", "half_cover")]
+    avg_conf = sum(m.confidence for m in matches) / len(matches)
+
+    # ── Summary row ───────────────────────────────────────────────────────────
     st.divider()
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Bankers",          len(bankers))
-    col2.metric("Cover candidates", len(covers))
-    col3.metric("Avg confidence",   f"{avg_conf * 100:.1f}%")
-    col4.metric("Coupon rows",      total_rows)
-    col5.metric("Total cost",       f"{total_cost:.2f} NOK")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Bankers",          len(bankers))
+    c2.metric("Cover candidates", len(covers))
+    c3.metric("Avg confidence",   f"{avg_conf * 100:.1f}%")
+    c4.metric("Coupon rows",      total_rows)
+    c5.metric("Total cost",       f"{total_cost:.2f} NOK")
 
-    # ── Match analysis ─────────────────────────────────────────────────────────
+    # ── Match analysis table ──────────────────────────────────────────────────
     st.subheader("Match Analysis")
-
-    df_analysis = analysis_dataframe(matches)
-    styled_analysis = (
-        df_analysis.style
+    df = analysis_dataframe(matches)
+    styled = (
+        df.style
         .map(_style_type,       subset=["Type"])
         .map(_style_confidence, subset=["Confidence"])
-        .format({"H %": "{:.1f}%", "U %": "{:.1f}%", "B %": "{:.1f}%", "Confidence": "{:.1f}%"})
-        .set_properties(subset=["Pick"], **{"font-weight": "bold"})
+        .format({
+            "H %": "{:.1f}%", "U %": "{:.1f}%",
+            "B %": "{:.1f}%", "Confidence": "{:.1f}%",
+        })
+        .set_properties(subset=["Pick"], **{"font-weight": "bold", "text-align": "center"})
     )
-    st.dataframe(styled_analysis, use_container_width=True, hide_index=True)
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
-    # ── Coupon ─────────────────────────────────────────────────────────────────
+    # ── Coupon visualization ──────────────────────────────────────────────────
     st.subheader("Optimized Coupon")
+    render_coupon_html(matches, picks, total_rows, budget, cost_per_row)
 
-    df_coupon = coupon_dataframe(matches, picks)
-    styled_coupon = (
-        df_coupon.drop(columns=["_n"])
-        .style
-        .apply(_style_coverage, subset=["Coverage"])
-    )
-    st.dataframe(styled_coupon, use_container_width=True, hide_index=True)
-
-    remaining = budget - total_cost
-    if remaining >= 0:
-        st.success(f"Budget used: {total_cost:.2f} NOK — {remaining:.2f} NOK remaining.")
-    else:
-        st.error(f"Over budget by {abs(remaining):.2f} NOK.")
-
-    # ── Classification legend ──────────────────────────────────────────────────
+    # ── Classification guide ──────────────────────────────────────────────────
     with st.expander("Classification guide"):
         st.markdown("""
-| Type | Meaning |
-|------|---------|
-| **Banker** | Confidence ≥ 60% — strong single pick |
-| **Standard** | One outcome leads, but below banker threshold |
-| **Half Cover** | Top two outcomes within 13 pp — consider covering both |
-| **Full Cover** | All three outcomes within 10 pp — very open match |
-| **Uncertain** | No outcome reaches 45% — maximum uncertainty |
+| Type | Trigger | Recommended action |
+|---|---|---|
+| **Banker** | Confidence ≥ 60% | Single pick — no cover needed |
+| **Standard** | One outcome leads clearly | Single pick |
+| **Half Cover** | Top two outcomes within 13pp | Cover both top outcomes |
+| **Full Cover** | All three within 10pp | Cover all three |
+| **Uncertain** | No outcome reaches 45% | Full cover or skip |
+
+**Confidence bar color:** Green ≥ 60% · Yellow-green 52–60% · Yellow 45–52% · Red < 45%
         """)
