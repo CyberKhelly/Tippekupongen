@@ -1,2 +1,2 @@
-# No external dependencies — uses Python standard library only.
-# Requires Python 3.9 or later.
+streamlit>=1.28
+pandas>=1.5
