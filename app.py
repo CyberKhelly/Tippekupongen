@@ -1,6 +1,5 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import pandas as pd
 
 from models.match import Match
 from analysis.probability import process_match
@@ -11,7 +10,7 @@ from data.coupon_week23_2026 import COUPONS
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Tippekupongen",
+    page_title="TippeQpongen",
     page_icon="⚽",
     layout="centered",
 )
@@ -44,7 +43,7 @@ st.markdown("""
     border-bottom: 1px solid rgba(255,255,255,0.05) !important;
 }
 .block-container {
-    padding-top: 2rem !important;
+    padding-top: 4rem !important;
     padding-bottom: 3rem !important;
     max-width: 700px !important;
 }
@@ -321,7 +320,7 @@ def render_coupon_card(
   <div style="background:linear-gradient(135deg,#0f2555,#1a3a6e);
               padding:14px 20px;display:flex;justify-content:space-between;align-items:center;">
     <div>
-      <div style="font-size:18px;font-weight:900;letter-spacing:4px;color:#fff;">TIPPEKUPONGEN</div>
+      <div style="font-size:18px;font-weight:900;letter-spacing:4px;color:#fff;">TIPPEQPONGEN</div>
       <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;">{coupon_label}</div>
     </div>
     <div style="text-align:right;">
@@ -369,43 +368,81 @@ def render_coupon_card(
 
 def render_analysis_table(matches: list[Match], picks: dict) -> None:
     _cov = {1: "Single", 2: "Halvdekk", 3: "Heldekkende"}
-    rows = []
-    for m in matches:
-        n = len(picks[m.number])
-        rows.append({
-            "#":          m.number,
-            "Kamp":       m.label,
-            "H %":        round(m.prob_h * 100, 1),
-            "U %":        round(m.prob_u * 100, 1),
-            "B %":        round(m.prob_b * 100, 1),
-            "Tips":       m.recommendation,
-            "Konfidens":  round(m.confidence * 100, 1),
-            "Dekning":    _cov[n],
-        })
-    df = pd.DataFrame(rows)
 
-    def _style_conf(val: float) -> str:
-        if val >= 60: return "background-color:#d4edda;color:#155724;font-weight:bold"
-        if val >= 52: return "background-color:#e8f5d0;color:#3a6b1a"
-        if val >= 45: return "background-color:#fff3cd;color:#856404"
-        return "background-color:#f8d7da;color:#721c24"
+    _conf_style = [
+        (60, "#0f2d14", "#4caf6e"),   # val >= 60: dark green bg, green text
+        (52, "#162a14", "#7bc87a"),   # val >= 52
+        (45, "#2d2000", "#e6a817"),   # val >= 45: amber
+        ( 0, "#2d0f0f", "#d46a6a"),   # val <  45: red
+    ]
 
-    def _cov_style(val: str) -> str:
-        return {
-            "Heldekkende": "background-color:#f8d7da;color:#721c24;font-weight:bold",
-            "Halvdekk":    "background-color:#fff3cd;color:#856404;font-weight:bold",
-            "Single":      "background-color:#d1ecf1;color:#0c5460",
-        }.get(val, "")
+    _cov_style = {
+        "Single":      ("#0d1f36", "#7ab8e0"),
+        "Halvdekk":    ("#2d2000", "#e6a817"),
+        "Heldekkende": ("#2d0f0f", "#d46a6a"),
+    }
 
-    styled = (
-        df.style
-        .map(_cov_style,  subset=["Dekning"])
-        .map(_style_conf, subset=["Konfidens"])
-        .format({"H %": "{:.1f}%", "U %": "{:.1f}%",
-                 "B %": "{:.1f}%", "Konfidens": "{:.1f}%"})
-        .set_properties(subset=["Tips"], **{"font-weight": "bold", "text-align": "center"})
+    def conf_colors(val: float):
+        for threshold, bg, fg in _conf_style:
+            if val >= threshold:
+                return bg, fg
+        return _conf_style[-1][1], _conf_style[-1][2]
+
+    th = (
+        "color:#4a6a88;font-size:10px;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:1px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.1);"
+        "white-space:nowrap;"
     )
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    badge = "font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;white-space:nowrap;"
+
+    rows_html = ""
+    for i, m in enumerate(matches):
+        n        = len(picks[m.number])
+        cov_lbl  = _cov[n]
+        conf_val = round(m.confidence * 100, 1)
+        cbg, cfg = conf_colors(conf_val)
+        vbg, vfg = _cov_style[cov_lbl]
+        row_bg   = "rgba(255,255,255,0.03)" if i % 2 == 0 else "transparent"
+
+        td = f"color:#c8d8e8;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.04);"
+
+        rows_html += (
+            f'<tr style="background:{row_bg};">'
+            f'  <td style="{td}color:#5a7a96;text-align:center;">{m.number}</td>'
+            f'  <td style="{td}color:#ddeeff;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{m.label}</td>'
+            f'  <td style="{td}text-align:right;">{round(m.prob_h*100,1)}%</td>'
+            f'  <td style="{td}text-align:right;">{round(m.prob_u*100,1)}%</td>'
+            f'  <td style="{td}text-align:right;">{round(m.prob_b*100,1)}%</td>'
+            f'  <td style="{td}text-align:center;font-weight:800;color:#f5c518;">{m.recommendation}</td>'
+            f'  <td style="{td}text-align:center;padding-left:4px;padding-right:4px;">'
+            f'    <span style="{badge}background:{cbg};color:{cfg};">{conf_val:.1f}%</span>'
+            f'  </td>'
+            f'  <td style="{td}text-align:center;padding-left:4px;padding-right:10px;">'
+            f'    <span style="{badge}background:{vbg};color:{vfg};">{cov_lbl}</span>'
+            f'  </td>'
+            f'</tr>'
+        )
+
+    table_html = f"""
+<div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(255,255,255,0.07);margin-bottom:1rem;">
+<table style="width:100%;border-collapse:collapse;font-family:'Segoe UI',Arial,sans-serif;font-size:12px;">
+  <thead>
+    <tr style="background:rgba(255,255,255,0.06);">
+      <th style="{th}text-align:center;">#</th>
+      <th style="{th}text-align:left;">Kamp</th>
+      <th style="{th}text-align:right;">H</th>
+      <th style="{th}text-align:right;">U</th>
+      <th style="{th}text-align:right;">B</th>
+      <th style="{th}text-align:center;">Tips</th>
+      <th style="{th}text-align:center;">Konf.</th>
+      <th style="{th}text-align:center;">Dekning</th>
+    </tr>
+  </thead>
+  <tbody>{rows_html}</tbody>
+</table>
+</div>
+"""
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -415,7 +452,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header">
-  <span class="app-title">⚽ Tippekupongen</span>
+  <span class="app-title">⚽ TippeQpongen</span>
   <span class="app-week">Uke 23 · 2026</span>
 </div>
 <div class="app-subtitle">Basert på estimerte odds · oppdateres ukentlig</div>
@@ -520,6 +557,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Analysis expander ──────────────────────────────────────────────────────────
+st.markdown('<div style="margin-top:0.5rem;"></div>', unsafe_allow_html=True)
 with st.expander("Se kampanalyse", expanded=False):
     render_analysis_table(matches, picks)
     st.markdown("""
