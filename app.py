@@ -403,7 +403,6 @@ body{{font-family:'Segoe UI',system-ui,Arial,sans-serif;background:transparent;}
 def render_analysis_table(matches: list[Match], picks: dict) -> None:
     _cov = {1: "Single", 2: "Halvdekk", 3: "Heldekkende"}
 
-    # (threshold, bg, fg)
     _conf_tiers = [
         (60, "#0c2a14", "#3ecf7a"),
         (52, "#122212", "#74c472"),
@@ -422,13 +421,26 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
                 return bg, fg
         return _conf_tiers[-1][1], _conf_tiers[-1][2]
 
-    TH = (
-        "font-size:9px;font-weight:700;color:#2e4a64;text-transform:uppercase;"
-        "letter-spacing:1.3px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,0.07);"
-        "white-space:nowrap;background:rgba(255,255,255,0.04);"
+    # Single source-of-truth for shared style fragments — no string substitution tricks.
+    _th_base = ("font-size:9px;font-weight:700;color:#2e4a64;text-transform:uppercase;"
+                "letter-spacing:1.3px;border-bottom:1px solid rgba(255,255,255,0.07);"
+                "white-space:nowrap;background:rgba(255,255,255,0.04);padding:8px 9px;")
+    _td_base = "padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px;"
+    _badge   = "font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;"
+
+    # Build exactly 8 <th> cells — alignment appended per column, never via .replace()
+    thead = (
+        f'<tr>'
+        f'<th style="{_th_base}text-align:center;">#</th>'
+        f'<th style="{_th_base}text-align:left;">Kamp</th>'
+        f'<th style="{_th_base}text-align:right;">H</th>'
+        f'<th style="{_th_base}text-align:right;">U</th>'
+        f'<th style="{_th_base}text-align:right;">B</th>'
+        f'<th style="{_th_base}text-align:center;">Tips</th>'
+        f'<th style="{_th_base}text-align:center;">Konf.</th>'
+        f'<th style="{_th_base}text-align:center;">Dekning</th>'
+        f'</tr>'
     )
-    TD = "padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px;"
-    BADGE = "font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;"
 
     rows_html = ""
     for i, m in enumerate(matches):
@@ -439,46 +451,28 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         vbg, vfg = _cov_colors[cov_lbl]
         row_bg   = "rgba(255,255,255,0.02)" if i % 2 == 0 else "transparent"
 
+        # Build exactly 8 <td> cells per row — one f-string per cell, no multi-line splits.
         rows_html += (
             f'<tr style="background:{row_bg};">'
-            f'  <td style="{TD}color:#2e4a64;text-align:center;width:26px;">{m.number}</td>'
-            f'  <td style="{TD}color:#c8ddf0;overflow:hidden;text-overflow:ellipsis;'
-            f'      white-space:nowrap;max-width:180px;">{m.label}</td>'
-            f'  <td style="{TD}color:#6a90b0;text-align:right;">{round(m.prob_h*100,1)}%</td>'
-            f'  <td style="{TD}color:#6a90b0;text-align:right;">{round(m.prob_u*100,1)}%</td>'
-            f'  <td style="{TD}color:#6a90b0;text-align:right;">{round(m.prob_b*100,1)}%</td>'
-            f'  <td style="{TD}text-align:center;font-weight:800;color:#f5c518;">{m.recommendation}</td>'
-            f'  <td style="{TD}text-align:center;padding:6px 4px;">'
-            f'    <span style="{BADGE}background:{cbg};color:{cfg};">{conf_val:.1f}%</span>'
-            f'  </td>'
-            f'  <td style="{TD}text-align:center;padding:6px 4px 6px 9px;">'
-            f'    <span style="{BADGE}background:{vbg};color:{vfg};">{cov_lbl}</span>'
-            f'  </td>'
+            f'<td style="{_td_base}color:#2e4a64;text-align:center;">{m.number}</td>'
+            f'<td style="{_td_base}color:#c8ddf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">{m.label}</td>'
+            f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_h*100,1)}%</td>'
+            f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_u*100,1)}%</td>'
+            f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_b*100,1)}%</td>'
+            f'<td style="{_td_base}text-align:center;font-weight:800;color:#f5c518;">{m.recommendation}</td>'
+            f'<td style="{_td_base}text-align:center;"><span style="{_badge}background:{cbg};color:{cfg};">{conf_val:.1f}%</span></td>'
+            f'<td style="{_td_base}text-align:center;"><span style="{_badge}background:{vbg};color:{vfg};">{cov_lbl}</span></td>'
             f'</tr>'
         )
 
-    th_r = TH.replace("padding:8px 9px", "padding:8px 9px;text-align:right")
-    th_c = TH.replace("padding:8px 9px", "padding:8px 9px;text-align:center")
-
-    html = f"""
-<div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(255,255,255,0.05);">
-<table style="width:100%;border-collapse:collapse;
-              font-family:'Segoe UI',system-ui,Arial,sans-serif;">
-  <thead>
-    <tr>
-      <th style="{th_c}width:26px;">#</th>
-      <th style="{TH}text-align:left;">Kamp</th>
-      <th style="{th_r}">H</th>
-      <th style="{th_r}">U</th>
-      <th style="{th_r}">B</th>
-      <th style="{th_c}">Tips</th>
-      <th style="{th_c}">Konf.</th>
-      <th style="{th_c}">Dekning</th>
-    </tr>
-  </thead>
-  <tbody>{rows_html}</tbody>
-</table>
-</div>"""
+    html = (
+        '<div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(255,255,255,0.05);">'
+        '<table style="width:100%;border-collapse:collapse;'
+        'font-family:\'Segoe UI\',system-ui,Arial,sans-serif;">'
+        f'<thead>{thead}</thead>'
+        f'<tbody>{rows_html}</tbody>'
+        '</table></div>'
+    )
     st.markdown(html, unsafe_allow_html=True)
 
 
