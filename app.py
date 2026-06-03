@@ -58,24 +58,32 @@ st.markdown("""
     align-items: flex-start !important;
 }
 /*
- * Inner button rows (inside a left/right panel column).
- * CSS grid with grid-auto-flow:column + minmax(0,1fr) is the most
- * robust way to force N equal-width cells on exactly one row —
- * more reliable than flex-wrap:nowrap which Streamlit can override.
+ * Button rows are stHorizontalBlock elements INSIDE another
+ * stHorizontalBlock (the outer two-panel split).  Using the nested
+ * pattern ".stApp … HBlock … HBlock" is more specific (0-3-0) than
+ * the previous "column … HBlock" approach, AND it reliably identifies
+ * only the selector rows, not the outer main split.
+ *
+ * grid-auto-flow:column + minmax(0,1fr) forces all items into ONE row
+ * with equal widths — this cannot be overridden by flex-wrap:wrap.
  */
-[data-testid="column"] [data-testid="stHorizontalBlock"] {
+.stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] {
     display: grid !important;
     grid-auto-flow: column !important;
     grid-auto-columns: minmax(0, 1fr) !important;
     gap: 5px !important;
-    align-items: stretch !important;
 }
-[data-testid="column"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+/* Grid items: zero minimum so they can shrink below content width */
+.stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    min-width: 0 !important;
+    width: auto !important;
+}
+/* Buttons: fill column, no text wrap, slightly compact font */
+.stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] button {
     min-width: 0 !important;
     width: 100% !important;
-}
-[data-testid="column"] [data-testid="stHorizontalBlock"] > [data-testid="column"] > div > div {
-    width: 100% !important;
+    white-space: nowrap !important;
+    font-size: 0.8rem !important;
 }
 
 /* ── Logo mark ──────────────────────────────────────────────────── */
@@ -85,10 +93,10 @@ st.markdown("""
     gap: 14px;
 }
 /*
- * Premium football badge — pure CSS, no SVG, no external assets.
- * Circular badge with a radial gradient suggesting ball depth,
- * inner ring (::before) echoing a football panel divider, and a
- * small highlight dot (::after) for the ball-surface reflection.
+ * Football badge: circular dark-navy container with gold border and
+ * glow. The SVG football icon inside is rendered inline in the header
+ * HTML using <path d="M…L…Z"> with spaces (not commas) so Streamlit's
+ * markdown parser does not misinterpret coordinate values.
  */
 .logo-mark {
     width: 48px;
@@ -99,45 +107,12 @@ st.markdown("""
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
     flex-shrink: 0;
+    overflow: hidden;
     box-shadow:
         0 0 24px rgba(245,197,24,0.22),
         0 4px 16px rgba(0,0,0,0.65),
         inset 0 1px 0 rgba(255,255,255,0.09);
-}
-/* Inner ring: football panel boundary */
-.logo-mark::before {
-    content: '';
-    position: absolute;
-    inset: 8px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(245,197,24,0.25);
-    pointer-events: none;
-}
-/* Highlight dot: ball surface glint */
-.logo-mark::after {
-    content: '';
-    position: absolute;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.3);
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    pointer-events: none;
-}
-.logo-q-letter {
-    font-size: 20px;
-    font-weight: 900;
-    color: #f5c518;
-    font-family: Arial, sans-serif;
-    line-height: 1;
-    position: relative;
-    z-index: 1;
-    text-shadow: 0 0 12px rgba(245,197,24,0.5);
-    letter-spacing: -1px;
 }
 
 /* ── App wordmark ───────────────────────────────────────────────── */
@@ -570,7 +545,15 @@ st.markdown("""
 <div class="app-header-row">
   <div class="logo-lockup">
     <div class="logo-mark">
-      <span class="logo-q-letter">Q</span>
+      <svg viewBox="0 0 32 32" width="26" height="26">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="#f5c518" stroke-width="1.5" opacity="0.45"/>
+        <path d="M 16 9 L 22.7 13.8 L 20.1 21.7 L 11.9 21.7 L 9.3 13.8 Z" fill="rgba(245,197,24,0.13)" stroke="#f5c518" stroke-width="1.3"/>
+        <line x1="16"  y1="9"    x2="16"  y2="3"    stroke="#f5c518" stroke-width="1" opacity="0.5"/>
+        <line x1="22.7" y1="13.8" x2="28.4" y2="12"   stroke="#f5c518" stroke-width="1" opacity="0.5"/>
+        <line x1="20.1" y1="21.7" x2="23.6" y2="26.5" stroke="#f5c518" stroke-width="1" opacity="0.5"/>
+        <line x1="11.9" y1="21.7" x2="8.4"  y2="26.5" stroke="#f5c518" stroke-width="1" opacity="0.5"/>
+        <line x1="9.3"  y1="13.8" x2="3.6"  y2="12"   stroke="#f5c518" stroke-width="1" opacity="0.5"/>
+      </svg>
     </div>
     <div>
       <div class="app-wordmark">Tippe<span class="q">Q</span>pongen</div>
