@@ -1,24 +1,31 @@
 """
 TippeQpongen data sync CLI.
 
-Primary flow (runs every Monday before opening the app):
-  1. Fetch fixtures from Norsk Tipping API (gameDays)
-  2. Fetch Pinnacle odds from The Odds API (for competitive matches)
-  3. Fall back to flat-file seed if NT API is unavailable
+Standard weekly flow:
+  --daily          NT coupons + Pinnacle odds + AF enrichment + AF odds fallback + validate
+  --refresh-coupons  force-refresh NT coupons + enrichment + AF odds fallback (start-of-week)
 
 Usage:
-    python sync.py                        # sync current ISO week from NT API
-    python sync.py --week 24 --year 2026  # explicit week
+    python sync.py --daily                # all-in-one: NT + odds + AF enrichment + AF odds + validate
+    python sync.py --refresh-coupons      # force NT re-fetch + enrichment + AF odds fallback
+    python sync.py --af-odds              # fill missing odds from API-Football (manual/debug)
+    python sync.py --enrich-fixtures      # match NT fixtures to AF, store stats/form
+    python sync.py --week N --year YYYY   # explicit week/year for any command
     python sync.py --seed-only            # flat-file seed only, no API calls
-    python sync.py --nt-only              # NT fixture fetch only, no odds
-    python sync.py --odds-only            # odds fetch only (fixtures must exist)
+    python sync.py --nt-only              # NT fixture fetch only
+    python sync.py --odds-only            # Pinnacle odds only (fixtures must exist)
+    python sync.py --odds-snapshot        # Pinnacle odds + append timestamped snapshot
+    python sync.py --mark-closing-odds    # mark last pre-kickoff snapshot as closing line
     python sync.py --status               # show DB contents for current week
-    python sync.py --validate             # run 10-point data integrity checks
-    python sync.py --review               # show teams/fixtures needing manual review
-    python sync.py --nt-debug             # fetch NT API and print raw JSON structure
+    python sync.py --validate             # data integrity checks (PASS/WARN/FAIL)
+    python sync.py --review               # teams/fixtures needing manual review
+    python sync.py --results-status       # coupons with predictions but missing results
+    python sync.py --evaluate             # compute hit rate / cover rate for all coupons
+    python sync.py --nt-debug             # print raw NT API response
 
 Environment (.env or shell):
-    ODDS_API_KEY — theoddsapi.com key for Pinnacle odds
+    ODDS_API_KEY      — theoddsapi.com key for Pinnacle odds
+    API_FOOTBALL_KEY  — api-sports.io key for AF enrichment and odds fallback
 """
 import argparse
 import sys
@@ -163,6 +170,7 @@ _KNOWN_ODD_SOURCES    = _PRIMARY_ODD_SOURCES | {
     "betsson", "unibet_se", "unibet_nl", "unibet_uk", "unibet_fr",
     "leovegas", "leovegas_se", "marathonbet", "bwin", "bet365",
     "williamhill", "nordicbet", "betfair", "betway",
+    "api_football",
 }
 
 
@@ -532,6 +540,49 @@ def _check_enrichment_data_flag(conn) -> tuple:
                     f"{n} enriched fixture(s) all have valid AF fixture_id")
 
 
+def _check_estimated_prior_integrity(conn, week: int, year: int) -> tuple:
+    """
+    Validate fixture_estimated_prior rows:
+    1. Priors must sum to ~100% (within ±2pp)
+    2. Priors must NOT exist for fixtures that already have bookmaker odds
+    3. All prior rows must reference a valid fixture_id
+    """
+    # Check sum within tolerance
+    bad_sum = conn.execute(
+        """SELECT COUNT(*) FROM fixture_estimated_prior
+           WHERE ABS(estimated_h + estimated_u + estimated_b - 1.0) > 0.02"""
+    ).fetchone()[0]
+    if bad_sum:
+        return _vresult("FAIL", "Estimated prior sum",
+                        f"{bad_sum} prior(s) do not sum to ~100%")
+
+    # Check no overlap with fixtures that have bookmaker odds
+    overlap = conn.execute(
+        """SELECT COUNT(*) FROM fixture_estimated_prior ep
+           JOIN odds o ON o.fixture_id = ep.fixture_id
+           WHERE o.source IN ('pinnacle','norsk_tipping','manual','api_football')"""
+    ).fetchone()[0]
+    if overlap:
+        return _vresult("FAIL", "Estimated prior purity",
+                        f"{overlap} estimated prior(s) exist for fixtures with bookmaker odds")
+
+    # Check fixture references are valid
+    orphan = conn.execute(
+        """SELECT COUNT(*) FROM fixture_estimated_prior ep
+           LEFT JOIN fixtures f ON f.fixture_id = ep.fixture_id
+           WHERE f.fixture_id IS NULL"""
+    ).fetchone()[0]
+    if orphan:
+        return _vresult("FAIL", "Estimated prior/fixtures",
+                        f"{orphan} estimated prior(s) reference missing fixture_id")
+
+    n = conn.execute("SELECT COUNT(*) FROM fixture_estimated_prior").fetchone()[0]
+    if n == 0:
+        return _vresult("PASS", "Estimated priors", "None computed yet")
+    return _vresult("PASS", "Estimated priors",
+                    f"{n} row(s) valid — no overlap with bookmaker odds")
+
+
 def _check_evaluation_completeness(conn) -> tuple:
     bad = conn.execute(
         """SELECT e.coupon_id, COUNT(r.result_id) AS n_results
@@ -586,6 +637,8 @@ def cmd_validate(week: int, year: int) -> None:
         _check_no_dup_af_fixture_id(conn),
         _check_confidence_range(conn),
         _check_enrichment_data_flag(conn),
+        # Estimated priors
+        _check_estimated_prior_integrity(conn, week, year),
     ]
 
     print(f"\nTippeQpongen validate — week {week}/{year}\n")
@@ -825,6 +878,33 @@ def cmd_refresh_coupons(week: int, year: int) -> None:
         val_line = "PASS — all checks clean"
     print(f"  Validation:  {val_line}")
     print()
+
+    # ── Enrichment + AF odds fallback ─────────────────────────────────────────
+    from config import API_FOOTBALL_KEY
+    if API_FOOTBALL_KEY:
+        print("  Running fixture enrichment + AF odds fallback...")
+        try:
+            from ingestion.enrich_fixtures import enrich_active_fixtures
+            esummary = enrich_active_fixtures(
+                week=week, year=year, verbose=True, skip_already_enriched=True
+            )
+            n_enr = esummary.get("n_stored", 0) if "error" not in esummary else 0
+            print(f"  Enrichment: {n_enr} fixture(s) enriched/updated.")
+        except Exception as exc:
+            print(f"  Enrichment error: {exc}")
+        try:
+            from ingestion.api_football_odds import ingest_af_odds_fallback
+            osummary = ingest_af_odds_fallback(week=week, year=year, verbose=True)
+            n_fill = osummary.get("n_filled", 0) if "error" not in osummary else 0
+            print(f"  AF odds: {n_fill} fixture(s) filled.")
+        except Exception as exc:
+            print(f"  AF odds error: {exc}")
+        print()
+    else:
+        print("  API_FOOTBALL_KEY not set — skipping enrichment and AF odds.")
+        print("  Set API_FOOTBALL_KEY in .env to enable automatic odds fallback.")
+        print()
+
     print("  Run `streamlit run app.py` to see the updated coupons.")
     print()
 
@@ -835,22 +915,22 @@ def cmd_daily(week: int, year: int) -> None:
     """
     Safe all-in-one daily sync:
       1. Fetch/update NT coupons if available
-      2. Fetch latest Pinnacle odds
-      3. Save timestamped odds snapshots (never overwrites existing ones)
-      4. Run validation checks
-      5. Print a clear summary
+      2. Fetch latest Pinnacle odds + snapshots
+      3. Enrich fixtures from API-Football (stats, form, standings)
+      4. Fill missing odds from API-Football fallback
+      5. Run validation checks and print a summary
 
     Does NOT mark closing odds — run --mark-closing-odds manually after kickoff.
     """
     from db.schema import init_db
     from db.coupon import list_coupons, get_coupon_matches
     from db.connection import get_conn
-    from config import ODDS_API_KEY
+    from config import ODDS_API_KEY, API_FOOTBALL_KEY
 
     init_db()
 
     # ── Step 1: NT coupons ────────────────────────────────────────────────────
-    print(f"  [1/4] Fetching NT coupons for week {week}/{year}...")
+    print(f"  [1/5] Fetching NT coupons for week {week}/{year}...")
     nt_ok = False
     try:
         from ingestion.norsk_tipping import ingest_game_days
@@ -871,8 +951,8 @@ def cmd_daily(week: int, year: int) -> None:
         print(f"\n  No coupons in DB for week {week}/{year}. Nothing to sync.\n")
         return
 
-    # ── Step 2+3: Odds + snapshots ─────────────────────────────────────────────
-    print("  [2/4] Fetching Pinnacle odds and saving snapshots...")
+    # ── Step 2: Pinnacle odds + snapshots ──────────────────────────────────────
+    print("  [2/5] Fetching Pinnacle odds and saving snapshots...")
     n_odds = 0
     n_snaps_new = 0
     if not ODDS_API_KEY:
@@ -892,8 +972,66 @@ def cmd_daily(week: int, year: int) -> None:
         n_snaps_new = snaps_after - snaps_before
         print("        Done.")
 
-    # ── Step 4: Validation (no sys.exit) ──────────────────────────────────────
-    print("  [3/4] Running validation...")
+    # ── Step 3: API-Football fixture enrichment ───────────────────────────────
+    print("  [3/5] Enriching fixtures from API-Football (stats/form)...")
+    n_enriched = 0
+    enrich_skipped = 0
+    if not API_FOOTBALL_KEY:
+        print("        API_FOOTBALL_KEY not set — skipping enrichment.")
+    else:
+        try:
+            from ingestion.enrich_fixtures import enrich_active_fixtures
+            esummary = enrich_active_fixtures(
+                week=week, year=year, verbose=False, skip_already_enriched=True
+            )
+            if "error" not in esummary:
+                n_enriched     = esummary.get("n_stored", 0)
+                enrich_skipped = esummary.get("n_skipped", 0)
+                if n_enriched == 0 and esummary.get("n_attempted", 0) == 0:
+                    print("        All fixtures already enriched.")
+                else:
+                    print(f"        Done — {n_enriched} enriched, {enrich_skipped} skipped (not_covered).")
+        except Exception as exc:
+            print(f"        Enrichment error: {exc}")
+
+    # ── Step 4: API-Football odds fallback ────────────────────────────────────
+    print("  [4/5] Fetching AF odds fallback for fixtures without odds...")
+    n_af_filled = 0
+    if not API_FOOTBALL_KEY:
+        print("        API_FOOTBALL_KEY not set — skipping AF odds.")
+    else:
+        try:
+            from ingestion.api_football_odds import ingest_af_odds_fallback
+            osummary = ingest_af_odds_fallback(week=week, year=year, verbose=False)
+            if "error" not in osummary:
+                n_af_filled = osummary.get("n_filled", 0)
+                n_af_skip   = osummary.get("n_already_have", 0)
+                if n_af_filled == 0 and n_af_skip == osummary.get("n_total", 0):
+                    print("        All fixtures already have odds.")
+                else:
+                    print(
+                        f"        Done — {n_af_filled} filled via AF"
+                        f", {n_af_skip} already had odds."
+                    )
+        except Exception as exc:
+            print(f"        AF odds error: {exc}")
+
+    # ── Step 4b: Model-estimated priors for fixtures still without odds ────────
+    print("  [4b]  Computing model-estimated priors for no-odds fixtures...")
+    n_est_computed = 0
+    try:
+        est_summary = cmd_estimated_priors(week=week, year=year, verbose=False)
+        n_est_computed = est_summary.get("n_computed", 0)
+        n_est_skip_odds = est_summary.get("n_skipped_has_odds", 0)
+        if n_est_computed == 0:
+            print("        All no-odds fixtures already estimated or no signals.")
+        else:
+            print(f"        Done — {n_est_computed} estimated prior(s) computed.")
+    except Exception as exc:
+        print(f"        Estimated priors error: {exc}")
+
+    # ── Step 5: Validation ────────────────────────────────────────────────────
+    print("  [5/5] Running validation...")
     conn = get_conn()
     checks = [
         _check_fixture_count(conn, week, year),
@@ -920,6 +1058,7 @@ def cmd_daily(week: int, year: int) -> None:
         _check_no_dup_af_fixture_id(conn),
         _check_confidence_range(conn),
         _check_enrichment_data_flag(conn),
+        _check_estimated_prior_integrity(conn, week, year),
     ]
     n_pass = sum(1 for s, _, _ in checks if s == "PASS")
     n_warn = sum(1 for s, _, _ in checks if s == "WARN")
@@ -935,11 +1074,14 @@ def cmd_daily(week: int, year: int) -> None:
     # ── Summary ───────────────────────────────────────────────────────────────
     print()
     print(f"  -- Daily sync complete -- week {week}/{year} " + "-" * 26)
-    print(f"  Coupons found:      {n_coupons}")
-    print(f"  Fixtures:           {n_fixtures}")
-    print(f"  Odds updated:       {n_odds}  fixture(s) matched (Pinnacle)")
-    print(f"  Snapshots created:  {n_snaps_new}  new  (duplicates silently skipped)")
-    print(f"  Validation:         {val_tag}")
+    print(f"  Coupons found:          {n_coupons}")
+    print(f"  Fixtures:               {n_fixtures}")
+    print(f"  Pinnacle odds updated:  {n_odds}  fixture(s) matched")
+    print(f"  Snapshots created:      {n_snaps_new}  new  (duplicates silently skipped)")
+    print(f"  AF enriched:            {n_enriched}  new fixture(s)")
+    print(f"  AF odds fallback:       {n_af_filled}  fixture(s) filled  (source=api_football)")
+    print(f"  Est. priors computed:   {n_est_computed}  no-odds fixture(s)")
+    print(f"  Validation:             {val_tag}")
     if n_fail:
         print()
         for status, label, detail in checks:
@@ -991,6 +1133,124 @@ def cmd_enrich_fixtures(week: int, year: int) -> None:
     print()
     print("  Run `streamlit run app.py` and visit the Statistikk page to inspect.")
     print()
+
+
+# ── API-Football odds fallback ───────────────────────────────────────────────
+
+def cmd_af_odds(week: int, year: int) -> None:
+    """
+    Fetch API-Football odds for all active fixtures that have no existing odds.
+
+    - Skips fixtures that already have any odds row (any source).
+    - Skips fixtures with no api_football_fixture_links entry.
+    - Inserts with source='api_football' for remaining fixtures.
+    - Safe to run repeatedly — existing odds are never overwritten.
+    """
+    from db.schema import init_db
+    from ingestion.api_football_odds import ingest_af_odds_fallback
+
+    init_db()
+    print(f"  Fetching AF odds fallback for week {week}/{year}...\n")
+
+    summary = ingest_af_odds_fallback(week=week, year=year, verbose=True)
+
+    if "error" in summary:
+        print(f"\n  {summary['error']}\n")
+        return
+
+    print()
+    print(f"  -- AF odds fallback summary -- week {week}/{year} " + "-" * 16)
+    print(f"  Total fixtures checked:  {summary['n_total']}")
+    print(f"  Already had odds:        {summary['n_already_have']}  (skipped)")
+    print(f"  No AF link:              {summary['n_no_af_link']}  (skipped)")
+    print(f"  Odds inserted:           {summary['n_filled']}  (source=api_football)")
+    print(f"  AF has no 1X2 data:      {summary['n_no_odds_data']}")
+    print(f"  Errors:                  {summary['n_failed']}")
+    print()
+
+
+# ── Model-estimated priors ──────────────────────────────────────────────────
+
+def cmd_estimated_priors(week: int, year: int, verbose: bool = True) -> dict:
+    """
+    Compute model-estimated H/U/B priors for all fixtures in the week that
+    have no bookmaker odds but do have statistical enrichment data.
+
+    Stores results in fixture_estimated_prior (source='model_estimated').
+    Never writes to the odds or odds_snapshots tables.
+    Never overwrites a fixture that already has bookmaker odds.
+    """
+    from db.schema import init_db
+    from db.connection import get_conn
+    from db.coupon import list_coupons, get_coupon_matches
+    from db.enrichment import get_coupon_enrichment, upsert_estimated_prior
+    from analysis.estimated_prior import compute_estimated_prior
+
+    init_db()
+
+    coupons = list_coupons(week=week, year=year)
+    if not coupons:
+        if verbose:
+            print(f"  No coupons in DB for week {week}/{year}.")
+        return {"n_total": 0, "n_computed": 0, "n_skipped_has_odds": 0, "n_no_signals": 0}
+
+    # Collect unique fixtures across all coupons
+    seen: set[str] = set()
+    all_fixtures: list[dict] = []
+    for c in coupons:
+        for f in get_coupon_enrichment(c["coupon_id"]):
+            fid = f["fixture_id"]
+            if fid not in seen:
+                seen.add(fid)
+                all_fixtures.append(f)
+
+    n_total = len(all_fixtures)
+    n_computed = n_skipped_has_odds = n_no_signals = 0
+
+    for f in all_fixtures:
+        home = f.get("home_name", "?")
+        away = f.get("away_name", "?")
+        label = f"{home} vs {away}"
+
+        if f.get("odds_h") is not None:
+            n_skipped_has_odds += 1
+            if verbose:
+                print(f"  [SKIP] {label:<44}  (has bookmaker odds)")
+            continue
+
+        prior = compute_estimated_prior(f)
+        if prior is None:
+            n_no_signals += 1
+            if verbose:
+                print(f"  [NONE] {label:<44}  (no signals available)")
+            continue
+
+        upsert_estimated_prior(
+            fixture_id=f["fixture_id"],
+            estimated_h=prior["estimated_h"],
+            estimated_u=prior["estimated_u"],
+            estimated_b=prior["estimated_b"],
+            signals_used=prior["signals_used"],
+            confidence=prior["confidence"],
+        )
+        n_computed += 1
+        if verbose:
+            h = round(prior["estimated_h"] * 100)
+            u = round(prior["estimated_u"] * 100)
+            b = round(prior["estimated_b"] * 100)
+            sigs = ", ".join(prior["signals_used"])
+            print(
+                f"  [OK]   {label:<44}  "
+                f"H={h}% U={u}% B={b}%  "
+                f"conf={prior['confidence']:.2f}  [{sigs}]"
+            )
+
+    return {
+        "n_total":             n_total,
+        "n_computed":          n_computed,
+        "n_skipped_has_odds":  n_skipped_has_odds,
+        "n_no_signals":        n_no_signals,
+    }
 
 
 # ── API-Football coverage probe ───────────────────────────────────────────────
@@ -1307,6 +1567,10 @@ def main() -> None:
                         help="Probe API-Football coverage for all active NT fixtures")
     parser.add_argument("--enrich-fixtures", action="store_true",
                         help="Match NT fixtures to API-Football and store statistical enrichment")
+    parser.add_argument("--af-odds", action="store_true",
+                        help="Fill missing odds from API-Football for fixtures with no existing odds")
+    parser.add_argument("--estimated-priors", action="store_true",
+                        help="Compute model-estimated H/U/B priors for fixtures with no bookmaker odds")
     args = parser.parse_args()
 
     week, year = args.week, args.year
@@ -1368,6 +1632,23 @@ def main() -> None:
     if args.enrich_fixtures:
         print("Running fixture enrichment from API-Football...")
         cmd_enrich_fixtures(week, year)
+        return
+
+    if args.af_odds:
+        print("Fetching API-Football odds fallback...")
+        cmd_af_odds(week, year)
+        return
+
+    if args.estimated_priors:
+        print(f"Computing model-estimated priors for week {week}/{year}...\n")
+        summary = cmd_estimated_priors(week, year, verbose=True)
+        print()
+        print(f"  -- Estimated priors summary --")
+        print(f"  Total fixtures:          {summary['n_total']}")
+        print(f"  Skipped (has odds):      {summary['n_skipped_has_odds']}")
+        print(f"  No signals available:    {summary['n_no_signals']}")
+        print(f"  Estimated priors stored: {summary['n_computed']}")
+        print()
         return
 
     if args.seed_only:

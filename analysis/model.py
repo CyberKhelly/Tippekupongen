@@ -82,9 +82,13 @@ def run_model(match: Match, enrichment: dict | None) -> None:
         if signals_used:
             adj  = home_edge * _MAX_ADJ
             match.stats_adj_pp = round(adj * 100, 2)   # +pp = home boosted
-            sa_h = bm_h + adj
-            sa_b = bm_b - adj
-            sa_u = bm_u                                  # draw unchanged
+            # Clamp to a small positive floor before normalising: if the
+            # adjustment exceeds the bookmaker's small probability for one
+            # outcome, unclamped arithmetic would produce a negative value
+            # that carries through as an impossible probability after division.
+            sa_h = max(1e-6, bm_h + adj)
+            sa_b = max(1e-6, bm_b - adj)
+            sa_u = max(1e-6, bm_u)                       # draw unchanged by adj
             t    = sa_h + sa_u + sa_b
             base_h, base_u, base_b = sa_h / t, sa_u / t, sa_b / t
             match.has_af_data = True

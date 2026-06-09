@@ -94,6 +94,44 @@ def get_stat_enrichment(fixture_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+# ── Estimated priors (no-odds fallback) ──────────────────────────────────────
+
+def upsert_estimated_prior(
+    fixture_id:   str,
+    estimated_h:  float,
+    estimated_u:  float,
+    estimated_b:  float,
+    signals_used: list[str],
+    confidence:   float,
+) -> None:
+    import json
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO fixture_estimated_prior
+               (fixture_id, estimated_h, estimated_u, estimated_b,
+                signals_used, confidence, source, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'model_estimated', ?)
+               ON CONFLICT(fixture_id) DO UPDATE SET
+                   estimated_h  = excluded.estimated_h,
+                   estimated_u  = excluded.estimated_u,
+                   estimated_b  = excluded.estimated_b,
+                   signals_used = excluded.signals_used,
+                   confidence   = excluded.confidence,
+                   computed_at  = excluded.computed_at""",
+            (fixture_id, estimated_h, estimated_u, estimated_b,
+             json.dumps(signals_used), confidence, _now()),
+        )
+
+
+def get_estimated_prior(fixture_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM fixture_estimated_prior WHERE fixture_id = ?",
+            (fixture_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_coupon_enrichment(coupon_id: str) -> list[dict]:
     """
     Return all fixtures for a coupon joined with enrichment data and best odds.
@@ -131,7 +169,13 @@ def get_coupon_enrichment(coupon_id: str) -> list[dict]:
                    lnk.match_confidence,
                    lnk.api_football_fixture_id,
                    lnk.api_football_league_id,
-                   lnk.api_football_season
+                   lnk.api_football_season,
+                   -- Model-estimated prior (no bookmaker odds)
+                   ep.estimated_h,
+                   ep.estimated_u,
+                   ep.estimated_b,
+                   ep.signals_used AS estimated_signals,
+                   ep.confidence   AS estimated_confidence
                FROM coupon_fixtures cf
                JOIN fixtures f      ON f.fixture_id = cf.fixture_id
                JOIN teams th        ON th.team_id   = f.home_team_id
@@ -151,6 +195,8 @@ def get_coupon_enrichment(coupon_id: str) -> list[dict]:
                    ON e.fixture_id = f.fixture_id
                LEFT JOIN api_football_fixture_links lnk
                    ON lnk.fixture_id = f.fixture_id
+               LEFT JOIN fixture_estimated_prior ep
+                   ON ep.fixture_id = f.fixture_id
                WHERE cf.coupon_id = ?
                ORDER BY cf.match_number""",
             (coupon_id,),

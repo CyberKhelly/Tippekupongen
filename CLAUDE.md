@@ -63,10 +63,11 @@ Button state (selected = gold fill, unselected = ghost) is driven by `type="prim
 When starting a new Claude Code session on this project:
 
 1. **Read CLAUDE.md** — confirms what is already built; do not re-implement completed phases.
-2. **Run `python sync.py --validate`** — confirms the database is clean and which checks are warnings vs failures.
+2. **Run `python sync.py --validate`** — confirms the database is clean and which checks are warnings vs failures (24 checks total).
 3. **Run `python sync.py --status`** — shows which coupons and fixtures are in the DB for the current week.
-4. **Confirm app state** — if the Streamlit app is needed, run `streamlit run app.py` and visually verify the main page and existing pages load without errors before touching any code.
-5. **Only then continue with new work** — if the user asks to start Phase 4, confirm the above checks pass first and agree on the specific scope before writing any code.
+4. **Run `python verify_model.py`** — prints model probabilities, picks, and coverage for all 3 coupons; confirms the pipeline is consistent across Kampanalyse, Statistikk, and coupon generation.
+5. **Confirm app state** — if the Streamlit app is needed, run `streamlit run app.py` and visually verify the main page and existing pages load without errors before touching any code.
+6. **Only then continue with new work** — agree on specific scope before writing any code.
 
 Do not assume prior conversation context carries over. Always re-derive current state from the code and database.
 
@@ -88,6 +89,9 @@ Thresholds in `analysis/classifier.py` control match classification and can be t
 | 1.5 | Validation suite + Team Review page | Complete |
 | 2 | Historical results engine — save predictions, enter results, evaluate hit/cover rate | Complete |
 | 3 | Odds movement + CLV tracking — timestamped snapshots, closing line, CLV per fixture | Complete |
+| 4 | API-Football enrichment — fixture matching, stats/form, AF odds fallback | Complete |
+| 4C | estimated_prior fallback — model-derived H/U/B for fixtures with no bookmaker odds | Complete |
+| 5 | Unified prediction engine — `analysis/model.py`; bookmaker ≥87% weight; crowd disagreement score | Complete |
 
 ### Current architecture
 
@@ -96,11 +100,14 @@ Entry points
   app.py              Streamlit web UI (primary)
   main.py             Original CLI tool (no external deps)
   sync.py             Data ingestion and maintenance CLI
+  verify_model.py     Model verification report — prints picks/probs/coverage for all 3 coupons
 
-Analysis pipeline (shared)
-  analysis/probability.py   decimal odds → normalized implied probabilities
-  analysis/classifier.py    classify match (banker/standard/half_cover/full_cover/uncertain)
-  analysis/optimizer.py     exhaustive (n_full, n_half) search within budget
+Analysis pipeline (shared by app.py, Kampanalyse, Statistikk, coupon generation)
+  analysis/probability.py     decimal odds → normalized implied probabilities
+  analysis/model.py           unified model: bookmaker prior + AF stats adjustment; crowd disagreement score
+  analysis/classifier.py      classify match (banker/standard/half_cover/full_cover/uncertain)
+  analysis/optimizer.py       exhaustive (n_full, n_half) search within budget; uses crowd_disagreement_score
+  analysis/estimated_prior.py fallback H/U/B when no bookmaker odds — NT expert (60%) + stats (40%)
 
 Database  (SQLite via db/connection.py)
   db/schema.py        DDL for all tables; init_db() is idempotent
@@ -108,14 +115,18 @@ Database  (SQLite via db/connection.py)
   db/coupon.py        coupons + coupon_fixtures + odds CRUD
   db/history.py       coupon_predictions + match_results + coupon_evaluations
   db/odds_movement.py odds_snapshots + CLV calculation
+  db/enrichment.py    fixture_stat_enrichment + api_football_fixture_links + fixture_estimated_prior CRUD
 
 Ingestion
   ingestion/norsk_tipping.py   NT gameDays API → coupons + fixtures + teams
   ingestion/odds_api.py        The Odds API (Pinnacle) → odds + snapshots
   ingestion/seed.py            flat-file fallback (data/coupon_weekNN_YYYY.py)
+  ingestion/enrich_fixtures.py AF fixture matching → stats/form enrichment
+  ingestion/api_football.py    AF API client; _NT_COMPETITION_MAP for league IDs
+  ingestion/api_football_odds.py  AF odds fallback — fills gaps with preferred bookmaker priority
 
 Models
-  models/match.py     Match dataclass (odds in, probs + classification out)
+  models/match.py     Match dataclass (odds in, probs + classification out; includes crowd_disagreement_score)
 ```
 
 ### Streamlit pages
@@ -127,28 +138,32 @@ Models
 | `pages/2_Results.py` | Resultater | Enter match scores after games are played |
 | `pages/3_History.py` | Historikk | Evaluated coupons — hit rate, cover rate, CLV |
 | `pages/4_Odds_Movement.py` | Odds Movement | Pinnacle odds time series, opening/closing, movement per fixture |
+| `pages/5_Statistikk.py` | Statistikk | Per-fixture model breakdown: Model Inputs panel, odds source, AF stats, crowd vs model |
 
 ### sync.py commands
 
 ```
-python sync.py                        full sync: NT coupons + Pinnacle odds
-python sync.py --daily                safe all-in-one: NT + odds + snapshots + validate + summary
-python sync.py --refresh-coupons      force-refresh from NT API (clears stale fixture data, keeps predictions)
-python sync.py --week N --year YYYY   explicit week/year for any command
-python sync.py --seed-only            flat-file seed (no API calls)
-python sync.py --nt-only              NT fixture fetch only
-python sync.py --odds-only            Pinnacle odds only (fixtures must exist)
-python sync.py --odds-snapshot        fetch odds and append timestamped snapshot
-python sync.py --mark-closing-odds    mark last pre-kickoff snapshot as closing line
-python sync.py --status               show DB contents for the week
-python sync.py --validate             18-point data integrity checks (PASS/WARN/FAIL)
-python sync.py --review               teams flagged for manual gender/age review
-python sync.py --results-status       show coupons with predictions but missing results
-python sync.py --evaluate             compute hit rate / cover rate for all evaluated coupons
-python sync.py --nt-debug             print raw NT API response
+python sync.py                          full sync: NT coupons + Pinnacle odds
+python sync.py --daily                  all-in-one: NT + Pinnacle + AF enrichment + AF odds + estimated priors + validate
+python sync.py --refresh-coupons        force-refresh NT coupons + enrichment + AF odds fallback (start-of-week)
+python sync.py --week N --year YYYY     explicit week/year for any command
+python sync.py --seed-only              flat-file seed (no API calls)
+python sync.py --nt-only                NT fixture fetch only
+python sync.py --odds-only              Pinnacle odds only (fixtures must exist)
+python sync.py --odds-snapshot          fetch odds and append timestamped snapshot
+python sync.py --mark-closing-odds      mark last pre-kickoff snapshot as closing line
+python sync.py --enrich-fixtures        match NT fixtures to API-Football, store stats/form
+python sync.py --af-odds                fill missing odds from API-Football (manual/debug)
+python sync.py --estimated-priors       compute model-estimated priors for fixtures with no bookmaker odds
+python sync.py --status                 show DB contents for the week
+python sync.py --validate               data integrity checks (PASS/WARN/FAIL) — 24 checks
+python sync.py --review                 teams flagged for manual gender/age review
+python sync.py --results-status         show coupons with predictions but missing results
+python sync.py --evaluate               compute hit rate / cover rate for all evaluated coupons
+python sync.py --nt-debug               print raw NT API response
 ```
 
-### Database features implemented
+### Database tables
 
 - `teams` — canonical team registry with gender, age_group, team_type, country_iso
 - `team_aliases` — fuzzy-match aliases per source (NT, Betradar)
@@ -162,6 +177,36 @@ python sync.py --nt-debug             print raw NT API response
 - `match_results` — entered scores and 1X2 outcome
 - `coupon_evaluations` — hit_rate, cover_rate, all_12_correct per coupon
 - `coupon_log` — audit log for ingestion events
+- `fixture_stat_enrichment` — AF stats: form last 5, standings position, goals, H2H
+- `api_football_fixture_links` — NT fixture_id → AF fixture_id mapping + confidence
+- `fixture_estimated_prior` — model-derived H/U/B for fixtures with no bookmaker odds (source='model_estimated'); **never written to `odds` or `odds_snapshots`**
+
+### Data source priority
+
+**Fixtures (source of truth):**
+1. Norsk Tipping API (`nt_api`)
+
+**Odds / probability prior (highest priority first):**
+1. Pinnacle via The Odds API (`pinnacle`)
+2. Other bookmaker odds (`norsk_tipping`, `manual`, `betsson`, ...)
+3. API-Football odds (`api_football`) — Bet365 → William Hill → Marathonbet → 10Bet → first available
+4. Model-estimated prior (`model_estimated`) — stored in `fixture_estimated_prior`, **not** in `odds`; NT expert tips (60%) + stats (40%)
+5. NT expert tips fallback (runtime only — if no odds and no estimated prior, convert expert% to implied decimal odds)
+6. Equal-probability placeholder (3.0/3.0/3.0) — last resort when nothing else available
+
+**Statistics / form:**
+1. API-Football (`fixture_stat_enrichment`)
+2. Future fallbacks as needed
+
+### Unified prediction engine — key invariants
+
+These constraints must be preserved across all future changes:
+
+- **Single pipeline:** `process_match()` → `run_model()` → `classify_match()` → `optimize_coupon()` is used identically in app.py (Kampanalyse + coupon generation), Statistikk page, and `verify_model.py`. If you change the model, all three update automatically.
+- **Bookmaker dominance:** bookmaker prior always has ≥87% weight in the final probability blend. AF stats can adjust by at most ±`_MAX_ADJ` (defined in `analysis/model.py`).
+- **Crowd disagreement score (CDS):** measures pp difference between model pick and public tips. Affects coverage depth (Single → Halvdekk → Heldekk) via `_effective_confidence()` in `optimizer.py`. Does **not** change the top recommended pick.
+- **CLV uses real bookmaker odds only:** `odds_snapshots` must only ever contain Pinnacle (or other real bookmaker) odds. Estimated priors and NT expert conversions must never be written to `odds_snapshots`. CLV is undefined when no real bookmaker closing line exists.
+- **estimated_prior is not bookmaker odds:** validate check 24 enforces zero overlap between `fixture_estimated_prior` and `odds`.
 
 ### NT API — endpoint change (2026-06) and data-source rules
 
@@ -229,7 +274,7 @@ python sync.py --status
 
 # 2. Confirm no integrity issues
 python sync.py --validate
-#    Should be PASS — all 18 checks clean (or PASS with expected WARNs on manual coupons)
+#    Should be PASS — all 24 checks clean (or PASS with expected WARNs: check 7 for AF/betsson odds)
 
 # 3. Confirm the loader returns the right data
 python -c "from data.loader import load_coupons; c=load_coupons(); print(list(c.keys())); [print(k, c[k]['label'], c[k]['deadline'][:10]) for k in c]"
@@ -243,28 +288,16 @@ streamlit run app.py
 
 ### Current known limitations
 
-- **ODDS_API_KEY not set** — Pinnacle odds are not being fetched. Set `ODDS_API_KEY` in `.env` to activate. When odds are missing, the app uses equal-probability placeholders (3.0/3.0/3.0) so coupons remain visible and usable.
+- **ODDS_API_KEY not set** — Pinnacle odds are not being fetched. Set `ODDS_API_KEY` in `.env` to activate. When Pinnacle odds are missing, the pipeline falls back to API-Football odds (if `API_FOOTBALL_KEY` is set), then estimated priors, then equal-probability placeholders (3.0/3.0/3.0).
+- **CLV requires real bookmaker closing odds** — CLV is not calculated unless a `is_closing_snapshot=1` row exists for the fixture. Run `python sync.py --mark-closing-odds` after the last pre-kickoff Pinnacle fetch.
+- **Estimated prior confidence is low** — `fixture_estimated_prior` has confidence 0.35–0.65. For lower-tier domestic fixtures without bookmaker odds, the model relies heavily on NT expert tips (60% weight). Treat these recommendations with appropriate skepticism.
 - **country_iso for NT-API teams** — new API does not provide country codes; national-tournament teams get `"INT"`, domestic-league teams get `"CLUB"`. Can be corrected manually in the DB.
 - **No NT match IDs on manual coupons** — week 23 data was seeded from flat file; expected WARN in `--validate`.
-- **No day_type on manual coupons** — same root cause; expected WARN.
 - **No backtesting** — predictions are saved but there is no calibration or edge-vs-result analysis yet.
 - **Team name matching is fuzzy substring** — works for major leagues; may miss NT teams with unusual spellings.
-- **Odds pipeline uses only Pinnacle** — no fallback bookmaker if Pinnacle is not available on The Odds API.
+- **Validate check 7 WARN is expected** — AF odds (`api_football`) and occasional alternative bookmakers (`betsson`, etc.) are logged as fallback sources; this is normal and not a data integrity problem.
 
-### Next recommended phase
-
-**Phase 4: Team Strength / Power Rating Engine**
-
-Goal: add a lightweight statistical prior alongside the odds prior so recommendations are not 100% dependent on bookmaker lines.
-
-Candidate signals (high signal-to-noise only):
-- Club Elo ratings — `clubelo.com` free API; covers most European club teams
-- eloratings.net — national team Elo (scrape)
-- Recent form — last 5 results from NT or API-Football
-
-Probability blend target: `0.5 × odds_prior + 0.5 × elo_model`
-
-**Do not implement Elo, xG, or AI without an explicit instruction to do so.**
+**Do not implement Elo, xG, or additional AI models without an explicit instruction to do so.**
 
 ---
 
@@ -273,16 +306,25 @@ Probability blend target: `0.5 × odds_prior + 0.5 × elo_model`
 ```
 # 0. Start of week (Monday) — import new coupons
 python sync.py --refresh-coupons
-#    Fetches live NT coupons for the current ISO week, clears stale fixture
-#    data, and verifies the DB.  Run this as soon as NT publishes the week's
-#    coupons (usually Monday morning for Midtuke, same day for Lørdag/Søndag).
+#    Fetches live NT coupons for the current ISO week, clears stale fixture data,
+#    runs fixture enrichment (AF stats/form), fills missing odds from API-Football,
+#    and validates the DB.
+#    Run this as soon as NT publishes the week's coupons (usually Monday morning).
 #    If NT hasn't published yet (204 / no content), try again later.
 
 # 1. Every day during the week (Monday–Friday)
 python sync.py --daily
-#    Fetches NT coupons (skips if unchanged), updates Pinnacle odds, saves
-#    timestamped snapshots, runs validation, and prints a summary.
-#    Safe to run multiple times — duplicates are silently skipped.
+#    6-step all-in-one sync:
+#      [1/6] NT coupons          — fetch/update fixtures
+#      [2/6] Pinnacle odds       — update + snapshot (skipped if ODDS_API_KEY not set)
+#      [3/6] AF enrichment       — stats/form for new/unmatched fixtures (skips already-enriched)
+#      [4/6] AF odds fallback    — fills any fixture still missing odds (never overwrites existing)
+#      [4b/6] Estimated priors   — model-estimated H/U/B for any fixture still without bookmaker odds
+#      [5/6] Validation          — PASS/WARN/FAIL integrity checks (24 checks)
+#    Safe to run multiple times — all steps are idempotent.
+
+python sync.py --validate     # run separately to re-check integrity at any time
+python verify_model.py        # print model picks/probabilities/coverage for all 3 coupons
 
 # 2. Before the deadline — open the app and save your coupon
 streamlit run app.py
@@ -290,7 +332,7 @@ streamlit run app.py
 
 # 3. After kickoff (Saturday/Sunday evening)
 python sync.py --mark-closing-odds
-#    Marks the last pre-kickoff snapshot as the closing line for each fixture.
+#    Marks the last pre-kickoff Pinnacle snapshot as the closing line for each fixture.
 #    Required for CLV calculation.
 
 # 4. After matches are played — enter results in the app
@@ -305,3 +347,25 @@ python sync.py --evaluate
 #    Historikk page  — hit rate, cover rate, CLV per coupon
 #    Odds Movement page — opening/closing line, movement direction per fixture
 ```
+
+### API-Football odds fallback — how it works
+
+`--daily` and `--refresh-coupons` both run this automatically. Manual invocation: `python sync.py --af-odds`.
+Module: `ingestion/api_football_odds.py → ingest_af_odds_fallback()`.
+
+- **Source priority:** pinnacle → norsk_tipping → manual → api_football. AF odds are inserted with `source='api_football'` and only used when no higher-priority odds exist.
+- **Never overwrites:** the guard checks `SELECT 1 FROM odds WHERE fixture_id = ?` before every AF call. If any odds row exists for a fixture, AF odds are skipped entirely.
+- **Bookmaker priority:** Bet365 → William Hill → Marathonbet → 10Bet → first available.
+- **Rate limiting:** 2.1 s delay between actual API calls (AF limit: 30 req/min). Skipped fixtures do not count against the delay.
+- **Coverage:** all leagues mapped in `ingestion/api_football.py → _NT_COMPETITION_MAP` that have AF league IDs. Currently covers Women's WC Qual UEFA (league 880), Eliteserien, OBOS, Toppserien, Champions League, Nations League, FIFA World Cup.
+
+### Model-estimated prior — how it works
+
+`--daily` and `--refresh-coupons` run step 4b automatically after AF odds. Manual invocation: `python sync.py --estimated-priors`.
+Module: `analysis/estimated_prior.py → compute_estimated_prior()`.
+
+- **Only for fixtures with no bookmaker odds** — skips any fixture that already has a row in `odds`.
+- **Signal blend:** NT expert tips at 60% weight (dominant signal) + stats-based home edge at 40%. Returns `None` when neither signal is available.
+- **Confidence:** 0.20 (stats only, no expert) → 0.35 (stats only) → 0.50 (expert only) → 0.65 (both).
+- **Stored in `fixture_estimated_prior`** — never written to `odds` or `odds_snapshots`. CLV is only calculated from real bookmaker closing lines; estimated priors do not affect CLV.
+- **Validate check 24** enforces zero overlap with the `odds` table.

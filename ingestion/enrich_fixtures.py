@@ -210,6 +210,7 @@ def enrich_active_fixtures(
     year: int,
     verbose: bool = True,
     fetch_predictions: bool = False,
+    skip_already_enriched: bool = False,
 ) -> dict:
     """
     Match all active NT fixtures for the given week to API-Football,
@@ -217,6 +218,9 @@ def enrich_active_fixtures(
 
     AF predictions are skipped by default. Pass fetch_predictions=True only when
     you want to store them as optional reference data.
+
+    skip_already_enriched=True skips fixtures that already have both an AF link
+    and has_api_football_data=1 — useful in daily mode to avoid redundant calls.
 
     Returns a summary dict with counts and average match confidence.
     """
@@ -228,15 +232,31 @@ def enrich_active_fixtures(
     if not coupons:
         return {"error": f"No coupons for week {week}/{year}"}
 
+    # Collect already-enriched fixture IDs when skipping is requested
+    already_enriched: set[str] = set()
+    if skip_already_enriched:
+        from db.connection import get_conn
+        with get_conn() as conn:
+            rows = conn.execute(
+                """SELECT lnk.fixture_id
+                   FROM api_football_fixture_links lnk
+                   JOIN fixture_stat_enrichment e ON e.fixture_id = lnk.fixture_id
+                   WHERE e.has_api_football_data = 1"""
+            ).fetchall()
+            already_enriched = {r[0] for r in rows}
+
     # Collect all NT fixtures with competition mapping
     all_nt: list[dict] = []
     for c in coupons:
         for m in get_coupon_matches(c["coupon_id"]):
+            fid = m["fixture_id"]
+            if fid in already_enriched:
+                continue
             ko  = m.get("kickoff_utc", "")
             arr = m.get("arrangement_name") or m.get("competition_id") or ""
             lid, season, status = map_nt_competition(arr)
             all_nt.append({
-                "fixture_id":   m["fixture_id"],
+                "fixture_id":   fid,
                 "arrangement":  arr,
                 "home_name":    m["home_name"],
                 "away_name":    m["away_name"],

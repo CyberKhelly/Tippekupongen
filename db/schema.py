@@ -309,6 +309,22 @@ CREATE INDEX IF NOT EXISTS idx_model_output_computed ON fixture_model_output(com
 """
 
 
+# Model-estimated priors — for fixtures with no bookmaker odds.
+# NOT used for CLV. NOT a bookmaker source.
+_DDL_ESTIMATED_PRIOR = """
+CREATE TABLE IF NOT EXISTS fixture_estimated_prior (
+    fixture_id   TEXT PRIMARY KEY REFERENCES fixtures(fixture_id),
+    estimated_h  REAL NOT NULL,
+    estimated_u  REAL NOT NULL,
+    estimated_b  REAL NOT NULL,
+    signals_used TEXT,           -- JSON array e.g. ["form","standings","nt_expert"]
+    confidence   REAL,           -- 0.0–1.0
+    source       TEXT NOT NULL DEFAULT 'model_estimated',
+    computed_at  TEXT DEFAULT (datetime('now'))
+);
+"""
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_DDL_BASE)
@@ -319,3 +335,4 @@ def init_db() -> None:
         conn.executescript(_DDL_PHASE3_TABLES)
         conn.executescript(_DDL_PHASE4B_TABLES)
         conn.executescript(_DDL_PHASE5_TABLES)
+        conn.executescript(_DDL_ESTIMATED_PRIOR)

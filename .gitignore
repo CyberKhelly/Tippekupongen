@@ -33,9 +33,17 @@ sl_*.log
 sl2_*.log
 
 # Database (generated — do not commit)
+tippekupongen.db
+tippekupongen.db-shm
+tippekupongen.db-wal
 data/tippekupongen.db
 data/tippekupongen.db-shm
 data/tippekupongen.db-wal
+
+# Debug / temp scripts (not production code)
+_coverage_check*.py
+check_af_odds*.py
+check_db.py
 
 # Secrets
 .env

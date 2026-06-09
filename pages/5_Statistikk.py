@@ -19,6 +19,7 @@ Populate enrichment by running:
     python sync.py --enrich-fixtures
 """
 from datetime import datetime as _dt
+import json as _json
 import streamlit as st
 from db.schema import init_db
 from db.coupon import list_coupons
@@ -26,6 +27,7 @@ from db.enrichment import get_coupon_enrichment
 from models.match import Match as _MatchModel
 from analysis.probability import process_match as _bm_prior
 from analysis.model import run_model as _run_model
+from analysis.estimated_prior import compute_estimated_prior as _est_prior
 
 st.set_page_config(
     page_title="Statistikk — TippeQpongen",
@@ -202,24 +204,118 @@ if not coupons:
 
 # ── Model helper ──────────────────────────────────────────────────────────────
 
-def _compute_model(f: dict) -> _MatchModel | None:
-    """Run Phase 5 model for one enrichment row. Returns a Match or None."""
+def _compute_model(f: dict) -> tuple["_MatchModel | None", bool]:
+    """
+    Run the prediction model for one enrichment row.
+
+    Returns (match, is_estimated) where is_estimated=True means the prior
+    came from model_estimated_prior (no bookmaker odds available).
+
+    Odds priority (matches data/loader.py::_best_odds so Statistikk and
+    Kampanalyse always produce identical model probabilities):
+      1. Bookmaker odds from the odds table (any source)
+      2. NT expert tips converted to synthetic decimal odds (100 / pct)
+      3. Estimated prior from stats (is_estimated=True)
+    """
     oh, ou, ob = f.get("odds_h"), f.get("odds_u"), f.get("odds_b")
+    odds_src = f.get("odds_source", "")
+
+    # NT expert tips fallback — mirrors data/loader.py::_best_odds() exactly
     if not (oh and ou and ob):
-        return None
+        ex_h = f.get("expert_h"); ex_u = f.get("expert_u"); ex_b = f.get("expert_b")
+        if (ex_h and ex_u and ex_b
+                and float(ex_h) > 0 and float(ex_u) > 0 and float(ex_b) > 0):
+            oh = round(100.0 / float(ex_h), 4)
+            ou = round(100.0 / float(ex_u), 4)
+            ob = round(100.0 / float(ex_b), 4)
+            odds_src = "nt_expert"
+
+    if oh and ou and ob:
+        # Normal path: bookmaker odds (or NT expert synthetic) → run Phase 5 model
+        try:
+            m = _MatchModel(
+                number=f["match_number"],
+                home_team=f.get("home_name", ""),
+                away_team=f.get("away_name", ""),
+                odds_h=float(oh), odds_u=float(ou), odds_b=float(ob),
+                odds_source=odds_src,
+            )
+            _bm_prior(m)
+            _run_model(m, f)
+            return m, False
+        except Exception:
+            return None, False
+
+    # No bookmaker odds: try estimated prior from stats + NT tips
+    # Check DB-stored estimated prior first, then compute on-the-fly
+    est = None
+    if f.get("estimated_h") is not None:
+        # Already stored in DB (via get_coupon_enrichment join)
+        try:
+            sigs_raw = f.get("estimated_signals") or "[]"
+            sigs = _json.loads(sigs_raw) if isinstance(sigs_raw, str) else (sigs_raw or [])
+            est = {
+                "estimated_h":  float(f["estimated_h"]),
+                "estimated_u":  float(f["estimated_u"]),
+                "estimated_b":  float(f["estimated_b"]),
+                "signals_used": sigs,
+                "confidence":   float(f.get("estimated_confidence") or 0.0),
+                "source":       "model_estimated",
+            }
+        except Exception:
+            est = None
+
+    if est is None:
+        est = _est_prior(f)
+
+    if est is None:
+        return None, True
+
     try:
         m = _MatchModel(
             number=f["match_number"],
             home_team=f.get("home_name", ""),
             away_team=f.get("away_name", ""),
-            odds_h=float(oh), odds_u=float(ou), odds_b=float(ob),
-            odds_source=f.get("odds_source", ""),
+            odds_h=1.0, odds_u=1.0, odds_b=1.0,  # dummy — never used for display
+            odds_source="model_estimated",
         )
-        _bm_prior(m)
-        _run_model(m, f)
-        return m
+        m.prob_h     = est["estimated_h"]
+        m.prob_u     = est["estimated_u"]
+        m.prob_b     = est["estimated_b"]
+        m.confidence = est["confidence"]
+        m.stats_signals = est["signals_used"]
+        m.has_af_data   = any(s in est["signals_used"] for s in ("form", "standings", "goals", "h_a_record"))
+        m.has_expert_tips = "nt_expert" in est["signals_used"]
+
+        # Value vs public crowd
+        from analysis.model import _get_float
+        pb_h = _get_float(f, "public_h")
+        pb_u = _get_float(f, "public_u")
+        pb_b = _get_float(f, "public_b")
+        if pb_h is not None and pb_u is not None and pb_b is not None:
+            pb_sum = pb_h + pb_u + pb_b
+            if pb_sum > 0:
+                pub_h = pb_h / pb_sum
+                pub_u = pb_u / pb_sum
+                pub_b = pb_b / pb_sum
+                m.pub_prob_h = pub_h
+                m.pub_prob_u = pub_u
+                m.pub_prob_b = pub_b
+                m.has_public_tips = True
+                m.value_h = round((m.prob_h - pub_h) * 100, 1)
+                m.value_u = round((m.prob_u - pub_u) * 100, 1)
+                m.value_b = round((m.prob_b - pub_b) * 100, 1)
+                m.crowd_disagreement_score = round(
+                    (abs(m.value_h) + abs(m.value_u) + abs(m.value_b)) / 2.0, 1
+                )
+                vals = {"H": m.value_h, "U": m.value_u, "B": m.value_b}
+                m.crowd_pressure_pick = min(vals, key=vals.get)
+
+        probs = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+        m.recommendation = max(probs, key=probs.get)
+        return m, True
     except Exception:
-        return None
+        return None, True
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -252,9 +348,9 @@ def _pct(v) -> str:
     return f"{v*100:.0f}%" if v is not None else "—"
 
 
-def _odds_label(h, u, b, source) -> str:
+def _odds_label(h, u, b, source, estimated: bool = False) -> str:
     if h is None:
-        return "Ingen odds"
+        return '<span style="color:#c8960e">Estimert prior (ingen bukm. odds)</span>' if estimated else "Ingen odds"
     src = (source or "").capitalize()
     return f"{h:.2f} / {u:.2f} / {b:.2f}  [{src}]"
 
@@ -372,12 +468,17 @@ def _generate_tags(bm_h, bm_u, bm_b, pb_h, pb_u, pb_b, ex_h, ex_u, ex_b) -> str:
     return f'<div class="mi-tags">{"".join(parts)}</div>'
 
 
-def _build_mi_panel(f: dict, model_match: _MatchModel | None = None) -> str:
+def _build_mi_panel(
+    f: dict,
+    model_match: _MatchModel | None = None,
+    is_estimated: bool = False,
+) -> str:
     """
     Build the full Model Inputs HTML panel for one fixture.
 
-    f            — enrichment dict from get_coupon_enrichment()
-    model_match  — Match object after run_model(); None when odds are missing
+    f             — enrichment dict from get_coupon_enrichment()
+    model_match   — Match object after run_model(); None when odds are missing
+    is_estimated  — True when the prior came from model_estimated_prior
     """
     imp_h, imp_u, imp_b = _implied_probs(
         f.get("odds_h"), f.get("odds_u"), f.get("odds_b")
@@ -397,13 +498,27 @@ def _build_mi_panel(f: dict, model_match: _MatchModel | None = None) -> str:
         s = f"{round(v)}" if v is not None else "—"
         return f'<td class="num {cls}">{s}</td>'
 
-    # ── Bookmaker row ─────────────────────────────────────────────────────────
+    # ── Bookmaker row (or estimated prior notice) ─────────────────────────────
     if bm_h is not None:
         bm_cells = _cell(bm_h, "mi-h") + _cell(bm_u, "mi-u") + _cell(bm_b, "mi-b")
         bm_src   = f'<td class="src">[{odds_src}]</td>'
+        bm_row_label = "Bukmeker (odds-prior)"
+    elif is_estimated and model_match is not None:
+        # Show estimated prior values in the bookmaker slot, clearly labelled
+        eh = round(model_match.prob_h * 100)
+        eu = round(model_match.prob_u * 100)
+        eb = round(model_match.prob_b * 100)
+        bm_cells = _cell(eh, "mi-h") + _cell(eu, "mi-u") + _cell(eb, "mi-b")
+        bm_src   = '<td class="src" style="color:#c8960e">[estimert]</td>'
+        bm_row_label = (
+            '<span style="color:#c8960e;font-weight:700">'
+            'Estimert prior basert p&aring; statistikk'
+            '</span>'
+        )
     else:
         bm_cells = '<td class="num" colspan="3" style="color:#2e4a64">Ingen odds tilgjengelig</td>'
         bm_src   = "<td></td>"
+        bm_row_label = "Bukmeker (odds-prior)"
 
     # ── Expert row ────────────────────────────────────────────────────────────
     if ex_h is not None:
@@ -448,7 +563,8 @@ def _build_mi_panel(f: dict, model_match: _MatchModel | None = None) -> str:
     # ── Phase 5 Model output rows ─────────────────────────────────────────────
     model_section = ""
     model_tags_html = ""
-    if model_match is not None:
+    if model_match is not None and not is_estimated:
+        # Normal path: show full model output vs bookmaker prior
         mh = round(model_match.prob_h * 100, 1)
         mu = round(model_match.prob_u * 100, 1)
         mb = round(model_match.prob_b * 100, 1)
@@ -552,13 +668,75 @@ def _build_mi_panel(f: dict, model_match: _MatchModel | None = None) -> str:
                 + "</div>"
             )
 
+    elif is_estimated and model_match is not None:
+        # Estimated prior path: show which signals were used + value vs public
+        sig_names = {
+            "form":       "Form",
+            "h_a_record": "Hjem/borte",
+            "standings":  "Tabell",
+            "goals":      "Mål",
+            "nt_expert":  "NT ekspert",
+        }
+
+        # Verdi vs folket (estimated model vs public tips)
+        value_row = ""
+        if model_match.has_public_tips and model_match.value_h is not None:
+            vh = model_match.value_h
+            vu = model_match.value_u
+            vb = model_match.value_b
+            value_row = (
+                f'<tr class="mi-sep">'
+                f'<td class="name-col">Verdi vs folket</td>'
+                f'<td class="num {_val_cls(vh)}">{_dpp(vh)}</td>'
+                f'<td class="num {_val_cls(vu)}">{_dpp(vu)}</td>'
+                f'<td class="num {_val_cls(vb)}">{_dpp(vb)}</td>'
+                f'<td></td>'
+                f'</tr>'
+            )
+        model_section = value_row
+
+        # Signal audit tags
+        if model_match.stats_signals:
+            used_tags = " ".join(
+                f'<span class="mi-tag mi-tag-aligned">{sig_names.get(s, s)}</span>'
+                for s in model_match.stats_signals
+            )
+            model_tags_html += f'<div class="mi-tags" style="margin-top:3px;">{used_tags}</div>'
+
+        # Crowd disagreement + pressure tags
+        cds_html = ""
+        if model_match.crowd_disagreement_score is not None:
+            cds = model_match.crowd_disagreement_score
+            cds_html = (
+                f'<span class="cds-badge {_cds_cls(cds)}">'
+                f'Uenighet: {cds:.0f}pp'
+                f'</span>'
+            )
+
+        crowd_tags = []
+        if model_match.crowd_pressure_pick:
+            pick   = model_match.crowd_pressure_pick
+            v_pick = {"H": model_match.value_h, "U": model_match.value_u,
+                      "B": model_match.value_b}.get(pick, 0.0) or 0.0
+            if v_pick < -10:
+                crowd_tags.append(
+                    f'<span class="mi-tag mi-tag-pressure">'
+                    f'Folkepres på {pick} ({_dpp(v_pick)})</span>'
+                )
+
+        if cds_html or crowd_tags:
+            model_tags_html += (
+                f'<div class="mi-tags" style="margin-top:3px;">'
+                + cds_html + "".join(crowd_tags) + "</div>"
+            )
+
     table = f"""<table class="mi-tbl">
   <tr>
     <th class="name-col"></th>
     <th>H%</th><th>U%</th><th>B%</th><th></th>
   </tr>
   <tr>
-    <td class="name-col">Bukmeker (odds-prior)</td>
+    <td class="name-col">{bm_row_label}</td>
     {bm_cells}{bm_src}
   </tr>
   <tr>
@@ -595,14 +773,19 @@ def _build_mi_panel(f: dict, model_match: _MatchModel | None = None) -> str:
     conf_badge = ""
     if model_match is not None:
         conf_val = round(model_match.confidence * 100, 1)
+        badge_bg  = "rgba(200,150,14,0.10)" if is_estimated else "rgba(245,197,24,0.08)"
+        badge_col = "#c8960e"               if is_estimated else "#f5c518"
         conf_badge = (
             f'<span style="font-size:9px;font-weight:700;padding:1px 6px;'
-            f'border-radius:3px;background:rgba(245,197,24,0.08);color:#f5c518;'
+            f'border-radius:3px;background:{badge_bg};color:{badge_col};'
             f'margin-left:6px;">'
             f'Konf. {conf_val:.1f}%</span>'
         )
 
-    header_label = f'Modellinput &mdash; Verdianalyse{conf_badge}'
+    if is_estimated:
+        header_label = f'Modellinput &mdash; Estimert prior (ingen bukm. odds){conf_badge}'
+    else:
+        header_label = f'Modellinput &mdash; Verdianalyse{conf_badge}'
 
     return (
         '<div class="mi-panel">'
@@ -653,7 +836,7 @@ for tab, coupon in zip(tabs, coupons):
             has_af = bool(f.get("has_api_football_data"))
 
             # Compute model output once per fixture (used by _build_mi_panel)
-            model_match = _compute_model(f)
+            model_match, is_estimated = _compute_model(f)
 
             # ── Card header ──────────────────────────────────────────────
             header_html = (
@@ -671,7 +854,7 @@ for tab, coupon in zip(tabs, coupons):
                     'Ingen API-Football-data (tabellposisjon/form ikke tilgjengelig).'
                     '</div>'
                 )
-                mi_html_no_af = _build_mi_panel(f, model_match)
+                mi_html_no_af = _build_mi_panel(f, model_match, is_estimated)
                 footer_no_af = (
                     f'<div class="fx-footer">'
                     f'<span class="fx-odds">Odds: {_odds_label(f.get("odds_h"), f.get("odds_u"), f.get("odds_b"), f.get("odds_source"))}</span>'
@@ -724,7 +907,7 @@ for tab, coupon in zip(tabs, coupons):
 </table>"""
 
             # ── Model Inputs panel ─────────────────────────────────────────
-            mi_html = _build_mi_panel(f, model_match)
+            mi_html = _build_mi_panel(f, model_match, is_estimated)
 
             # ── Footer ────────────────────────────────────────────────────
             conf     = f.get("match_confidence")
@@ -735,7 +918,7 @@ for tab, coupon in zip(tabs, coupons):
 
             footer_html = (
                 f'<div class="fx-footer">'
-                f'<span class="fx-odds">Odds: {_odds_label(f.get("odds_h"), f.get("odds_u"), f.get("odds_b"), f.get("odds_source"))}</span>'
+                f'<span class="fx-odds">Odds: {_odds_label(f.get("odds_h"), f.get("odds_u"), f.get("odds_b"), f.get("odds_source"), estimated=is_estimated)}</span>'
                 f'<span class="fx-conf">{conf_str}</span>'
                 f'<span class="fx-af-id">{lg_str}{af_id_str}</span>'
                 f'</div>'

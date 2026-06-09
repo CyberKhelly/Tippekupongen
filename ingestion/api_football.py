@@ -40,8 +40,15 @@ LEAGUE_IDS = {
 # IMPORTANT: more specific patterns must come before general ones.
 # status: "ok" = covered | "not_covered" = league not in AF | "probe" = may exist, ID unknown
 _NT_COMPETITION_MAP: list[tuple[str, int | None, int | None, str]] = [
-    # Lower-tier Norwegian domestic — NOT in API-Football
-    ("Norsk Tipping-ligaen",            None,   None,   "not_covered"),
+    # Norwegian 3. Division (Norsk Tipping-ligaen avd1-6) — specific entries MUST come before catch-all
+    ("Norsk Tipping-ligaen avd1",  774,  2026,  "ok"),
+    ("Norsk Tipping-ligaen avd2",  775,  2026,  "ok"),
+    ("Norsk Tipping-ligaen avd3",  776,  2026,  "ok"),
+    ("Norsk Tipping-ligaen avd4",  777,  2026,  "ok"),
+    ("Norsk Tipping-ligaen avd5",  778,  2026,  "ok"),
+    ("Norsk Tipping-ligaen avd6",  779,  2026,  "ok"),
+    # Catch-all for any other avd not yet explicitly mapped
+    ("Norsk Tipping-ligaen",       None, None,  "not_covered"),
     # Norwegian domestic — covered
     ("NOR OBOS-ligaen",                 104,    2026,   "ok"),
     ("OBOS-ligaen",                     104,    2026,   "ok"),
@@ -84,7 +91,7 @@ _NO_TO_EN: dict[str, str] = {
     "nederland": "netherlands",
     "sverige": "sweden",
     "island": "iceland",
-    "nord-irland": "northern ireland",
+    "nord irland": "northern ireland",
     "tsjekkia": "czech republic",
     "sveits": "switzerland",
     "skottland": "scotland",
@@ -122,8 +129,7 @@ _NO_TO_EN: dict[str, str] = {
     # Asia / Oceania
     "australia": "australia",
     "japan": "japan",
-    "sor-korea": "south korea",   # Sør-Korea → sor-korea after _norm()
-    "saudi-arabia": "saudi arabia",
+    "sor korea": "south korea",    # Sør-Korea → sor korea after _norm()
     "saudi arabia": "saudi arabia",
     # Other
     "qatar": "qatar",
@@ -139,7 +145,7 @@ _NO_TO_EN: dict[str, str] = {
     "rosenborg kvinner": "rosenborg w",
     "stabaek kvinner": "stabaek w",       # Stabæk → stabaek after _norm(); value also normalised
     "lsk kvinner": "lsk kvinner w",
-    "arna-bjornar": "arna-bjornar",       # Arna-Bjørnar → arna-bjornar after _norm()
+    "arna bjornar": "arna bjornar",        # Arna-Bjørnar → arna bjornar after _norm()
     "avaldsnes": "avaldsnes",
 }
 
@@ -160,6 +166,7 @@ def _norm(name: str) -> str:
         .replace("å", "a")   # å → a
         .replace("ð", "d")   # ð → d  (Icelandic)
         .replace("þ", "th")  # þ → th (Icelandic)
+        .replace("-", " ")   # hyphen → space (Ørn-Horten == Ørn Horten)
     )
     return " ".join(stripped.split())
 
@@ -207,7 +214,7 @@ def _get(endpoint: str, params: dict) -> dict:
             "  API_FOOTBALL_KEY=your_key_here\n"
             "Get a key at https://rapidapi.com/api-sports/api/api-football"
         )
-    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    qs = urllib.parse.urlencode(params)
     url = f"{_BASE}/{endpoint}?{qs}"
     req = urllib.request.Request(
         url,
