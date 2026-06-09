@@ -51,9 +51,12 @@ _NT_COMPETITION_MAP: list[tuple[str, int | None, int | None, str]] = [
     ("Toppserien",                      725,    2026,   "ok"),
     ("NFF Cup",                         105,    2026,   "ok"),
     ("NM Cup",                          105,    2026,   "ok"),
-    # International — Women's WC Qual (MUST come before "FIFA World Cup")
-    ("FIFA World Cup, Women, Qualification", None, 2026, "not_covered"),
-    ("World Cup, Women, Qualification", None, 2026, "not_covered"),
+    # International — Women's WC Qualification UEFA
+    # AF league 880 "World Cup - Women - Qualification Europe", season=2027
+    # (AF uses tournament year as the season label, not the calendar year of the qualifying rounds)
+    ("FIFA World Cup, Women, Qualification, UEFA", 880, 2027, "ok"),
+    ("FIFA World Cup, Women, Qualification",       880, 2027, "ok"),
+    ("World Cup, Women, Qualification",            880, 2027, "ok"),
     # International — Women's WC (tournament itself, MUST come before "FIFA World Cup")
     ("FIFA World Cup, Women",             6,    2027,   "ok"),
     # International — FIFA WC 2026 (Men)
@@ -68,11 +71,14 @@ _NT_COMPETITION_MAP: list[tuple[str, int | None, int | None, str]] = [
     ("Nations League",                    5,    2025,   "ok"),
 ]
 
-# Norwegian team name (lower-cased) → English (for API-Football matching)
+# Norwegian team name (lower-cased, pre-normalised) → English (for API-Football matching).
+# IMPORTANT: all keys must be in _norm() form (Nordic chars stripped: ø→o, æ→ae, å→a).
+# _norm() is applied before the dict lookup in translate_team_name(), so raw Nordic chars
+# in keys will never be found.  Use the post-norm ASCII form as the key.
 _NO_TO_EN: dict[str, str] = {
     # Scandinavian / European national teams
     "norge": "norway",
-    "østerrike": "austria",
+    "osterrike": "austria",       # Østerrike → osterrike after _norm()
     "tyskland": "germany",
     "frankrike": "france",
     "nederland": "netherlands",
@@ -104,19 +110,19 @@ _NO_TO_EN: dict[str, str] = {
     "turkiye": "turkey",
     "georgia": "georgia",
     "albania": "albania",
+    "polen": "poland",            # missing — added
     # Americas
     "brasil": "brazil",
     "marokko": "morocco",
     "elfenbenskysten": "ivory coast",
     "curacao": "curacao",
-    "curaçao": "curacao",
     "haiti": "haiti",
     "ecuador": "ecuador",
     "usa": "usa",
     # Asia / Oceania
     "australia": "australia",
     "japan": "japan",
-    "sør-korea": "south korea",
+    "sor-korea": "south korea",   # Sør-Korea → sor-korea after _norm()
     "saudi-arabia": "saudi arabia",
     "saudi arabia": "saudi arabia",
     # Other
@@ -125,16 +131,15 @@ _NO_TO_EN: dict[str, str] = {
     "tunis": "tunisia",
     "cape verde islands": "cape verde islands",
     # AF spelling variants (non-Norwegian, but AF spells differently from common English)
-    "turkiye": "turkey",     # API-Football uses Türkiye → normalizes to turkiye
     "ivory coast": "ivory coast",
     "cote d'ivoire": "ivory coast",
-    # Norwegian women's clubs (canonical AF spelling)
-    "vålerenga kvinner": "valerenga w",
+    # Norwegian women's clubs (canonical AF spelling, keys in post-norm form)
+    "valerenga kvinner": "valerenga w",   # Vålerenga → valerenga after _norm()
     "brann kvinner": "brann w",
     "rosenborg kvinner": "rosenborg w",
-    "stabæk kvinner": "stabæk w",
+    "stabaek kvinner": "stabaek w",       # Stabæk → stabaek after _norm(); value also normalised
     "lsk kvinner": "lsk kvinner w",
-    "arna-bjørnar": "arna-bjornar",
+    "arna-bjornar": "arna-bjornar",       # Arna-Bjørnar → arna-bjornar after _norm()
     "avaldsnes": "avaldsnes",
 }
 
