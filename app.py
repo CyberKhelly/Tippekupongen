@@ -1,12 +1,15 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
+from datetime import datetime as _dt
+
 from models.match import Match
 from analysis.probability import process_match
+from analysis.model import run_model
 from analysis.classifier import classify_match
 from analysis.optimizer import optimize_coupon
 from analysis.classifier import classification_label
-from data.coupon_week23_2026 import COUPONS
+from data.loader import load_coupons
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -16,16 +19,31 @@ st.set_page_config(
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-COUPON_KEYS   = list(COUPONS.keys())
-SHORT_LABELS  = {"midtuke": "Midtuke", "lordag": "Lørdag", "sondag": "Søndag"}
-DEADLINES     = {
-    "midtuke": "Fre. 5. juni · 17:55",
-    "lordag":  "Lør. 6. juni · 14:55",
-    "sondag":  "Søn. 7. juni · 15:55",
-}
+COUPONS = load_coupons()
+
+COUPON_KEYS = list(COUPONS.keys())
+
+_SHORT_LABEL_MAP = {"midtuke": "Midtuke", "lordag": "Lørdag", "sondag": "Søndag"}
+SHORT_LABELS = {k: _SHORT_LABEL_MAP.get(k, k.capitalize()) for k in COUPON_KEYS}
+
+_NO_DAYS   = ["Man.", "Tir.", "Ons.", "Tor.", "Fre.", "Lør.", "Søn."]
+_NO_MONTHS = ["", "jan.", "feb.", "mar.", "apr.", "mai", "jun.",
+              "jul.", "aug.", "sep.", "okt.", "nov.", "des."]
+
+def _fmt_deadline(iso: str) -> str:
+    try:
+        d = _dt.fromisoformat(iso)
+        return f"{_NO_DAYS[d.weekday()]} {d.day}. {_NO_MONTHS[d.month]} · {d.strftime('%H:%M')}"
+    except Exception:
+        return iso
+
+DEADLINES     = {k: _fmt_deadline(v["deadline"]) for k, v in COUPONS.items()}
 BUDGET_OPTS   = [32, 96, 192, 384]
 BUDGET_LABELS = {32: "Enkel", 96: "Balansert", 192: "Anbefalt", 384: "Høy dekning"}
 BUDGET_ROWS   = {32: 32, 96: 96, 192: 192, 384: 384}
+
+_iso        = _dt.now().isocalendar()
+_WEEK_LABEL = f"Uke {_iso.week} · {_iso.year}"
 
 # ── Session state defaults ─────────────────────────────────────────────────────
 if "coupon_key" not in st.session_state:
@@ -58,25 +76,28 @@ st.markdown("""
     align-items: flex-start !important;
 }
 /*
- * Button rows are stHorizontalBlock elements INSIDE another
- * stHorizontalBlock (the outer two-panel split).  Using the nested
- * pattern ".stApp … HBlock … HBlock" is more specific (0-3-0) than
- * the previous "column … HBlock" approach, AND it reliably identifies
- * only the selector rows, not the outer main split.
- *
- * grid-auto-flow:column + minmax(0,1fr) forces all items into ONE row
- * with equal widths — this cannot be overridden by flex-wrap:wrap.
+ * Selector rows: any stHorizontalBlock nested inside another.
+ * Keep display:flex (Streamlit's own model) but lock to one row with
+ * equal-width columns. Streamlit ≥1.40 renamed column data-testid
+ * from "column" to "stColumn"; both are listed for safety.
  */
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] {
-    display: grid !important;
-    grid-auto-flow: column !important;
-    grid-auto-columns: minmax(0, 1fr) !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
     gap: 5px !important;
+    align-items: stretch !important;
 }
-/* Grid items: zero minimum so they can shrink below content width */
+/* Equal-width columns: flex-basis 0 + flex-grow 1 → all the same */
+.stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    flex: 1 1 0 !important;
     min-width: 0 !important;
-    width: auto !important;
+    width: 0 !important;
+}
+/* stButton Box wrapper: fill column */
+.stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] [data-testid="stButton"] {
+    width: 100% !important;
+    display: block !important;
 }
 /* Buttons: fill column, no text wrap, slightly compact font */
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] button {
@@ -191,25 +212,31 @@ st.markdown("""
 }
 
 /* ── Buttons: selected = gold fill ──────────────────────────────── */
-button[kind="primary"] {
+button[kind="primary"],
+[data-testid="stBaseButton-primary"] {
     background-color: #f5c518 !important;
     color: #0b1623 !important;
     border: 2px solid #f5c518 !important;
     font-weight: 700 !important;
+    width: 100% !important;
     transition: background 0.12s, box-shadow 0.12s !important;
 }
-button[kind="primary"]:hover {
+button[kind="primary"]:hover,
+[data-testid="stBaseButton-primary"]:hover {
     background-color: #f7d045 !important;
     border-color: #f7d045 !important;
     box-shadow: 0 0 14px rgba(245,197,24,.28) !important;
 }
 /* ── Buttons: unselected = ghost ─────────────────────────────────── */
-button[kind="secondary"] {
+button[kind="secondary"],
+[data-testid="stBaseButton-secondary"] {
     background-color: rgba(255,255,255,0.04) !important;
     color: rgba(180,206,228,0.5) !important;
     border: 1px solid rgba(255,255,255,0.07) !important;
+    width: 100% !important;
 }
-button[kind="secondary"]:hover {
+button[kind="secondary"]:hover,
+[data-testid="stBaseButton-secondary"]:hover {
     background-color: rgba(255,255,255,0.09) !important;
     color: rgba(180,206,228,0.85) !important;
     border-color: rgba(255,255,255,0.18) !important;
@@ -283,11 +310,27 @@ iframe { border: none !important; }
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def load_matches(coupon_key: str) -> list[Match]:
+    # Fetch enrichment data (form, standings, NT tips) keyed by match_number.
+    # Fails silently so the app always works even without a DB or enrichment.
+    enrichment_map: dict[int, dict] = {}
+    try:
+        from db.schema import init_db
+        from db.enrichment import get_coupon_enrichment
+        init_db()
+        coupon_id = f"{coupon_key}-{_iso.week:02d}-{_iso.year}"
+        for row in get_coupon_enrichment(coupon_id):
+            enrichment_map[row["match_number"]] = row
+    except Exception:
+        pass
+
     matches = []
-    for i, (home, away, oh, ou, ob) in enumerate(COUPONS[coupon_key]["matches"], 1):
+    for i, row in enumerate(COUPONS[coupon_key]["matches"], 1):
+        home, away, oh, ou, ob = row[:5]
+        src = row[5] if len(row) > 5 else ""
         m = Match(number=i, home_team=home, away_team=away,
-                  odds_h=oh, odds_u=ou, odds_b=ob)
+                  odds_h=oh, odds_u=ou, odds_b=ob, odds_source=src)
         process_match(m)
+        run_model(m, enrichment_map.get(i))   # Phase 5: unified model
         classify_match(m)
         matches.append(m)
     return matches
@@ -502,6 +545,22 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         f'</tr>'
     )
 
+    _src_badge = {
+        "nt_expert":   ('<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;'
+                        'background:#1a2d1a;color:#4a9a4a;margin-left:5px;vertical-align:middle;">Tips</span>'),
+        "placeholder": ('<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;'
+                        'background:#1a1a1a;color:#444;margin-left:5px;vertical-align:middle;">—</span>'),
+    }
+
+    def _src_tag(src: str) -> str:
+        if not src or src == "pinnacle":
+            return ""
+        if src in _src_badge:
+            return _src_badge[src]
+        # Other bookmakers (betsson, unibet_se, etc.) → "Alt" badge
+        return ('<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;'
+                'background:#1a1e2e;color:#5a7a96;margin-left:5px;vertical-align:middle;">Alt</span>')
+
     rows_html = ""
     for i, m in enumerate(matches):
         n        = len(picks[m.number])
@@ -510,12 +569,12 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         cbg, cfg = conf_colors(conf_val)
         vbg, vfg = _cov_colors[cov_lbl]
         row_bg   = "rgba(255,255,255,0.02)" if i % 2 == 0 else "transparent"
+        src_tag  = _src_tag(m.odds_source)
 
-        # Build exactly 8 <td> cells per row — one f-string per cell, no multi-line splits.
         rows_html += (
             f'<tr style="background:{row_bg};">'
             f'<td style="{_td_base}color:#2e4a64;text-align:center;">{m.number}</td>'
-            f'<td style="{_td_base}color:#c8ddf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">{m.label}</td>'
+            f'<td style="{_td_base}color:#c8ddf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">{m.label}{src_tag}</td>'
             f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_h*100,1)}%</td>'
             f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_u*100,1)}%</td>'
             f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_b*100,1)}%</td>'
@@ -541,7 +600,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Full-width header ──────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <div class="app-header-row">
   <div class="logo-lockup">
     <div class="logo-mark">
@@ -560,7 +619,7 @@ st.markdown("""
       <div class="app-subtitle">Basert på estimerte odds · oppdateres ukentlig</div>
     </div>
   </div>
-  <div class="app-meta-date">Uke 23 · 2026</div>
+  <div class="app-meta-date">{_WEEK_LABEL}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -641,6 +700,52 @@ with left_col:
   <div class="s-cell"><div class="s-val {rem_cls}">{rem_str} NOK</div><div class="s-key">Rest</div></div>
 </div>
 """, unsafe_allow_html=True)
+
+    # ── Save coupon snapshot ───────────────────────────────────────────────────
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    if st.button("💾 Lagre kupong", use_container_width=True, type="secondary"):
+        from db.schema import init_db
+        from db.coupon import get_coupon_matches, get_best_odds
+        from db.history import save_prediction
+
+        init_db()
+        coupon_id = f"{coupon_key}-{_iso.week:02d}-{_iso.year}"
+        db_matches = get_coupon_matches(coupon_id)
+        fid_map = {r["match_number"]: r["fixture_id"] for r in db_matches}
+
+        saved = 0
+        missing = 0
+        for m in matches:
+            fid = fid_map.get(m.number)
+            if not fid:
+                missing += 1
+                continue
+            best = get_best_odds(fid)
+            oh = best["odds_h"] if best else None
+            ou = best["odds_u"] if best else None
+            ob = best["odds_b"] if best else None
+            os_ = best["source"] if best else None
+            save_prediction(
+                coupon_id=coupon_id,
+                fixture_id=fid,
+                match_number=m.number,
+                recommended_pick=m.recommendation,
+                picks=picks[m.number],
+                confidence=m.confidence,
+                implied_prob_h=m.prob_h,
+                implied_prob_u=m.prob_u,
+                implied_prob_b=m.prob_b,
+                odds_h=oh, odds_u=ou, odds_b=ob,
+                odds_source=os_,
+            )
+            saved += 1
+
+        if saved == len(matches):
+            st.success(f"Kupong lagret! ({saved} kamper)")
+        elif saved > 0:
+            st.warning(f"{saved} av {len(matches)} lagret. {missing} kamp(er) mangler fixture_id — kjør sync først.")
+        else:
+            st.error("Kunne ikke lagre: kupongen er ikke i databasen ennå. Kjør `python sync.py --seed-only` først.")
 
 # ╔══════════════════════════════════════════════════════╗
 # ║  RIGHT PANEL — analysis table (always visible)       ║

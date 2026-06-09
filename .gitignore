@@ -31,3 +31,11 @@ streamlit_run.log
 streamlit_err.log
 sl_*.log
 sl2_*.log
+
+# Database (generated — do not commit)
+data/tippekupongen.db
+data/tippekupongen.db-shm
+data/tippekupongen.db-wal
+
+# Secrets
+.env

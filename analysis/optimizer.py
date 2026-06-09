@@ -1,6 +1,37 @@
 from models.match import Match
 
 
+def _effective_confidence(m: Match) -> float:
+    """
+    Confidence adjusted for crowd value signals (Phase 5).
+
+    If the crowd strongly underplays the model's top pick (positive value on
+    that outcome), effective confidence is raised slightly → less coverage
+    needed.  The crowd is on our side from a pool-value perspective.
+
+    If the crowd strongly overplays the model's top pick (negative value →
+    herd risk), effective confidence is lowered slightly → more coverage,
+    since being wrong here costs more relative to the pool payout.
+
+    Adjustment is capped at ±2pp so it only tips borderline decisions and
+    never overrides the model's probability signal.
+    """
+    conf = m.confidence
+    if not m.has_public_tips:
+        return conf
+
+    vals      = {"H": m.value_h, "U": m.value_u, "B": m.value_b}
+    top_value = vals.get(m.recommendation)
+    if top_value is None:
+        return conf
+
+    if top_value > 10.0:      # crowd underplaying our pick by > 10pp
+        return min(conf + 0.02, 1.0)
+    if top_value < -15.0:     # crowd overplaying our pick by > 15pp
+        return max(conf - 0.02, 0.0)
+    return conf
+
+
 def optimize_coupon(
     matches: list[Match],
     budget_nok: float,
@@ -25,11 +56,13 @@ def optimize_coupon(
        192  NOK → 1 full cover  + 6 half covers = 192 rows
        384  NOK → 1 full cover  + 7 half covers = 384 rows
 
-    Half covers pick the top-2 outcomes by normalised probability.
+    Phase 5: coverage ranking uses _effective_confidence() which nudges
+    borderline matches based on crowd value signals (±2pp cap).
+    Half covers pick the top-2 outcomes by model probability.
     Full covers pick all three.
     """
     max_rows = max(1, int(budget_nok / cost_per_row))
-    n = len(matches)
+    n        = len(matches)
 
     best_rows = 1
     best_nf   = 0   # n_full_covers
@@ -43,8 +76,8 @@ def optimize_coupon(
                 best_nf   = nf
                 best_nh   = nh
 
-    # Assign deepest coverage to least confident matches
-    ranked = sorted(matches, key=lambda m: m.confidence)
+    # Assign deepest coverage to least confident matches (Phase 5: crowd-adjusted)
+    ranked = sorted(matches, key=_effective_confidence)
 
     assignments: dict[int, int] = {}
     for i, m in enumerate(ranked):
