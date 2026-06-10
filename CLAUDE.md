@@ -45,6 +45,7 @@ decimal odds
 - Two-column split `[5, 6]`: left = controls + coupon card; right = analysis table
 - Coupon card and analysis table are rendered as raw HTML via `components.html()` and `st.markdown(unsafe_allow_html=True)` — they are not Streamlit widgets
 - Selector rows (coupon tabs, budget cards) use `st.columns` + `st.button` with `type="primary"/"secondary"` toggled by session state
+- EV panel + strategy comparison table live in the left column, below the coupon card
 
 ## Streamlit CSS notes
 
@@ -59,6 +60,8 @@ Selector rows use `display: flex` (not grid) with `flex: 1 1 0` on columns so al
 
 Button state (selected = gold fill, unselected = ghost) is driven by `type="primary"/"secondary"` — target both `button[kind="primary"]` and `[data-testid="stBaseButton-primary"]` for robustness.
 
+**HTML-inside-markdown pitfall:** Streamlit's CommonMark parser exits an HTML block on a blank line, then treats the next 4-space-indented content as a code block. Any complex HTML built from dynamic Python strings must use `components.html()` with self-contained inline CSS rather than `st.markdown(unsafe_allow_html=True)`. The strategy comparison table uses this pattern.
+
 ## Resume Instructions
 
 When starting a new Claude Code session on this project:
@@ -66,7 +69,14 @@ When starting a new Claude Code session on this project:
 1. **Read CLAUDE.md** — confirms what is already built; do not re-implement completed phases.
 2. **Run `python sync.py --validate`** — confirms the database is clean and which checks are warnings vs failures (24 checks total).
 3. **Run `python sync.py --status`** — shows which coupons and fixtures are in the DB for the current week.
-4. **Run `python verify_model.py`** — prints model probabilities, picks, and coverage for all 3 coupons; confirms the pipeline is consistent across Kampanalyse, Statistikk, and coupon generation.
+4. **Run model verification for all strategies:**
+   ```bash
+   python verify_model.py --strategy safe
+   python verify_model.py --strategy balanced
+   python verify_model.py --strategy value
+   python verify_model.py --strategy jackpot
+   ```
+   Confirms the pipeline is consistent across Kampanalyse, Statistikk, and coupon generation.
 5. **Confirm app state** — if the Streamlit app is needed, run `streamlit run app.py` and visually verify the main page and existing pages load without errors before touching any code.
 6. **Only then continue with new work** — agree on specific scope before writing any code.
 
@@ -153,19 +163,46 @@ The optimizer runs in two stages:
 
 ### Safe
 
-Maximises the probability of predicting all 12 outcomes correctly. Coverage ranking is based purely on model confidence — crowd signals ignored entirely. Produces the highest P(win) of the four strategies. Contrarian halvdekk substitution never occurs (`contrarian_pp_tolerance = 0`). Best when you want maximum hit-rate protection with no pool-edge optimisation.
+**Objective:** Maximise the probability of predicting all 12 outcomes correctly.
+
+**Behaviour:** Coverage ranking is based purely on model confidence — crowd signals ignored entirely. Produces the highest P(win) of the four strategies. Contrarian halvdekk substitution never occurs (`contrarian_pp_tolerance = 0`).
+
+**Tradeoff:** Highest P(12/12). Lowest PVR and lowest expected payout per winning row, because the coupon tends to follow the crowd on high-confidence matches. Best when you want maximum hit-rate protection with no pool-edge optimisation.
 
 ### Balanced (default)
 
-Default mode. Applies a small directional nudge from public tip percentages when ranking matches for coverage. Always uses the full budget (100% row-floor). Allows mild contrarian halvdekk substitution (within 4pp probability gap, only when the third outcome's Value Index exceeds the second's by ≥0.20). A good all-round starting point for most coupons.
+**Objective:** Balance hit-rate with mild pool uniqueness.
+
+**Behaviour:** Applies a small directional nudge from public tip percentages when ranking matches for coverage. Always uses the full budget (100% row-floor). Allows mild contrarian halvdekk substitution (within 4pp probability gap, only when the third outcome's Value Index exceeds the second's by ≥0.20).
+
+**Tradeoff:** Slightly lower P(win) than Safe. Better PVR and higher expected median payout. A good all-round starting point for most coupons.
 
 ### Value
 
-CDS-driven coverage. Matches where the model strongly disagrees with the crowd receive more coverage regardless of raw model confidence (CDS weight 0.20). Allows contrarian halvdekk substitution within 10pp. Accepts a slightly lower P(win) in exchange for a better Pool Value Ratio. Best when the public tips look systematically wrong on several fixtures.
+**Objective:** Promote underplayed outcomes into deeper coverage using crowd disagreement.
+
+**Behaviour:** CDS-driven coverage; matches where the model strongly disagrees with the crowd receive more coverage regardless of raw model confidence (CDS weight 0.20). Allows contrarian halvdekk substitution within 10pp.
+
+**Tradeoff:** Lower P(win) than Safe/Balanced. Higher PVR than Safe; typically similar to or slightly below Balanced (depends on which CDS matches also have high PVI). Higher expected median payout than Safe. Best when the public tips look systematically wrong on several fixtures.
 
 ### Jackpot
 
-Maximises Pool Value Ratio (PVR) subject to a 0.3% P(win) floor. CDS weight is 0.35 — the strongest of all modes, making crowd disagreement the primary driver of which matches receive halvdekk coverage. Eliminates heldekk when halvdekk on an uncertain match yields better PVR (heldekk covers everything → contributes nothing to pool uniqueness). Allows contrarian substitution within 15pp. Produces the lowest P(win) and the highest expected payout per winning row. Best reserved for large-turnover draws.
+**Objective:** Maximise Pool Value Ratio (expected payout per winning row).
+
+**Behaviour:** CDS weight is 0.35 — the strongest of all modes, making crowd disagreement the primary driver of which matches receive halvdekk coverage. Eliminates heldekk when halvdekk on an uncertain match yields better PVR (heldekk covers everything → contributes nothing to pool uniqueness). Allows contrarian substitution within 15pp. P(win) floor of 0.3%.
+
+**Tradeoff:** Lowest P(win) of the four strategies. Highest PVR and highest expected median payout per winning row. Produces fewer rows than Balanced/Value (typically 128 vs 192 at a 192-NOK budget) because it trades row count for uniqueness. Best reserved for large-turnover draws where pool dilution is high.
+
+### Strategy tradeoff summary (typical 192 NOK / 15 M NOK omsetning)
+
+| Strategy | P(12/12) | PVR | Median payout | Shape |
+|---|---|---|---|---|
+| Safe | Highest | Lowest | Lowest | 162 rows, more singles |
+| Balanced | High | Good | Moderate | 192 rows, balanced |
+| Value | Moderate | Good | Moderate–High | 192 rows, CDS-weighted |
+| Jackpot | Lowest | Highest | Highest | 128 rows, no heldekk |
+
+Actual numbers vary per coupon. The strategy comparison panel in the app (Strategisammenligning) always shows the current-coupon values for all four strategies side by side.
 
 ### Halvdekk second-pick substitution
 
@@ -190,9 +227,9 @@ Safe never substitutes. Parameters per strategy are defined in `analysis/strateg
 
 ## Pool Value Metrics
 
-Computed in `analysis/pool_value.py`. Displayed in the Kampanalyse table, Statistikk page, and `verify_model.py` output.
+Computed in `analysis/pool_value.py`. Displayed in the Kampanalyse table, Statistikk page, `verify_model.py` output, and the EV panel in `app.py`.
 
-### P(win)
+### P(12/12) — win probability
 
 **What:** Exact probability that the coupon covers all 12 match outcomes.
 
@@ -245,11 +282,35 @@ where `P_public_win = Π_i Σ_{X ∈ picks_i} pub_prob(X, i)`.
 - < 1.0 — negative edge; our combination is popular with the crowd
 - Returns `None` when fewer than 6 of 12 matches have public tip data
 
+### Payout percentiles (simulation outputs)
+
+Produced by `simulate_payout()` and shown in the EV panel when omsetning is set. All figures are NOK per winning row, conditional on the coupon hitting all 12.
+
+| Field | Meaning |
+|---|---|
+| `min` | Minimum payout observed across all winning simulation draws |
+| `p10` | 10th-percentile payout — only 10% of wins pay less than this |
+| `median` | Median payout — half of wins pay more, half less |
+| `p90` | 90th-percentile payout — only 10% of wins pay more than this |
+| `max` | Maximum payout observed across all winning simulation draws |
+
+The spread between P10 and P90 reflects the Poisson variance in winner counts. A high PVR narrows the winner count distribution (fewer co-winners) and shifts all percentiles upward.
+
+### Expected winners (e_winners)
+
+**What:** Mean number of total winning rows sharing the prize pool across all winning simulation draws. Includes our 1 winning row.
+
+**Formula:** `e_winners = mean(w_others + 1)` across winning draws.
+
+**Interpretation:** Lower = better. When e_winners is small (e.g. 2–10), the coupon's combination is rare in the pool and the payout is high. When e_winners is large (e.g. 1,000+), the pick is popular and payout is diluted. High PVR corresponds to low e_winners.
+
 ---
 
 ## Payout Simulator (Phase 7)
 
 NT Tippekupongen is a parimutuel pool: `payout = prize_pool / n_winning_rows`. The simulator (`analysis/pool_value.py → simulate_payout()`) estimates the payout distribution for a given coupon and turnover.
+
+**Important: all outputs are simulation estimates. Actual NT payouts depend on real omsetning, winner count, and NT's prize allocation rules. Do not present simulation figures as guaranteed payouts.**
 
 ### Algorithm
 
@@ -257,8 +318,8 @@ For each of 50,000 simulation draws:
 
 1. **Sample outcome** — draw one result (H/U/B) per match from model probabilities.
 2. **Check coverage** — skip this draw if the coupon does not cover the sampled outcome.
-3. **Compute public probability** — `p_pub = Π_i pub_prob(outcome_i, i)` using normalised public tip fractions.
-4. **Sample other winners** — `w_others ~ Poisson((N − n_rows) × p_pub)` where `N = omsetning / cost_per_row`.
+3. **Compute public probability** — `p_pub = Π_i pub_prob(outcome_i, i)` using normalised public tip fractions. This estimates how popular this exact 12-match outcome is among the ticket-buying public.
+4. **Sample other winners** — `w_others ~ Poisson((N − n_rows) × p_pub)` where `N = omsetning / cost_per_row`. Poisson sampling adds realistic variance: on any given draw, winner counts fluctuate around their expected value.
 5. **Compute payout** — `prize_pool / max(1, w_others + 1)`.
 
 ### Corrected denominator formula
@@ -269,7 +330,7 @@ total_winners = other_winners + 1
 payout        = prize_pool / total_winners
 ```
 
-**Why `+ 1` not `+ n_rows`:** For any specific 12-match outcome, exactly one row in our coupon can match it — our system is a set of distinct rows. Adding `n_rows` would assume all rows win simultaneously, which is impossible and causes payouts to be systematically understated by a factor of ~n_rows.
+**Why `+ 1` not `+ n_rows`:** For any specific 12-match outcome, exactly one row in our coupon can match it — our system is a set of distinct rows covering different combinations. Adding `n_rows` would assume all rows win simultaneously, which is impossible and causes payouts to be systematically understated by a factor of ~n_rows.
 
 **Why `N − n_rows` for other winners:** Our rows are already accounted for in the `+ 1` term. Other winners are drawn from the remaining `N − n_rows` tickets in the pool.
 
@@ -280,7 +341,7 @@ Winner counts are sampled from a Poisson distribution rather than using the expe
 - For `λ ≤ 200`: Knuth algorithm (exact)
 - For `λ > 200`: Gaussian approximation (`max(0, round(λ + √λ × N(0,1)))`)
 
-### Outputs
+### Simulation outputs
 
 | Field | Meaning |
 |---|---|
@@ -292,9 +353,49 @@ Winner counts are sampled from a Poisson distribution rather than using the expe
 | `max` | Maximum observed payout |
 | `mean` | Mean payout |
 | `e_winners` | Average number of winning rows sharing the pot |
-| `narrative` | Norwegian explanation of why the median is high or low |
+| `narrative` | Norwegian explanation: winner count, PVR context, underplayed singles |
 
 Activate via `--omsetning <NOK>` in `verify_model.py`. Default: 50,000 draws, `prize_rate = 52%`, `cost_per_row = 1.0 NOK`.
+
+---
+
+## EV Panel and Payout UI (Phase 7 refinement — commit 5235e6e)
+
+The left column of `app.py` displays an "Estimert verdi" panel below the coupon card.
+
+### EV panel structure
+
+**Top row (always visible):**
+- **Sjanse 12/12** — analytical P(win) as a percentage; green ≥5%, amber ≥1%, red <1%
+- **Poolverdi ratio** — PVR; green ≥1.0×, red <1.0×
+- **Verdivalg** — count of single-pick matches where model_prob > public_tip for the recommended pick
+
+**Payout section (visible when omsetning > 0 is entered):**
+- Section heading: "Estimert utdeling ved 12/12"
+- Five-cell grid: **Min · P10 · Median (gold) · P90 · Max** (all in NOK)
+- Winner line: "Vinnere ved gevinst (snitt): ~N rekker deler potten"
+- Strategy narrative (italic): one-line explanation of what the active strategy optimises for and the payout tradeoff
+- Pool narrative: context on winner count, PVR multiplier, and count of underplayed singles
+- Amber sim-warn box: "⚠ Simuleringsestimat — ikke garantert utbetaling · 50 000 simuleringer · 52% premieandel · Omsetning X NOK"
+
+**Strategy comparison table (always visible):**
+
+Rendered via `components.html()` with self-contained inline CSS (not `st.markdown`) to bypass CommonMark's HTML-block parsing. Shows all four strategies for the current coupon and budget:
+
+| Strategi | 12/12 | PVR | Median * |
+|---|---|---|---|
+| Safe | % | ×× | kr (if omsetning set) |
+| ▶ Balansert | % | ×× | kr |
+| Verdi | % | ×× | kr |
+| Jackpot | % | ×× | kr |
+
+Active strategy is highlighted in bright white/bold. PVR is colour-coded green (≥1.0×) or red (<1.0×) for the active row only. The Median column appears only when omsetning is set; comparison simulations use 10,000 draws per strategy.
+
+**Crowd warning:** If PVR < 0.85, an amber warning appears: "⚠ Kupongen er nær folkets valg — vurder Verdi eller Jackpot strategi".
+
+### Omsetning input
+
+Located in a collapsible expander below the comparison table. Uses `on_change` callback (`_on_om_change`) to write `st.session_state.omsetning` before the next render, ensuring the payout panel appears immediately on the first render after the user enters a value (rather than requiring two consecutive rerenders via session state propagation).
 
 ---
 
@@ -307,7 +408,7 @@ python sync.py --daily        # fetch NT coupons, odds, AF enrichment, validate 
 python sync.py --validate     # re-check DB integrity at any time
 ```
 
-### Model verification (optional, before placing coupon)
+### Model verification (run before placing coupon)
 
 ```bash
 python verify_model.py --strategy safe
@@ -319,7 +420,7 @@ python verify_model.py --strategy jackpot
 python verify_model.py --strategy balanced --omsetning 15000000
 ```
 
-`verify_model.py` is the authoritative check that the pipeline is consistent across Kampanalyse, Statistikk, and coupon generation. If output here looks wrong, the app will show the same wrong values.
+`verify_model.py` is the authoritative check that the pipeline is consistent across Kampanalyse, Statistikk, and coupon generation. If output here looks wrong, the app will show the same wrong values. Run all four strategies before placing a coupon — the comparison table in the app reflects the same numbers.
 
 ---
 
@@ -351,6 +452,8 @@ The four budget presets (32/96/192/384 NOK) are deliberately chosen to achieve e
 
 Thresholds in `analysis/classifier.py` control match classification and can be tuned without touching any other file.
 
+---
+
 ## Current Project Status
 
 ### Completed phases
@@ -367,6 +470,7 @@ Thresholds in `analysis/classifier.py` control match classification and can be t
 | 6B | Pool value analytics — `analysis/pool_value.py`; P(win), PVR, payout simulation; verify_model.py extended | Complete |
 | 6C | Strategy system — `analysis/strategy.py`; four modes (safe/balanced/value/jackpot); strategy-aware optimizer | Complete |
 | 7 | Corrected parimutuel payout simulator — fixed denominator (`+1` not `+n_rows`), Poisson winner variance, `e_winners`, narrative | Complete |
+| 7 UI | EV panel refinement — 5-cell payout grid (Min/P10/Median/P90/Max), strategy comparison table, sim-warn box, strategy narrative, on_change omsetning input (commit 5235e6e) | Complete |
 
 ### Current architecture
 
@@ -410,7 +514,7 @@ Models
 
 | File | Page | Purpose |
 |---|---|---|
-| `app.py` | Main | Coupon selector, analysis table, save coupon (Lagre kupong) |
+| `app.py` | Main | Coupon selector, analysis table, EV panel, strategy comparison, save coupon (Lagre kupong) |
 | `pages/1_Team_Review.py` | Team Review | Inspect teams flagged for manual gender/age review |
 | `pages/2_Results.py` | Resultater | Enter match scores after games are played |
 | `pages/3_History.py` | Historikk | Evaluated coupons — hit rate, cover rate, CLV |
@@ -626,11 +730,19 @@ python sync.py --daily
 #    Safe to run multiple times — all steps are idempotent.
 
 python sync.py --validate     # run separately to re-check integrity at any time
-python verify_model.py        # print model picks/probabilities/coverage for all 3 coupons
+
+# Run all four strategies before placing a coupon:
+python verify_model.py --strategy safe
+python verify_model.py --strategy balanced
+python verify_model.py --strategy value
+python verify_model.py --strategy jackpot
+python verify_model.py --strategy balanced --omsetning 15000000   # with payout simulation
 
 # 2. Before the deadline — open the app and save your coupon
 streamlit run app.py
-#    Select coupon, review recommendations, click "Lagre kupong".
+#    Select coupon, review recommendations, enter omsetning for payout estimates,
+#    compare all four strategies in the Strategisammenligning panel,
+#    click "Lagre kupong".
 
 # 3. After kickoff (Saturday/Sunday evening)
 python sync.py --mark-closing-odds
@@ -678,11 +790,13 @@ Module: `analysis/estimated_prior.py → compute_estimated_prior()`.
 
 Features that may be implemented in future phases. Do not implement any of these without an explicit instruction.
 
-| Area | Description |
-|---|---|
-| Historical model evaluation | Calibration analysis — compare model probabilities to actual outcomes over all saved coupons; measure Brier score and log-loss per odds source |
-| Payout simulator improvements | Incorporate NT prize tier structure (12/12, 11/12, 10/12 tiers) into the simulation; use real historical NT omsetning data for more accurate expected winner counts |
-| xG integration | Add expected goals as an additional stats signal in `analysis/model.py`; currently documented as an extension point but not implemented |
-| Expected value optimisation | Combine P(win), PVR, and median payout into a single EV metric for coupon comparison across strategies |
-| Winner share estimation | Improve `p_public(outcome)` accuracy using NT's public tip percentages more directly, accounting for systematic biases in how the public tips home vs away |
-| Strategy calibration | Backtest the four strategies against historical NT results to measure which strategy produces the best return per NOK across different fixture types |
+| Phase | Area | Description |
+|---|---|---|
+| 8 | Historical evaluation / backtesting | Compare saved coupon predictions vs actual outcomes. Track hit rate (exact 12/12), cover rate, and P(at least 10/12) over time. Compare Safe/Balanced/Value/Jackpot side-by-side to identify which strategy has performed best over the sample. |
+| 8 | Model calibration | Measure how well model probabilities correspond to actual outcome frequencies. Compute Brier score and log-loss per fixture and per odds source. Compare model vs bookmaker implied probability vs public tip percentage vs NT expert. |
+| 8 | Payout tracking | Record actual NT payouts for weeks where a 12/12 was achieved. Compare actual payout vs simulator median estimate. Track whether PVR predicts higher actual payouts over time. |
+| — | Payout simulator improvements | Incorporate NT prize tier structure (12/12, 11/12, 10/12 tiers) into the simulation; use real historical NT omsetning data for more accurate expected winner counts |
+| — | xG integration | Add expected goals as an additional stats signal in `analysis/model.py`; currently documented as an extension point but not implemented |
+| — | Expected value optimisation | Combine P(win), PVR, and median payout into a single EV metric for coupon comparison across strategies |
+| — | Winner share estimation | Improve `p_public(outcome)` accuracy using NT's public tip percentages more directly, accounting for systematic biases in how the public tips home vs away |
+| — | Strategy calibration | Backtest the four strategies against historical NT results to measure which strategy produces the best return per NOK across different fixture types |
