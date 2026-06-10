@@ -63,6 +63,12 @@ _STRATEGY_COLORS = {          # badge colours for the EV panel
     "value":    ("#0c2a14", "#3aaa78"),
     "jackpot":  ("#2a0c0c", "#e07a5f"),
 }
+_STRATEGY_NARRATIVES = {
+    "safe":     "Safe ignorerer folkemening — maksimerer 12/12-sjansen, men gir lavest forventet utdeling.",
+    "balanced": "Balansert bruker mild crowd-justering — god balanse mellom sjanse og poolunikhet.",
+    "value":    "Verdi lar crowd-avvik (CDS) styre halvdekk — noe lavere 12/12-sjanse, høyere forventet utdeling.",
+    "jackpot":  "Jackpot maksimerer PVR — lavest 12/12-sjanse, men høyest forventet utdeling ved gevinst.",
+}
 
 # ── Session state defaults ─────────────────────────────────────────────────────
 if "coupon_key" not in st.session_state:
@@ -73,6 +79,8 @@ if "strategy" not in st.session_state:
     st.session_state.strategy = DEFAULT_STRATEGY
 if "omsetning" not in st.session_state:
     st.session_state.omsetning = None
+if "_om_raw" not in st.session_state:
+    st.session_state._om_raw = 0
 
 # ── Global CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -397,6 +405,50 @@ iframe { border: none !important; }
 .ev-warning {
     margin-top: 5px; font-size: 8.5px; color: #c8960e;
     padding: 3px 7px; background: rgba(200,150,14,0.06); border-radius: 3px;
+}
+/* ── Strategy comparison table ──────────────────────────────────── */
+.strat-cmp {
+    margin-top: 8px;
+    padding: 7px 10px 8px;
+    background: rgba(255,255,255,0.015);
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 7px;
+}
+.strat-cmp-hdr-row {
+    font-size: 7.5px; color: #2e4a64; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 5px;
+}
+.strat-cmp-grid {
+    display: grid; gap: 0;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 4px; overflow: hidden;
+}
+.strat-cmp-th {
+    font-size: 6.5px; color: #2e4a64; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 3px 5px;
+    background: rgba(255,255,255,0.025);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    text-align: center;
+}
+.strat-cmp-td {
+    font-size: 8.5px; padding: 4px 5px; color: #4a6a88;
+    border-top: 1px solid rgba(255,255,255,0.03);
+    text-align: center;
+}
+.strat-cmp-td.cmp-name { text-align: left; color: #5a7a98; }
+.strat-cmp-td.cmp-active { color: #c8ddf0; background: rgba(255,255,255,0.04); font-weight: 700; }
+.strat-cmp-td.cmp-active.cmp-name { color: #e0eaf4; }
+/* ── Strategy narrative + sim-warn ──────────────────────────────── */
+.strat-note {
+    font-size: 8px; color: #4a7090; margin: 4px 0 2px; font-style: italic;
+}
+.sim-warn {
+    margin-top: 6px; padding: 4px 8px;
+    background: rgba(200,150,14,0.06);
+    border-left: 2px solid rgba(200,150,14,0.5);
+    border-radius: 0 3px 3px 0;
+    font-size: 8px; color: #c8960e; line-height: 1.5;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -906,36 +958,41 @@ with left_col:
         _ew = _sim.get("e_winners", "—")
         _ew_str = f"{_ew:,}" if isinstance(_ew, int) else "—"
         _narrative = _sim.get("narrative", "")
+        _strat_note = _STRATEGY_NARRATIVES[strategy]
         _payout_html = f"""
 <div class="ev-payout">
-  <div class="ev-payout-label">Estimert utdeling ved 12/12 *</div>
+  <div class="ev-payout-label">Estimert utdeling ved 12/12</div>
   <div class="ev-payout-grid">
     <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['min']:,} kr</div>
+      <div class="ev-payout-val">{_sim['min']:,}</div>
       <div class="ev-payout-key">Min</div>
     </div>
     <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['median']:,} kr</div>
+      <div class="ev-payout-val">{_sim['p10']:,}</div>
+      <div class="ev-payout-key">P10</div>
+    </div>
+    <div class="ev-payout-cell">
+      <div class="ev-payout-val" style="color:#f5c518;">{_sim['median']:,}</div>
       <div class="ev-payout-key">Median</div>
     </div>
     <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['p90']:,} kr</div>
+      <div class="ev-payout-val">{_sim['p90']:,}</div>
       <div class="ev-payout-key">P90</div>
     </div>
     <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['max']:,} kr</div>
+      <div class="ev-payout-val">{_sim['max']:,}</div>
       <div class="ev-payout-key">Max</div>
     </div>
   </div>
-  <div style="font-size:8px;color:#3a5a78;margin-top:4px;">
-    Vinnere ved gevinst (snitt): ~{_ew_str} rekker
+  <div style="font-size:7.5px;color:#3a5a78;margin-top:4px;">
+    Vinnere ved gevinst (snitt): ~{_ew_str} rekker deler potten
   </div>
-  <div style="font-size:8px;color:#3a5a78;margin-top:3px;font-style:italic;">
-    {_narrative}
-  </div>
-  <div class="ev-disclaimer">
-    * Estimat — omsetning {_omsetning:,.0f} NOK, premieandel 52%.
-    Faktisk utdeling kan avvike vesentlig.
+  <div class="strat-note">{_strat_note}</div>
+  <div style="font-size:7.5px;color:#3a5a78;margin-top:1px;font-style:italic;">{_narrative}</div>
+  <div class="sim-warn">
+    ⚠ Simuleringsestimat — ikke garantert utbetaling &nbsp;·&nbsp;
+    50 000 simuleringer &nbsp;·&nbsp; 52% premieandel &nbsp;·&nbsp;
+    Omsetning {_omsetning:,.0f} NOK
   </div>
 </div>"""
 
@@ -966,17 +1023,131 @@ with left_col:
 </div>
 """, unsafe_allow_html=True)
 
+    # ── Strategy comparison table ──────────────────────────────────────────────
+    _cmp_data: list[tuple] = []
+    for _sk in _STRATEGY_KEYS:
+        _sp, _sr = optimize_coupon(matches, float(budget), strategy=_sk)
+        _cmp_pw  = compute_p_win(matches, _sp)
+        _cmp_pvr = compute_pool_value_ratio(matches, _sp)
+        _cmp_med: int | None = None
+        if _omsetning and _omsetning > 0:
+            _csim = simulate_payout(
+                matches, _sp, _sr, float(_omsetning), n_sims=10_000
+            )
+            if _csim.get("n_winning_sims", 0) > 0:
+                _cmp_med = _csim["median"]
+        _cmp_data.append((_sk, _cmp_pw, _cmp_pvr, _cmp_med))
+
+    _has_med_col = any(d[3] is not None for d in _cmp_data)
+    _grid_tpl = "2.3fr 1.4fr 1.4fr 2fr" if _has_med_col else "2.8fr 1.5fr 1.5fr"
+    _med_hdr  = '<div class="strat-cmp-th">Median *</div>' if _has_med_col else ""
+
+    _cmp_rows_html = ""
+    for _sk, _cpw, _cpvr, _cmed in _cmp_data:
+        _is_act = _sk == strategy
+        _ac     = "cmp-active" if _is_act else ""
+        _lbl    = ("▶ " if _is_act else " ") + _STRATEGY_LABELS[_sk]
+        _pw_s   = f"{_cpw * 100:.2f}%"
+        _pvr_s  = f"{_cpvr:.2f}×" if _cpvr is not None else "—"
+        _pvr_c  = ""
+        if _is_act and _cpvr is not None:
+            _pvr_c = f" style=\"color:{'#3aaa78' if _cpvr >= 1.0 else '#e07a5f'};\""
+        _cmp_rows_html += (
+            f'<div class="strat-cmp-td cmp-name {_ac}">{_lbl}</div>'
+            f'<div class="strat-cmp-td {_ac}">{_pw_s}</div>'
+            f'<div class="strat-cmp-td {_ac}"{_pvr_c}>{_pvr_s}</div>'
+        )
+        if _has_med_col:
+            _med_s = f"{_cmed:,} kr" if _cmed is not None else "—"
+            _cmp_rows_html += f'<div class="strat-cmp-td {_ac}">{_med_s}</div>'
+
+    _med_foot = (
+        '<div style="font-size:6.5px;color:#2e4a64;margin-top:3px;font-style:italic;">'
+        '* Median simulert utdeling ved 12/12 — 10 000 simuleringer pr. strategi</div>'
+    ) if _has_med_col else ""
+
+    # Render comparison table via components.html to bypass markdown parsing.
+    # The global <style> block won't reach an iframe, so styles are inlined here.
+    _cmp_css = """
+body{margin:0;padding:0;background:transparent;
+     font-family:'Segoe UI',system-ui,Arial,sans-serif;}
+.wrap{padding:7px 10px 8px;background:rgba(255,255,255,0.015);
+      border:1px solid rgba(255,255,255,0.04);border-radius:7px;}
+.hdr{font-size:7.5px;color:#2e4a64;font-weight:700;text-transform:uppercase;
+     letter-spacing:1px;margin-bottom:5px;}
+.grid{display:grid;border:1px solid rgba(255,255,255,0.05);
+      border-radius:4px;overflow:hidden;}
+.th{font-size:6.5px;color:#2e4a64;text-transform:uppercase;letter-spacing:.5px;
+    padding:3px 5px;background:rgba(255,255,255,0.025);
+    border-bottom:1px solid rgba(255,255,255,0.05);text-align:center;}
+.th.left{text-align:left;}
+.td{font-size:8.5px;padding:4px 5px;color:#4a6a88;
+    border-top:1px solid rgba(255,255,255,0.03);text-align:center;}
+.td.name{text-align:left;color:#5a7a98;}
+.td.act{color:#c8ddf0;background:rgba(255,255,255,0.04);font-weight:700;}
+.td.act.name{color:#e0eaf4;}
+.td.grn{color:#3aaa78;}
+.td.red{color:#e07a5f;}
+.foot{font-size:6.5px;color:#2e4a64;margin-top:3px;font-style:italic;}
+"""
+    _cmp_th_med = '<div class="th">Median *</div>' if _has_med_col else ""
+
+    _cmp_rows2 = ""
+    for _sk, _cpw, _cpvr, _cmed in _cmp_data:
+        _is_act  = _sk == strategy
+        _ac      = " act" if _is_act else ""
+        _lbl2    = ("&#9654; " if _is_act else "&nbsp;&nbsp;") + _STRATEGY_LABELS[_sk]
+        _pw_s2   = f"{_cpw * 100:.2f}%"
+        _pvr_s2  = f"{_cpvr:.2f}&times;" if _cpvr is not None else "—"
+        _pvr_cls = (" grn" if (_cpvr or 0) >= 1.0 else " red") if _is_act else ""
+        _cmp_rows2 += (
+            f'<div class="td name{_ac}">{_lbl2}</div>'
+            f'<div class="td{_ac}">{_pw_s2}</div>'
+            f'<div class="td{_ac}{_pvr_cls}">{_pvr_s2}</div>'
+        )
+        if _has_med_col:
+            _med_s2 = f"{_cmed:,}&nbsp;kr" if _cmed is not None else "—"
+            _cmp_rows2 += f'<div class="td{_ac}">{_med_s2}</div>'
+
+    _foot2 = (
+        '<div class="foot">* Median simulert utdeling ved 12/12 '
+        '— 10&nbsp;000 simuleringer pr. strategi</div>'
+    ) if _has_med_col else ""
+
+    _cmp_iframe = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>{_cmp_css}</style></head>
+<body>
+<div class="wrap">
+<div class="hdr">Strategisammenligning &mdash; {budget}&nbsp;NOK</div>
+<div class="grid" style="grid-template-columns:{_grid_tpl};">
+<div class="th left">Strategi</div>
+<div class="th">12/12</div>
+<div class="th">PVR</div>{_cmp_th_med}{_cmp_rows2}</div>
+{_foot2}
+</div>
+</body></html>"""
+
+    _cmp_height = 148 if _has_med_col else 133
+    components.html(_cmp_iframe, height=_cmp_height, scrolling=False)
+
     # ── Optional omsetning input ───────────────────────────────────────────────
+    # on_change updates session_state.omsetning BEFORE the next render so the
+    # EV panel above sees the new value without a two-render lag.
+    def _on_om_change():
+        v = st.session_state._om_raw
+        st.session_state.omsetning = int(v) if v and v > 0 else None
+
     with st.expander("Legg inn omsetning for utdelingsestimat", expanded=False):
-        _om_input = st.number_input(
+        st.number_input(
             "Omsetning (NOK)",
+            key="_om_raw",
             min_value=0,
             max_value=200_000_000,
             value=int(st.session_state.omsetning or 0),
             step=500_000,
+            on_change=_on_om_change,
             help="Finn aktuell omsetning på Norsk Tipping sin nettside. Brukes til å estimere utdeling.",
         )
-        st.session_state.omsetning = _om_input if _om_input > 0 else None
 
     # ── Save coupon snapshot ───────────────────────────────────────────────────
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
