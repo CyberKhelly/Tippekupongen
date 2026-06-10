@@ -284,6 +284,8 @@ def main() -> None:
                 print(f"    P90 payout:        {sim['p90']:>10,.0f} NOK")
                 print(f"    Max payout:        {sim['max']:>10,.0f} NOK")
                 print(f"    Mean payout:       {sim['mean']:>10,.0f} NOK")
+                print(f"    Avg winners/draw:  {sim['e_winners']:>10,d} rekker deler potten ved gevinst")
+                print(f"    {sim['narrative']}")
                 print(f"    * Estimates only — actual NT payout depends on real turnover, prize tier, and winner count.")
         else:
             print(f"\n  Payout simulation: provide --omsetning <NOK> for estimates.")

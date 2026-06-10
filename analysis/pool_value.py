@@ -1,5 +1,6 @@
 """
 Phase 6B/C: Pool value analytics for NT Tippekupongen.
+Phase 7:    Corrected payout simulator.
 
 NT Tippekupongen is a parimutuel pool:
     payout = (omsetning × prize_rate) / n_winners
@@ -14,6 +15,7 @@ All payout figures are estimates — label clearly in the UI.
 CLV and historical calibration require real closing odds (separate system).
 """
 from __future__ import annotations
+import math
 import random
 from models.match import Match
 
@@ -118,8 +120,74 @@ def compute_pool_value_ratio(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Monte Carlo payout simulation
+# Monte Carlo payout simulation — Phase 7 (corrected)
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _poisson_sample(rng: random.Random, lam: float) -> int:
+    """
+    One sample from Poisson(lam).
+    Knuth algorithm for lam <= 200; Gaussian approximation for larger values.
+    """
+    if lam <= 0:
+        return 0
+    if lam > 200:
+        return max(0, round(lam + math.sqrt(lam) * rng.gauss(0.0, 1.0)))
+    L = math.exp(-lam)
+    k = 0
+    p = 1.0
+    while p > L:
+        k += 1
+        p *= rng.random()
+    return k - 1
+
+
+def _pub_probs(m: Match) -> tuple[float, float, float]:
+    """Normalised public H/U/B fractions; returns (1/3, 1/3, 1/3) if unavailable."""
+    if not m.has_public_tips:
+        return 1 / 3, 1 / 3, 1 / 3
+    h = m.pub_prob_h or 0.0
+    u = m.pub_prob_u or 0.0
+    b = m.pub_prob_b or 0.0
+    total = h + u + b
+    if total < 0.01:
+        return 1 / 3, 1 / 3, 1 / 3
+    return h / total, u / total, b / total
+
+
+def _sim_narrative(
+    e_winners: float,
+    pvr: float | None,
+    n_underplayed_singles: int,
+) -> str:
+    """Short explanation of why the median payout is high or low."""
+    parts: list[str] = []
+
+    if e_winners < 100:
+        parts.append(f"Sjeldent utfall — ~{round(e_winners)} rekker deler potten ved gevinst.")
+    elif e_winners < 1_000:
+        parts.append(f"~{round(e_winners)} rekker deler potten ved gevinst i snitt.")
+    else:
+        parts.append(f"~{round(e_winners):,} rekker deler potten ved gevinst i snitt.")
+
+    if pvr is not None:
+        if pvr >= 3.0:
+            parts.append(
+                f"PVR {pvr:.1f}x: kupongen er {pvr:.1f}x mer unik enn en tilfeldig rekke."
+            )
+        elif pvr >= 1.5:
+            parts.append(f"PVR {pvr:.1f}x: kupongen er noe mer unik enn gjennomsnittet.")
+        elif pvr < 0.9:
+            parts.append(
+                f"PVR {pvr:.1f}x: kupongen ligner folkerts valg — lav eksklusivitet."
+            )
+
+    if n_underplayed_singles >= 3:
+        parts.append(f"{n_underplayed_singles} av singelvalgene er underspilt av folket.")
+    elif n_underplayed_singles >= 1:
+        parts.append(f"{n_underplayed_singles} singeltips er underspilt av folket.")
+
+    return " ".join(parts)
+
 
 def simulate_payout(
     matches: list[Match],
@@ -128,37 +196,44 @@ def simulate_payout(
     omsetning: float,
     prize_rate: float = 0.52,
     cost_per_row: float = 1.0,
-    n_sims: int = 20_000,
+    n_sims: int = 50_000,
     seed: int = 42,
 ) -> dict:
     """
-    Monte Carlo payout simulation for NT Tippekupongen.
+    Monte Carlo payout simulation for NT Tippekupongen (Phase 7).
 
-    Algorithm per draw:
+    NT is a parimutuel pool — the prize is shared equally among all winning rows.
+    For any specific 12-match outcome, exactly 1 of our rows can match it.
+
+    Algorithm per simulation:
       1. Sample one outcome per match from model probabilities.
-      2. Check whether our coupon wins (every match outcome within covered picks).
-      3. For winning draws: estimate competing public tickets using public probs.
-      4. payout = (omsetning × prize_rate) / (e_public_winners + n_rows).
+      2. Check whether our coupon covers this outcome.
+      3. Compute p_public(outcome) = product of normalised public tip fractions.
+      4. Sample other_winners ~ Poisson((N - n_rows) * p_public)  [stochastic].
+      5. payout = prize_pool / max(1, other_winners + 1).
 
-    Returns dict with payout statistics over winning draws.
-    Empty dict (n_winning_sims=0) when zero winning draws are observed.
+    Corrections vs prior version:
+      - Our contribution is +1 winning row (not +n_rows): for any specific
+        outcome only one row in our system matches it.
+      - Other winners use (N - n_rows) to exclude our rows from the pool.
+      - Poisson sampling adds realistic variance in the winner count.
 
-    Limitations:
-      - omsetning is user-provided or assumed; actual NT turnover may differ
-      - prize_rate of 0.52 is approximate (NT varies by week and prize tier)
-      - public tip % approximates distribution of all tickets, not just singles
-      - simulation treats our coverage uniformly (all n_rows share the same
-        coverage pattern even though internal row structure varies)
+    Returns statistics over winning simulations and an explanatory narrative.
+    Returns {"n_winning_sims": 0} when no wins are observed in n_sims draws.
 
-    All figures should be displayed as estimates with a clear disclaimer.
+    All figures are estimates. Actual NT payouts depend on real omsetning,
+    prize tier, winner count, and NT's prize allocation rules.
     """
-    rng = random.Random(seed)
-    total_tickets = omsetning / cost_per_row
+    rng        = random.Random(seed)
+    N          = omsetning / cost_per_row        # total rows in pool
+    prize_pool = omsetning * prize_rate
+    n_other    = max(0.0, N - n_rows)            # other rows (ours excluded)
 
-    payouts: list[float] = []
+    payouts:       list[float] = []
+    winner_counts: list[int]   = []
 
     for _ in range(n_sims):
-        # ── Sample outcome from model ─────────────────────────────────────────
+        # ── Step 1: sample outcome from model ────────────────────────────────
         outcome: dict[int, str] = {}
         for m in matches:
             r = rng.random()
@@ -169,42 +244,52 @@ def simulate_payout(
             else:
                 outcome[m.number] = "B"
 
-        # ── Check if our coupon covers this outcome ───────────────────────────
+        # ── Step 2: check if our coupon covers this outcome ──────────────────
         if not all(outcome[mn] in coupon[mn] for mn in coupon):
             continue
 
-        # ── Estimate public competitors for this exact outcome ────────────────
-        p_public_this = 1.0
+        # ── Step 3: public probability of this exact 12-match outcome ────────
+        p_pub = 1.0
         for m in matches:
+            ph, pu, pb = _pub_probs(m)
             act = outcome[m.number]
-            if m.has_public_tips:
-                if act == "H":
-                    pp = m.pub_prob_h or 1 / 3
-                elif act == "U":
-                    pp = m.pub_prob_u or 1 / 3
-                else:
-                    pp = m.pub_prob_b or 1 / 3
-            else:
-                pp = 1 / 3   # no public data — assume equal split
-            p_public_this *= pp
+            p_pub *= ph if act == "H" else (pu if act == "U" else pb)
 
-        e_public_winners = total_tickets * p_public_this
-        prize_pool = omsetning * prize_rate
-        payout = prize_pool / max(1.0, e_public_winners + n_rows)
+        # ── Step 4: stochastic other-winner count ─────────────────────────────
+        w_others = _poisson_sample(rng, n_other * p_pub)
+
+        # ── Step 5: payout for our 1 winning row ─────────────────────────────
+        total_winners = w_others + 1
+        payout        = prize_pool / max(1.0, total_winners)
+
         payouts.append(payout)
+        winner_counts.append(total_winners)
 
     if not payouts:
         return {"n_winning_sims": 0, "p_win_simulated": 0.0}
 
     payouts.sort()
-    n = len(payouts)
+    n_w        = len(payouts)
+    e_winners  = round(sum(winner_counts) / len(winner_counts))
+
+    pvr = compute_pool_value_ratio(matches, coupon)
+    n_underplayed = sum(
+        1 for m in matches
+        if len(coupon.get(m.number, [])) == 1
+        and m.has_public_tips
+        and ({"H": m.value_h, "U": m.value_u, "B": m.value_b}
+             .get(coupon[m.number][0]) or 0.0) > 0
+    )
+
     return {
-        "n_winning_sims": n,
-        "p_win_simulated": round(n / n_sims, 4),
-        "min":    round(payouts[0]),
-        "p10":    round(payouts[n // 10]) if n >= 10 else round(payouts[0]),
-        "median": round(payouts[n // 2]),
-        "p90":    round(payouts[min(9 * n // 10, n - 1)]),
-        "max":    round(payouts[-1]),
-        "mean":   round(sum(payouts) / n),
+        "n_winning_sims":  n_w,
+        "p_win_simulated": round(n_w / n_sims, 4),
+        "min":      round(payouts[0]),
+        "p10":      round(payouts[n_w // 10]) if n_w >= 10 else round(payouts[0]),
+        "median":   round(payouts[n_w // 2]),
+        "p90":      round(payouts[min(9 * n_w // 10, n_w - 1)]),
+        "max":      round(payouts[-1]),
+        "mean":     round(sum(payouts) / n_w),
+        "e_winners": e_winners,
+        "narrative": _sim_narrative(e_winners, pvr, n_underplayed),
     }

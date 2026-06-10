@@ -903,9 +903,12 @@ with left_col:
 
     _payout_html = ""
     if _sim and _sim.get("n_winning_sims", 0) > 0:
+        _ew = _sim.get("e_winners", "—")
+        _ew_str = f"{_ew:,}" if isinstance(_ew, int) else "—"
+        _narrative = _sim.get("narrative", "")
         _payout_html = f"""
 <div class="ev-payout">
-  <div class="ev-payout-label">Estimert utdeling ved 12/12</div>
+  <div class="ev-payout-label">Estimert utdeling ved 12/12 *</div>
   <div class="ev-payout-grid">
     <div class="ev-payout-cell">
       <div class="ev-payout-val">{_sim['min']:,} kr</div>
@@ -916,12 +919,22 @@ with left_col:
       <div class="ev-payout-key">Median</div>
     </div>
     <div class="ev-payout-cell">
+      <div class="ev-payout-val">{_sim['p90']:,} kr</div>
+      <div class="ev-payout-key">P90</div>
+    </div>
+    <div class="ev-payout-cell">
       <div class="ev-payout-val">{_sim['max']:,} kr</div>
       <div class="ev-payout-key">Max</div>
     </div>
   </div>
+  <div style="font-size:8px;color:#3a5a78;margin-top:4px;">
+    Vinnere ved gevinst (snitt): ~{_ew_str} rekker
+  </div>
+  <div style="font-size:8px;color:#3a5a78;margin-top:3px;font-style:italic;">
+    {_narrative}
+  </div>
   <div class="ev-disclaimer">
-    * Estimat basert på omsetning {_omsetning:,.0f} NOK og 52% premieandel.
+    * Estimat — omsetning {_omsetning:,.0f} NOK, premieandel 52%.
     Faktisk utdeling kan avvike vesentlig.
   </div>
 </div>"""
