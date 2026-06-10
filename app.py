@@ -431,13 +431,22 @@ def load_matches(coupon_key: str) -> list[Match]:
     return matches
 
 
-def compute_pool_value_score(matches: list[Match]) -> float | None:
-    """Average pp advantage over the public for the model's recommended pick (Formula A)."""
+def compute_pool_value_score(matches: list[Match], picks: dict) -> float | None:
+    """
+    Average pp advantage over the public for the actual single picks in the coupon.
+
+    Only single-pick matches contribute — halvdekk and heldekk are excluded because
+    covering multiple outcomes dilutes any pool-value signal. This makes the metric
+    sensitive to strategy (strategy controls which matches are singles).
+    """
     values = []
     for m in matches:
         if not m.has_public_tips:
             continue
-        v = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(m.recommendation)
+        p = picks.get(m.number, [])
+        if len(p) != 1:
+            continue
+        v = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(p[0])
         if v is not None:
             values.append(v)
     if not values:
@@ -814,7 +823,7 @@ with left_col:
     # Compute
     matches = load_matches(coupon_key)
     picks, total_rows = optimize_coupon(matches, float(budget), strategy=strategy)
-    pvs = compute_pool_value_score(matches)
+    pvs = compute_pool_value_score(matches, picks)
 
     # Pool value analytics (deterministic)
     p_win   = compute_p_win(matches, picks)
