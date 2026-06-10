@@ -30,13 +30,14 @@ Streamlit is installed via Anaconda (`C:\Users\kimme\anaconda3`). If `streamlit`
 ```
 decimal odds
     → analysis/probability.py   normalize odds → prob_h / prob_u / prob_b
+    → analysis/model.py         unified model: bookmaker prior + AF stats adjustment; CDS
     → analysis/classifier.py    classify match → banker / standard / half_cover / full_cover / uncertain
-    → analysis/optimizer.py     exhaustive search for (n_full, n_half) maximizing rows ≤ budget
+    → analysis/optimizer.py     two-stage strategy-aware search for (n_full, n_half) shape
 ```
 
-`Match` in `models/match.py` is a plain dataclass that carries odds in and probabilities + classification out. It is mutated in place by `process_match()` and `classify_match()`.
+`Match` in `models/match.py` is a plain dataclass that carries odds in and probabilities + classification out. It is mutated in place by `process_match()`, `run_model()`, and `classify_match()`.
 
-**Data layer:** Weekly fixture and odds data lives in `data/coupon_weekNN_YYYY.py` as a hardcoded `COUPONS` dict. Each key (`"midtuke"`, `"lordag"`, `"sondag"`) maps to a label, deadline, and list of 12 `(home, away, odds_h, odds_u, odds_b)` tuples. To add a new week, create a new file in `data/` following the same structure and update the import in `app.py`.
+**Data layer:** Weekly fixture and odds data is loaded from SQLite (preferred) or `data/coupon_weekNN_YYYY.py` flat files (fallback) via `data/loader.py`.
 
 **Streamlit UI layout** (`app.py`):
 
@@ -70,6 +71,255 @@ When starting a new Claude Code session on this project:
 6. **Only then continue with new work** — agree on specific scope before writing any code.
 
 Do not assume prior conversation context carries over. Always re-derive current state from the code and database.
+
+---
+
+## Prediction Engine
+
+The unified prediction engine (`analysis/model.py → run_model()`) blends multiple signals into final H/U/B probabilities for each fixture.
+
+### Signal blend
+
+1. **Bookmaker prior** (≥87% weight) — normalised implied probabilities from the best available odds source. This is always the dominant signal; the prior is computed in `analysis/probability.py` from decimal odds.
+2. **Form adjustment** — AF stats (last 5 results for home/away separately) can nudge probabilities by at most ±`_MAX_ADJ` (defined in `analysis/model.py`). Home form and away form are tracked independently.
+3. **Standings adjustment** — league position and goal difference contribute a small directional nudge. A large table gap amplifies the bookmaker signal slightly.
+4. **Goals adjustment** — recent goals scored/conceded per match provide a marginal signal on top of standings.
+5. **NT expert tips** — used only in the estimated_prior fallback (see below); not blended when bookmaker odds exist.
+
+The stats adjustments are additive and bounded: the combined AF stats adjustment never pushes the final probability more than `_MAX_ADJ` away from the bookmaker prior, preserving bookmaker dominance.
+
+### Crowd signals
+
+After blending, the model computes three crowd-signal fields per fixture (stored in `Match`, read-only):
+
+- **`value_h / value_u / value_b`** — pp difference between model probability and public tip percentage for each outcome. Positive = crowd underweights this outcome. Computed as `model_prob_pct − public_tip_pct`.
+- **`crowd_disagreement_score` (CDS)** — pp difference between the model's top-pick model probability and the public's tip percentage for that same outcome. Measures how much the model and crowd disagree on the most likely result. Range 0–50pp. Does **not** change the recommended pick.
+
+### Estimated prior fallback
+
+When no bookmaker odds exist for a fixture (Norwegian 3. Division, some women's club fixtures), the model falls back to `analysis/estimated_prior.py`:
+
+- NT expert tips (60% weight) + stats-based home edge (40%)
+- Confidence 0.35–0.65 depending on which signals are available
+- Stored in `fixture_estimated_prior`, **never** in `odds` or `odds_snapshots`
+- Substantially less reliable than bookmaker-derived probabilities — P(win) and PVR figures should be treated with skepticism for these fixtures
+
+---
+
+## Odds Sources
+
+Odds are drawn from the following sources in priority order. The pipeline stops at the first source that has data for a given fixture.
+
+| Priority | Source | Table | Note |
+|---|---|---|---|
+| 1 | Pinnacle (via The Odds API) | `odds` | Best sharp market; requires `ODDS_API_KEY` in `.env` |
+| 2 | Other bookmakers (`norsk_tipping`, `betsson`, `manual`) | `odds` | Used when Pinnacle unavailable |
+| 3 | API-Football odds fallback | `odds` | Bet365 → William Hill → Marathonbet → 10Bet → first available; `source='api_football'` |
+| 4 | Model-estimated prior | `fixture_estimated_prior` | NT expert tips (60%) + stats (40%); **not** in `odds` table |
+| 5 | NT expert tips (runtime only) | — | Converted to implied decimal odds at runtime; not persisted |
+| 6 | Equal-probability placeholder | — | 3.0/3.0/3.0; last resort |
+
+**Norwegian 3. Division and some women's fixtures** are not covered by Pinnacle or API-Football. These fixtures use priority 4 (model-estimated prior) or priority 5 (NT expert tips runtime conversion). The Statistikk page shows `odds_source` per fixture — look for `model_estimated` or `nt_expert` to identify lower-confidence matches.
+
+---
+
+## Strategy System
+
+Four named strategies control coverage depth, system shape, and halvdekk second-pick selection. Configured in `analysis/strategy.py` (StrategyConfig dataclass + STRATEGIES dict). Selected via `--strategy` in `verify_model.py` and `optimize_coupon(strategy=…)` in `analysis/optimizer.py`.
+
+The optimizer runs in two stages:
+
+**Stage 1 — Coverage ranking:** Each match is assigned a composite score. Lower score → receives deeper coverage (heldekk before halvdekk before single).
+
+**Stage 2 — Shape search:** All valid `(n_full, n_half)` pairs with `rows ≥ budget × row_floor` are scored by the strategy's shape objective and the best is selected.
+
+### Composite score formulas
+
+| Strategy | Formula | Effect |
+|---|---|---|
+| Safe | `confidence` | Ignores all crowd signals |
+| Balanced | `confidence + 0.03 × clip(value_top / 20, −1, +1)` | Tiny directional nudge from public mismatch |
+| Value | `confidence − 0.20 × (CDS / 50)` | High CDS → lower score → more coverage |
+| Jackpot | `confidence − 0.35 × (CDS / 50)` | CDS is the primary coverage driver |
+
+### Shape objectives
+
+| Strategy | Shape objective | Row floor | Budget fill |
+|---|---|---|---|
+| Safe | `P(12/12)^1.0` | 50% of budget | No |
+| Balanced | `P(12/12)^0.9 × PVR^0.1` | 100% | Yes (always budget-filling) |
+| Value | `P(12/12)^0.6 × PVR^0.4` | 50% of budget | No |
+| Jackpot | `PVR^1.0` (floor: P(win) ≥ 0.3%) | 50% of budget | No |
+
+### Safe
+
+Maximises the probability of predicting all 12 outcomes correctly. Coverage ranking is based purely on model confidence — crowd signals ignored entirely. Produces the highest P(win) of the four strategies. Contrarian halvdekk substitution never occurs (`contrarian_pp_tolerance = 0`). Best when you want maximum hit-rate protection with no pool-edge optimisation.
+
+### Balanced (default)
+
+Default mode. Applies a small directional nudge from public tip percentages when ranking matches for coverage. Always uses the full budget (100% row-floor). Allows mild contrarian halvdekk substitution (within 4pp probability gap, only when the third outcome's Value Index exceeds the second's by ≥0.20). A good all-round starting point for most coupons.
+
+### Value
+
+CDS-driven coverage. Matches where the model strongly disagrees with the crowd receive more coverage regardless of raw model confidence (CDS weight 0.20). Allows contrarian halvdekk substitution within 10pp. Accepts a slightly lower P(win) in exchange for a better Pool Value Ratio. Best when the public tips look systematically wrong on several fixtures.
+
+### Jackpot
+
+Maximises Pool Value Ratio (PVR) subject to a 0.3% P(win) floor. CDS weight is 0.35 — the strongest of all modes, making crowd disagreement the primary driver of which matches receive halvdekk coverage. Eliminates heldekk when halvdekk on an uncertain match yields better PVR (heldekk covers everything → contributes nothing to pool uniqueness). Allows contrarian substitution within 15pp. Produces the lowest P(win) and the highest expected payout per winning row. Best reserved for large-turnover draws.
+
+### Halvdekk second-pick substitution
+
+Under Balanced/Value/Jackpot, the optimizer may substitute the third-ranked outcome (by model probability) for the second when all three conditions hold:
+
+1. Probability gap between #2 and #3 ≤ `contrarian_pp_tolerance`
+2. Third outcome's probability ≥ `min_prob_threshold`
+3. Third outcome's Value Index exceeds the second's by ≥ `pick_vi_advantage`
+
+Safe never substitutes. Parameters per strategy are defined in `analysis/strategy.py`.
+
+### Strategy invariants (all modes)
+
+- The single recommended pick is always the highest model-probability outcome — strategy never changes it.
+- Full covers (heldekk) always include all three outcomes (H/U/B).
+- Model probabilities in `Match` are read-only; strategy never writes to them.
+- Budget constraint (`rows ≤ max_rows`) is never violated.
+
+**Do not add new strategies or change strategy parameters without an explicit instruction.**
+
+---
+
+## Pool Value Metrics
+
+Computed in `analysis/pool_value.py`. Displayed in the Kampanalyse table, Statistikk page, and `verify_model.py` output.
+
+### P(win)
+
+**What:** Exact probability that the coupon covers all 12 match outcomes.
+
+**Formula:** `P_win = Π_i Σ_{X ∈ picks_i} model_prob(X, i)`
+
+For a single-pick match this equals the model probability of that pick. For halvdekk it is the sum of the two covered outcome probabilities. For heldekk it is 1.0. Computed analytically — no simulation required.
+
+### Poolverdi
+
+**What:** Average pp-advantage of the coupon's single picks over the public. Measures how underplayed the recommended singles are as a group.
+
+**Formula:** Average of `model_prob_pct − public_tip_pct` across all single-pick matches with public tip data.
+
+**Interpretation:** Positive = singles are collectively underplayed (good for parimutuel). Negative = singles follow the crowd. Strategy-dependent: different strategies assign halvdekk vs single to different matches, so Poolverdi differs across strategies even for the same fixture set.
+
+### Value Index (VI)
+
+**What:** Ratio of model probability to public probability for a single outcome.
+
+**Formula:** `VI = model_prob / pub_prob`
+
+**Interpretation:**
+- 1.00 — model and crowd agree exactly
+- 1.25 — model sees 25% more probability than the crowd
+- 1.50 — strong value (crowd significantly underweights this outcome)
+- 2.00+ — extreme value
+- < 1.00 — crowd overweights this outcome (negative pool edge for this pick)
+
+Returns `None` when `pub_prob < 2%` (unreliable division). Capped at 5.0 for display stability.
+
+### Crowd Disagreement Score (CDS)
+
+**What:** pp difference between the model's top-pick probability and the public's tip percentage for that same outcome.
+
+**Formula:** `CDS = |model_prob_pct(top_pick) − public_tip_pct(top_pick)|`
+
+**Interpretation:** High CDS = model and crowd strongly disagree. Under Value/Jackpot strategies, high CDS reduces the composite score → match is promoted toward deeper coverage. Under Safe/Balanced it has no effect on ranking. CDS never changes the recommended pick.
+
+### Pool Value Ratio (PVR)
+
+**What:** Expected payout multiplier relative to the average public ticket. Measures how unique our combination is in the pool.
+
+**Formula:** `PVR = P_model_win / P_public_win`
+
+where `P_public_win = Π_i Σ_{X ∈ picks_i} pub_prob(X, i)`.
+
+**Interpretation:**
+- 1.0 — neutral; same pool share as a random public ticket
+- > 1.0 — positive edge; our combination is rarer than average → higher expected payout when we win
+- < 1.0 — negative edge; our combination is popular with the crowd
+- Returns `None` when fewer than 6 of 12 matches have public tip data
+
+---
+
+## Payout Simulator (Phase 7)
+
+NT Tippekupongen is a parimutuel pool: `payout = prize_pool / n_winning_rows`. The simulator (`analysis/pool_value.py → simulate_payout()`) estimates the payout distribution for a given coupon and turnover.
+
+### Algorithm
+
+For each of 50,000 simulation draws:
+
+1. **Sample outcome** — draw one result (H/U/B) per match from model probabilities.
+2. **Check coverage** — skip this draw if the coupon does not cover the sampled outcome.
+3. **Compute public probability** — `p_pub = Π_i pub_prob(outcome_i, i)` using normalised public tip fractions.
+4. **Sample other winners** — `w_others ~ Poisson((N − n_rows) × p_pub)` where `N = omsetning / cost_per_row`.
+5. **Compute payout** — `prize_pool / max(1, w_others + 1)`.
+
+### Corrected denominator formula
+
+```
+other_winners = (total_tickets − coupon_rows) × p_public(outcome)
+total_winners = other_winners + 1
+payout        = prize_pool / total_winners
+```
+
+**Why `+ 1` not `+ n_rows`:** For any specific 12-match outcome, exactly one row in our coupon can match it — our system is a set of distinct rows. Adding `n_rows` would assume all rows win simultaneously, which is impossible and causes payouts to be systematically understated by a factor of ~n_rows.
+
+**Why `N − n_rows` for other winners:** Our rows are already accounted for in the `+ 1` term. Other winners are drawn from the remaining `N − n_rows` tickets in the pool.
+
+### Poisson variance
+
+Winner counts are sampled from a Poisson distribution rather than using the expected value. This captures realistic variance in how many other tickets share the winning outcome on any given draw, producing fat tails in the payout distribution that reflect NT's actual mechanics.
+
+- For `λ ≤ 200`: Knuth algorithm (exact)
+- For `λ > 200`: Gaussian approximation (`max(0, round(λ + √λ × N(0,1)))`)
+
+### Outputs
+
+| Field | Meaning |
+|---|---|
+| `p_win_simulated` | Fraction of draws where the coupon won (should match analytical `compute_p_win()`) |
+| `min` | Minimum observed payout across winning draws |
+| `p10` | 10th-percentile payout |
+| `median` | Median payout when the coupon wins |
+| `p90` | 90th-percentile payout |
+| `max` | Maximum observed payout |
+| `mean` | Mean payout |
+| `e_winners` | Average number of winning rows sharing the pot |
+| `narrative` | Norwegian explanation of why the median is high or low |
+
+Activate via `--omsetning <NOK>` in `verify_model.py`. Default: 50,000 draws, `prize_rate = 52%`, `cost_per_row = 1.0 NOK`.
+
+---
+
+## Daily Workflow
+
+### Recommended daily commands
+
+```bash
+python sync.py --daily        # fetch NT coupons, odds, AF enrichment, validate (idempotent)
+python sync.py --validate     # re-check DB integrity at any time
+```
+
+### Model verification (optional, before placing coupon)
+
+```bash
+python verify_model.py --strategy safe
+python verify_model.py --strategy balanced
+python verify_model.py --strategy value
+python verify_model.py --strategy jackpot
+
+# With payout simulation (replace with realistic NT turnover):
+python verify_model.py --strategy balanced --omsetning 15000000
+```
+
+`verify_model.py` is the authoritative check that the pipeline is consistent across Kampanalyse, Statistikk, and coupon generation. If output here looks wrong, the app will show the same wrong values.
 
 ---
 
@@ -116,6 +366,7 @@ Thresholds in `analysis/classifier.py` control match classification and can be t
 | 5 | Unified prediction engine — `analysis/model.py`; bookmaker ≥87% weight; crowd disagreement score | Complete |
 | 6B | Pool value analytics — `analysis/pool_value.py`; P(win), PVR, payout simulation; verify_model.py extended | Complete |
 | 6C | Strategy system — `analysis/strategy.py`; four modes (safe/balanced/value/jackpot); strategy-aware optimizer | Complete |
+| 7 | Corrected parimutuel payout simulator — fixed denominator (`+1` not `+n_rows`), Poisson winner variance, `e_winners`, narrative | Complete |
 
 ### Current architecture
 
@@ -255,7 +506,7 @@ Safe never substitutes (`contrarian_pp_tolerance = 0`). Jackpot allows the wides
 - `compute_value_index(prob, pub_prob)` — model_prob / public_prob; >1.0 means crowd underweights this outcome.
 - `compute_p_win(matches, coupon)` — exact probability the coupon covers all 12 outcomes.
 - `compute_pool_value_ratio(matches, coupon)` — P_model_win / P_public_win; >1.0 = positive pool edge. Returns `None` when fewer than 6 matches have public tip data.
-- `simulate_payout(matches, coupon, n_rows, omsetning)` — Monte Carlo payout distribution; pass `--omsetning <NOK>` to `verify_model.py` to activate.
+- `simulate_payout(matches, coupon, n_rows, omsetning)` — Monte Carlo payout distribution (Phase 7); pass `--omsetning <NOK>` to `verify_model.py` to activate.
 
 **Do not add new strategies or change strategy parameters without an explicit instruction.**
 
@@ -420,3 +671,18 @@ Module: `analysis/estimated_prior.py → compute_estimated_prior()`.
 - **Confidence:** 0.20 (stats only, no expert) → 0.35 (stats only) → 0.50 (expert only) → 0.65 (both).
 - **Stored in `fixture_estimated_prior`** — never written to `odds` or `odds_snapshots`. CLV is only calculated from real bookmaker closing lines; estimated priors do not affect CLV.
 - **Validate check 24** enforces zero overlap with the `odds` table.
+
+---
+
+## Future Roadmap
+
+Features that may be implemented in future phases. Do not implement any of these without an explicit instruction.
+
+| Area | Description |
+|---|---|
+| Historical model evaluation | Calibration analysis — compare model probabilities to actual outcomes over all saved coupons; measure Brier score and log-loss per odds source |
+| Payout simulator improvements | Incorporate NT prize tier structure (12/12, 11/12, 10/12 tiers) into the simulation; use real historical NT omsetning data for more accurate expected winner counts |
+| xG integration | Add expected goals as an additional stats signal in `analysis/model.py`; currently documented as an extension point but not implemented |
+| Expected value optimisation | Combine P(win), PVR, and median payout into a single EV metric for coupon comparison across strategies |
+| Winner share estimation | Improve `p_public(outcome)` accuracy using NT's public tip percentages more directly, accounting for systematic biases in how the public tips home vs away |
+| Strategy calibration | Backtest the four strategies against historical NT results to measure which strategy produces the best return per NOK across different fixture types |
