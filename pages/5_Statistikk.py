@@ -28,6 +28,7 @@ from models.match import Match as _MatchModel
 from analysis.probability import process_match as _bm_prior
 from analysis.model import run_model as _run_model
 from analysis.estimated_prior import compute_estimated_prior as _est_prior
+from analysis.pool_value import compute_value_index as _compute_vi
 
 st.set_page_config(
     page_title="Statistikk — TippeQpongen",
@@ -596,8 +597,9 @@ def _build_mi_panel(
                 f'</tr>'
             )
 
-        # Verdi vs folket row — pool value signal
+        # Verdi vs folket row — pool value signal (pp)
         value_row = ""
+        vi_row    = ""
         if model_match.has_public_tips and model_match.value_h is not None:
             vh = model_match.value_h
             vu = model_match.value_u
@@ -611,8 +613,24 @@ def _build_mi_panel(
                 f'<td></td>'
                 f'</tr>'
             )
+            # Value index row: model_prob / public_prob per outcome
+            def _vi_cell(p, pp):
+                vi = _compute_vi(p, pp)
+                if vi is None:
+                    return '<td class="num mi-dneut">—</td>'
+                cls = "mi-dneg" if vi >= 1.25 else "mi-dpos" if vi <= 0.80 else "mi-dneut"
+                return f'<td class="num {cls}">{vi:.2f}&times;</td>'
+            vi_row = (
+                f'<tr>'
+                f'<td class="name-col">Verdiindeks (×)</td>'
+                + _vi_cell(model_match.prob_h, model_match.pub_prob_h)
+                + _vi_cell(model_match.prob_u, model_match.pub_prob_u)
+                + _vi_cell(model_match.prob_b, model_match.pub_prob_b)
+                + f'<td class="src" title="modell / folket per utfall">vi</td>'
+                + f'</tr>'
+            )
 
-        model_section = model_row + vs_bm_row + value_row
+        model_section = model_row + vs_bm_row + value_row + vi_row
 
         # Crowd disagreement badge + tags
         cds_html = ""
@@ -680,6 +698,7 @@ def _build_mi_panel(
 
         # Verdi vs folket (estimated model vs public tips)
         value_row = ""
+        vi_row_est = ""
         if model_match.has_public_tips and model_match.value_h is not None:
             vh = model_match.value_h
             vu = model_match.value_u
@@ -693,7 +712,22 @@ def _build_mi_panel(
                 f'<td></td>'
                 f'</tr>'
             )
-        model_section = value_row
+            def _vi_cell_est(p, pp):
+                vi = _compute_vi(p, pp)
+                if vi is None:
+                    return '<td class="num mi-dneut">—</td>'
+                cls = "mi-dneg" if vi >= 1.25 else "mi-dpos" if vi <= 0.80 else "mi-dneut"
+                return f'<td class="num {cls}">{vi:.2f}&times;</td>'
+            vi_row_est = (
+                f'<tr>'
+                f'<td class="name-col">Verdiindeks (×)</td>'
+                + _vi_cell_est(model_match.prob_h, model_match.pub_prob_h)
+                + _vi_cell_est(model_match.prob_u, model_match.pub_prob_u)
+                + _vi_cell_est(model_match.prob_b, model_match.pub_prob_b)
+                + f'<td class="src">vi</td>'
+                + f'</tr>'
+            )
+        model_section = value_row + vi_row_est
 
         # Signal audit tags
         if model_match.stats_signals:
@@ -827,7 +861,41 @@ for tab, coupon in zip(tabs, coupons):
             unsafe_allow_html=True,
         )
 
-        for f in fixtures:
+        # Pre-compute model for all fixtures so PVS aggregate can be shown before the cards
+        _precomputed = [_compute_model(f) for f in fixtures]
+
+        _pvs_vals = []
+        for _f, (_mm, _) in zip(fixtures, _precomputed):
+            if _mm is not None and _mm.has_public_tips and _mm.recommendation:
+                _v = {"H": _mm.value_h, "U": _mm.value_u, "B": _mm.value_b}.get(_mm.recommendation)
+                if _v is not None:
+                    _pvs_vals.append(_v)
+
+        if _pvs_vals:
+            _coupon_pvs    = round(sum(_pvs_vals) / len(_pvs_vals), 1)
+            _n_pos         = sum(1 for v in _pvs_vals if v > 0)
+            _pvs_color     = "#3aaa78" if _coupon_pvs > 0 else "#e07a5f"
+            _pvs_bg        = "rgba(58,170,120,0.05)" if _coupon_pvs > 0 else "rgba(224,122,95,0.05)"
+            _pvs_border    = "rgba(58,170,120,0.12)" if _coupon_pvs > 0 else "rgba(224,122,95,0.12)"
+            _pvs_icon      = "↑" if _coupon_pvs > 0 else "↓"
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:14px;padding:7px 12px;'
+                f'background:{_pvs_bg};border:1px solid {_pvs_border};border-radius:6px;'
+                f'margin-bottom:10px;">'
+                f'<span style="font-size:9px;font-weight:700;color:#2e4a64;'
+                f'text-transform:uppercase;letter-spacing:1px;white-space:nowrap;">'
+                f'Pool Verdi Score</span>'
+                f'<span style="font-size:15px;font-weight:900;color:{_pvs_color};'
+                f'white-space:nowrap;">{_pvs_icon} {_coupon_pvs:+.1f} pp</span>'
+                f'<span style="font-size:10px;color:#3a5a78;">'
+                f'{_n_pos} av {len(_pvs_vals)} kamper underspilt av folket</span>'
+                f'<span style="font-size:9px;color:#1e3248;margin-left:auto;">'
+                f'Gjennomsnitt av anbefalt utfall vs folket</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        for f, (model_match, is_estimated) in zip(fixtures, _precomputed):
             num    = f["match_number"]
             home   = f["home_name"]
             away   = f["away_name"]
@@ -835,10 +903,7 @@ for tab, coupon in zip(tabs, coupons):
             ko     = _fmt_kickoff(f.get("kickoff_utc", ""))
             has_af = bool(f.get("has_api_football_data"))
 
-            # Compute model output once per fixture (used by _build_mi_panel)
-            model_match, is_estimated = _compute_model(f)
-
-            # ── Card header ──────────────────────────────────────────────
+            # ── Card header ───────────────────────────────────────────────
             header_html = (
                 f'<div class="fx-header">'
                 f'<span class="fx-num">#{num}</span>'

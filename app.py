@@ -9,6 +9,11 @@ from analysis.model import run_model
 from analysis.classifier import classify_match
 from analysis.optimizer import optimize_coupon
 from analysis.classifier import classification_label
+from analysis.strategy import STRATEGIES, DEFAULT_STRATEGY
+from analysis.pool_value import (
+    compute_value_index, compute_p_win,
+    compute_pool_value_ratio, simulate_payout,
+)
 from data.loader import load_coupons
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -45,11 +50,29 @@ BUDGET_ROWS   = {32: 32, 96: 96, 192: 192, 384: 384}
 _iso        = _dt.now().isocalendar()
 _WEEK_LABEL = f"Uke {_iso.week} · {_iso.year}"
 
+_STRATEGY_KEYS   = ["safe", "balanced", "value", "jackpot"]
+_STRATEGY_LABELS = {
+    "safe":     "Safe",
+    "balanced": "Balansert",
+    "value":    "Verdi",
+    "jackpot":  "Jackpot",
+}
+_STRATEGY_COLORS = {          # badge colours for the EV panel
+    "safe":     ("#1a3a6e", "#5096cc"),
+    "balanced": ("#1a2e00", "#f5c518"),
+    "value":    ("#0c2a14", "#3aaa78"),
+    "jackpot":  ("#2a0c0c", "#e07a5f"),
+}
+
 # ── Session state defaults ─────────────────────────────────────────────────────
 if "coupon_key" not in st.session_state:
     st.session_state.coupon_key = COUPON_KEYS[0]
 if "budget" not in st.session_state:
     st.session_state.budget = 192
+if "strategy" not in st.session_state:
+    st.session_state.strategy = DEFAULT_STRATEGY
+if "omsetning" not in st.session_state:
+    st.session_state.omsetning = None
 
 # ── Global CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -303,6 +326,78 @@ button[kind="secondary"]:hover,
 /* ── Misc ────────────────────────────────────────────────────────── */
 hr { border-color: rgba(255,255,255,0.05) !important; margin: 0.75rem 0 !important; }
 iframe { border: none !important; }
+
+/* ── Estimert verdi panel ────────────────────────────────────────── */
+.ev-panel {
+    margin-top: 0.45rem;
+    padding: 8px 12px 7px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 8px;
+    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+}
+.ev-header {
+    font-size: 8px; font-weight: 700; color: #2e4a64;
+    text-transform: uppercase; letter-spacing: 1.2px;
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 6px;
+}
+.ev-strat-badge {
+    font-size: 8px; font-weight: 700;
+    padding: 1px 7px; border-radius: 3px;
+}
+.ev-grid {
+    display: flex; gap: 0;
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 5px; overflow: hidden;
+    margin-bottom: 6px;
+}
+.ev-cell {
+    flex: 1; text-align: center;
+    padding: 6px 2px;
+    border-right: 1px solid rgba(255,255,255,0.04);
+}
+.ev-cell:last-child { border-right: none; }
+.ev-val {
+    font-size: 1.0rem; font-weight: 800; color: #e0eaf4; line-height: 1.2;
+}
+.ev-key {
+    font-size: 0.48rem; color: #2e4a64;
+    text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px;
+}
+.ev-payout {
+    border-top: 1px solid rgba(255,255,255,0.04);
+    padding-top: 5px; margin-top: 2px;
+}
+.ev-payout-label {
+    font-size: 8px; color: #2e4a64; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.9px;
+    margin-bottom: 4px;
+}
+.ev-payout-grid {
+    display: flex; gap: 0;
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 4px; overflow: hidden;
+}
+.ev-payout-cell {
+    flex: 1; text-align: center; padding: 4px 2px;
+    border-right: 1px solid rgba(255,255,255,0.04);
+}
+.ev-payout-cell:last-child { border-right: none; }
+.ev-payout-val {
+    font-size: 0.85rem; font-weight: 800; color: #c8ddf0;
+}
+.ev-payout-key {
+    font-size: 0.45rem; color: #2e4a64;
+    text-transform: uppercase; letter-spacing: 0.7px; margin-top: 1px;
+}
+.ev-disclaimer {
+    font-size: 7.5px; color: #1e3248; margin-top: 4px; font-style: italic;
+}
+.ev-warning {
+    margin-top: 5px; font-size: 8.5px; color: #c8960e;
+    padding: 3px 7px; background: rgba(200,150,14,0.06); border-radius: 3px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -334,6 +429,20 @@ def load_matches(coupon_key: str) -> list[Match]:
         classify_match(m)
         matches.append(m)
     return matches
+
+
+def compute_pool_value_score(matches: list[Match]) -> float | None:
+    """Average pp advantage over the public for the model's recommended pick (Formula A)."""
+    values = []
+    for m in matches:
+        if not m.has_public_tips:
+            continue
+        v = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(m.recommendation)
+        if v is not None:
+            values.append(v)
+    if not values:
+        return None
+    return round(sum(values) / len(values), 1)
 
 
 def short_note(m: Match, picks: list[str]) -> str:
@@ -531,7 +640,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
     _td_base = "padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px;"
     _badge   = "font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;"
 
-    # Build exactly 8 <th> cells — alignment appended per column, never via .replace()
+    # Build exactly 9 <th> cells — alignment appended per column, never via .replace()
     thead = (
         f'<tr>'
         f'<th style="{_th_base}text-align:center;">#</th>'
@@ -542,6 +651,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         f'<th style="{_th_base}text-align:center;">Tips</th>'
         f'<th style="{_th_base}text-align:center;">Konf.</th>'
         f'<th style="{_th_base}text-align:center;">Dekning</th>'
+        f'<th style="{_th_base}text-align:right;" title="Verdiindeks: modell/folket for anbefalt utfall. 1.00=nøytralt, >1.25=god verdi">VI</th>'
         f'</tr>'
     )
 
@@ -571,6 +681,19 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         row_bg   = "rgba(255,255,255,0.02)" if i % 2 == 0 else "transparent"
         src_tag  = _src_tag(m.odds_source)
 
+        # Value index for the recommended pick (model_prob / public_prob)
+        _vi_val = None
+        if m.has_public_tips and m.recommendation:
+            _prob = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(m.recommendation)
+            _pub  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(m.recommendation)
+            _vi_val = compute_value_index(_prob or 0, _pub)
+        if _vi_val is not None:
+            _vi_color = "#3aaa78" if _vi_val >= 1.25 else "#74cc9a" if _vi_val >= 1.0 else "#e0956a" if _vi_val >= 0.80 else "#e07a5f"
+            _vi_str   = f"{_vi_val:.2f}×"
+        else:
+            _vi_color = "#2e4a64"
+            _vi_str   = "—"
+
         rows_html += (
             f'<tr style="background:{row_bg};">'
             f'<td style="{_td_base}color:#2e4a64;text-align:center;">{m.number}</td>'
@@ -581,6 +704,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
             f'<td style="{_td_base}text-align:center;font-weight:800;color:#f5c518;">{m.recommendation}</td>'
             f'<td style="{_td_base}text-align:center;"><span style="{_badge}background:{cbg};color:{cfg};">{conf_val:.1f}%</span></td>'
             f'<td style="{_td_base}text-align:center;"><span style="{_badge}background:{vbg};color:{vfg};">{cov_lbl}</span></td>'
+            f'<td style="{_td_base}text-align:right;font-weight:700;color:{_vi_color};font-size:10px;" title="Verdiindeks: modell/folket for valgt utfall">{_vi_str}</td>'
             f'</tr>'
         )
 
@@ -672,11 +796,29 @@ with left_col:
         unsafe_allow_html=True,
     )
 
-    budget = st.session_state.budget
+    # Strategy selector
+    st.markdown('<div class="section-label">Strategi</div>', unsafe_allow_html=True)
+    s1, s2, s3, s4 = st.columns(4)
+    for col, key in zip([s1, s2, s3, s4], _STRATEGY_KEYS):
+        with col:
+            active = st.session_state.strategy == key
+            if st.button(_STRATEGY_LABELS[key], key=f"strategy_{key}",
+                         use_container_width=True,
+                         type="primary" if active else "secondary"):
+                st.session_state.strategy = key
+                st.rerun()
+
+    budget   = st.session_state.budget
+    strategy = st.session_state.strategy
 
     # Compute
     matches = load_matches(coupon_key)
-    picks, total_rows = optimize_coupon(matches, float(budget))
+    picks, total_rows = optimize_coupon(matches, float(budget), strategy=strategy)
+    pvs = compute_pool_value_score(matches)
+
+    # Pool value analytics (deterministic)
+    p_win   = compute_p_win(matches, picks)
+    pv_ratio = compute_pool_value_ratio(matches, picks)
 
     # Coupon card (hero)
     render_coupon_card(coupon_key, matches, picks, total_rows, budget)
@@ -690,6 +832,23 @@ with left_col:
     rem_cls    = "green" if remaining >= 0 else "red"
     rem_str    = f"+{remaining:.0f}" if remaining >= 0 else f"{remaining:.0f}"
 
+    if pvs is not None:
+        _pvs_color = "#3aaa78" if pvs > 0 else "#e07a5f"
+        _pvs_str   = f"{pvs:+.1f}pp"
+        pvs_cell   = (
+            f'<div class="s-cell">'
+            f'<div class="s-val" style="color:{_pvs_color};">{_pvs_str}</div>'
+            f'<div class="s-key">Poolverdi</div>'
+            f'</div>'
+        )
+    else:
+        pvs_cell = (
+            '<div class="s-cell">'
+            '<div class="s-val" style="color:#2e4a64;">—</div>'
+            '<div class="s-key">Poolverdi</div>'
+            '</div>'
+        )
+
     st.markdown(f"""
 <div class="summary-strip">
   <div class="s-cell"><div class="s-val">{n_full}</div><div class="s-key">Heldekkende</div></div>
@@ -698,8 +857,104 @@ with left_col:
   <div class="s-cell"><div class="s-val">{total_rows}</div><div class="s-key">Rekker</div></div>
   <div class="s-cell"><div class="s-val">{total_cost:.0f} NOK</div><div class="s-key">Kostnad</div></div>
   <div class="s-cell"><div class="s-val {rem_cls}">{rem_str} NOK</div><div class="s-key">Rest</div></div>
+  {pvs_cell}
 </div>
 """, unsafe_allow_html=True)
+
+    # ── Estimert verdi panel ───────────────────────────────────────────────────
+    _strat_bg, _strat_fg = _STRATEGY_COLORS[strategy]
+    _strat_name = _STRATEGY_LABELS[strategy]
+
+    _pwin_str = f"{p_win * 100:.2f}%"
+    _pwin_col = "#3aaa78" if p_win >= 0.05 else "#c8960e" if p_win >= 0.01 else "#e07a5f"
+
+    _pvr_str = f"{pv_ratio:.2f}×" if pv_ratio is not None else "—"
+    _pvr_col = "#3aaa78" if (pv_ratio or 0) >= 1.0 else "#e07a5f"
+
+    _n_val_picks = sum(
+        1 for m in matches
+        if m.has_public_tips and m.recommendation and
+        ({"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(m.recommendation) or 0) > 0
+    )
+
+    # Payout simulation (only when omsetning is set)
+    _omsetning = st.session_state.omsetning
+    _sim = None
+    if _omsetning and _omsetning > 0:
+        _sim = simulate_payout(matches, picks, total_rows, float(_omsetning))
+
+    # Warning if coupon is too crowd-aligned
+    _warning_html = ""
+    if pv_ratio is not None and pv_ratio < 0.85:
+        _warning_html = (
+            '<div class="ev-warning">'
+            '⚠ Kupongen er nær folkets valg — vurder Verdi eller Jackpot strategi'
+            '</div>'
+        )
+
+    _payout_html = ""
+    if _sim and _sim.get("n_winning_sims", 0) > 0:
+        _payout_html = f"""
+<div class="ev-payout">
+  <div class="ev-payout-label">Estimert utdeling ved 12/12</div>
+  <div class="ev-payout-grid">
+    <div class="ev-payout-cell">
+      <div class="ev-payout-val">{_sim['min']:,} kr</div>
+      <div class="ev-payout-key">Min</div>
+    </div>
+    <div class="ev-payout-cell">
+      <div class="ev-payout-val">{_sim['median']:,} kr</div>
+      <div class="ev-payout-key">Median</div>
+    </div>
+    <div class="ev-payout-cell">
+      <div class="ev-payout-val">{_sim['max']:,} kr</div>
+      <div class="ev-payout-key">Max</div>
+    </div>
+  </div>
+  <div class="ev-disclaimer">
+    * Estimat basert på omsetning {_omsetning:,.0f} NOK og 52% premieandel.
+    Faktisk utdeling kan avvike vesentlig.
+  </div>
+</div>"""
+
+    st.markdown(f"""
+<div class="ev-panel">
+  <div class="ev-header">
+    Estimert verdi
+    <span class="ev-strat-badge" style="background:{_strat_bg};color:{_strat_fg};">
+      {_strat_name}
+    </span>
+  </div>
+  <div class="ev-grid">
+    <div class="ev-cell">
+      <div class="ev-val" style="color:{_pwin_col};">{_pwin_str}</div>
+      <div class="ev-key">Sjanse 12/12</div>
+    </div>
+    <div class="ev-cell">
+      <div class="ev-val" style="color:{_pvr_col};">{_pvr_str}</div>
+      <div class="ev-key">Poolverdi ratio</div>
+    </div>
+    <div class="ev-cell">
+      <div class="ev-val">{_n_val_picks}</div>
+      <div class="ev-key">Verdivalg</div>
+    </div>
+  </div>
+  {_payout_html}
+  {_warning_html}
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Optional omsetning input ───────────────────────────────────────────────
+    with st.expander("Legg inn omsetning for utdelingsestimat", expanded=False):
+        _om_input = st.number_input(
+            "Omsetning (NOK)",
+            min_value=0,
+            max_value=200_000_000,
+            value=int(st.session_state.omsetning or 0),
+            step=500_000,
+            help="Finn aktuell omsetning på Norsk Tipping sin nettside. Brukes til å estimere utdeling.",
+        )
+        st.session_state.omsetning = _om_input if _om_input > 0 else None
 
     # ── Save coupon snapshot ───────────────────────────────────────────────────
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)

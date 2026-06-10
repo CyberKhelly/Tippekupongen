@@ -75,7 +75,29 @@ Do not assume prior conversation context carries over. Always re-derive current 
 
 ## Optimizer math
 
-The optimizer brute-forces all `(n_full_covers, n_half_covers)` pairs where `3^n_full * 2^n_half ≤ budget`. This is O(n²) over at most 13 matches — always fast. The four budget presets (32/96/192/384 NOK) are deliberately chosen to achieve exact full-budget coverage.
+The Phase 6C optimizer is a two-stage strategy-aware search (`analysis/optimizer.py`):
+
+**Stage 1 — Coverage ranking:** Each match gets a composite score; lower score → receives deeper coverage (heldekk before halvdekk before single).
+
+| Strategy | Composite score formula |
+|---|---|
+| Safe | `confidence` (ignores all crowd signals) |
+| Balanced | `confidence + 0.03 × clip(value_top / 20, −1, +1)` |
+| Value | `confidence − 0.20 × (CDS / 50)` |
+| Jackpot | `confidence − 0.35 × (CDS / 50)` |
+
+**Stage 2 — Shape search:** All valid `(n_full, n_half)` pairs with `rows ≥ budget × floor` are scored by the strategy's shape objective and the best is picked.
+
+| Strategy | Shape objective | Row floor |
+|---|---|---|
+| Safe | `P(12/12)` | 50% of budget |
+| Balanced | `P(12/12)^0.9 × PVR^0.1` | 100% (always budget-filling) |
+| Value | `P(12/12)^0.6 × PVR^0.4` | 50% of budget |
+| Jackpot | `PVR` (subject to P(win) ≥ 0.3%) | 50% of budget |
+
+Jackpot eliminates heldekk when halvdekk on an uncertain match yields better PVR. Typical result at 192 NOK: Safe/Balanced/Value → 192 rows (1 HD, 6 H, 5 S); Jackpot → 128 rows (0 HD, 7 H, 5 S).
+
+The four budget presets (32/96/192/384 NOK) are deliberately chosen to achieve exact full-budget coverage.
 
 Thresholds in `analysis/classifier.py` control match classification and can be tuned without touching any other file.
 
@@ -92,6 +114,8 @@ Thresholds in `analysis/classifier.py` control match classification and can be t
 | 4 | API-Football enrichment — fixture matching, stats/form, AF odds fallback | Complete |
 | 4C | estimated_prior fallback — model-derived H/U/B for fixtures with no bookmaker odds | Complete |
 | 5 | Unified prediction engine — `analysis/model.py`; bookmaker ≥87% weight; crowd disagreement score | Complete |
+| 6B | Pool value analytics — `analysis/pool_value.py`; P(win), PVR, payout simulation; verify_model.py extended | Complete |
+| 6C | Strategy system — `analysis/strategy.py`; four modes (safe/balanced/value/jackpot); strategy-aware optimizer | Complete |
 
 ### Current architecture
 
@@ -100,13 +124,15 @@ Entry points
   app.py              Streamlit web UI (primary)
   main.py             Original CLI tool (no external deps)
   sync.py             Data ingestion and maintenance CLI
-  verify_model.py     Model verification report — prints picks/probs/coverage for all 3 coupons
+  verify_model.py     Model verification report — prints picks/probs/coverage for all 3 coupons; accepts --strategy and --omsetning
 
 Analysis pipeline (shared by app.py, Kampanalyse, Statistikk, coupon generation)
   analysis/probability.py     decimal odds → normalized implied probabilities
   analysis/model.py           unified model: bookmaker prior + AF stats adjustment; crowd disagreement score
   analysis/classifier.py      classify match (banker/standard/half_cover/full_cover/uncertain)
-  analysis/optimizer.py       exhaustive (n_full, n_half) search within budget; uses crowd_disagreement_score
+  analysis/strategy.py        StrategyConfig dataclass + STRATEGIES dict (safe/balanced/value/jackpot)
+  analysis/optimizer.py       two-stage strategy-aware optimizer: composite score ranking → shape search
+  analysis/pool_value.py      compute_value_index, compute_p_win, compute_pool_value_ratio, simulate_payout
   analysis/estimated_prior.py fallback H/U/B when no bookmaker odds — NT expert (60%) + stats (40%)
 
 Database  (SQLite via db/connection.py)
@@ -204,9 +230,34 @@ These constraints must be preserved across all future changes:
 
 - **Single pipeline:** `process_match()` → `run_model()` → `classify_match()` → `optimize_coupon()` is used identically in app.py (Kampanalyse + coupon generation), Statistikk page, and `verify_model.py`. If you change the model, all three update automatically.
 - **Bookmaker dominance:** bookmaker prior always has ≥87% weight in the final probability blend. AF stats can adjust by at most ±`_MAX_ADJ` (defined in `analysis/model.py`).
-- **Crowd disagreement score (CDS):** measures pp difference between model pick and public tips. Affects coverage depth (Single → Halvdekk → Heldekk) via `_effective_confidence()` in `optimizer.py`. Does **not** change the top recommended pick.
+- **Crowd disagreement score (CDS):** measures pp difference between model pick and public tips. Under Value/Jackpot strategies it reduces the composite score so high-disagreement matches receive more coverage; under Safe/Balanced it has no effect on ranking. Does **not** change the top recommended pick. `_effective_confidence()` is kept for backward-compatibility imports only.
 - **CLV uses real bookmaker odds only:** `odds_snapshots` must only ever contain Pinnacle (or other real bookmaker) odds. Estimated priors and NT expert conversions must never be written to `odds_snapshots`. CLV is undefined when no real bookmaker closing line exists.
 - **estimated_prior is not bookmaker odds:** validate check 24 enforces zero overlap between `fixture_estimated_prior` and `odds`.
+
+### Strategy system (Phase 6B/C)
+
+Four named strategies control coverage depth, system shape, and halvdekk second-pick selection. Selected via `--strategy` in `verify_model.py` and `optimize_coupon(strategy=…)` in the optimizer.
+
+**Strategy invariants (all modes):**
+- The single recommended pick is always the highest model-probability outcome — strategy never changes it.
+- Full covers (heldekk) always include all three outcomes (H/U/B).
+- Model probabilities in `Match` are read-only; strategy logic never writes to them.
+- Budget constraint (`rows ≤ max_rows`) is never violated.
+
+**Halvdekk second-pick substitution:** Under Balanced/Value/Jackpot the optimizer may substitute the third-ranked outcome (by probability) for the second when:
+1. The probability gap between #2 and #3 is within `contrarian_pp_tolerance`
+2. The third outcome's probability ≥ `min_prob_threshold`
+3. The third outcome's value index exceeds the second's by ≥ `pick_vi_advantage`
+
+Safe never substitutes (`contrarian_pp_tolerance = 0`). Jackpot allows the widest gap (15pp).
+
+**Pool value analytics** (`analysis/pool_value.py`):
+- `compute_value_index(prob, pub_prob)` — model_prob / public_prob; >1.0 means crowd underweights this outcome.
+- `compute_p_win(matches, coupon)` — exact probability the coupon covers all 12 outcomes.
+- `compute_pool_value_ratio(matches, coupon)` — P_model_win / P_public_win; >1.0 = positive pool edge. Returns `None` when fewer than 6 matches have public tip data.
+- `simulate_payout(matches, coupon, n_rows, omsetning)` — Monte Carlo payout distribution; pass `--omsetning <NOK>` to `verify_model.py` to activate.
+
+**Do not add new strategies or change strategy parameters without an explicit instruction.**
 
 ### NT API — endpoint change (2026-06) and data-source rules
 
