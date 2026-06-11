@@ -24,6 +24,7 @@ Thumbs.db
 
 # Test artifacts
 test_screenshots/
+screenshots/
 
 # Logs
 logs/
@@ -31,6 +32,7 @@ streamlit_run.log
 streamlit_err.log
 sl_*.log
 sl2_*.log
+logsverify_streamlit.log
 
 # Database (generated — do not commit)
 tippekupongen.db
@@ -40,10 +42,11 @@ data/tippekupongen.db
 data/tippekupongen.db-shm
 data/tippekupongen.db-wal
 
-# Debug / temp scripts (not production code)
-_coverage_check*.py
-check_af_odds*.py
-check_db.py
+# Debug / temp scripts (not production code) — moved to scripts/debug/
+scripts/debug/
+
+# Claude Code session data
+.claude/
 
 # Secrets
 .env

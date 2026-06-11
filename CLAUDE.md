@@ -12,6 +12,7 @@ Norsk Tipping (NT) prediction engine for Tippekupongen. Streamlit web app + CLI 
 # App
 streamlit run app.py         # Streamlit UI (primary; installed via Anaconda)
 python main.py               # CLI tool (no external deps)
+# python tests/test_week23.py  # Playwright end-to-end test (requires Playwright)
 
 # Data sync
 python sync.py --daily            # fetch NT + odds + enrichment + validate (idempotent)

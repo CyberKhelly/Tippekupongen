@@ -93,6 +93,30 @@ def _composite_score(m: Match, cfg: StrategyConfig) -> float:
     # Value / Jackpot: CDS-based reduction
     cds      = m.crowd_disagreement_score or 0.0
     cds_norm = min(1.0, cds / 50.0)
+
+    # Design A (Value only): suppress CDS promotion when halvdekk reduces pool value.
+    # CDS signals crowd-model disagreement, but high disagreement on a strongly
+    # underplayed single means halvdekk would dilute that edge rather than capture it.
+    # Gate: only apply CDS reduction when halvdekk_ratio >= single_ratio.
+    if cfg.name == "value" and cds_norm > 0.0 and m.has_public_tips:
+        probs  = sorted(
+            [("H", m.prob_h), ("U", m.prob_u), ("B", m.prob_b)],
+            key=lambda x: x[1], reverse=True,
+        )
+        top_p, sec_p = probs[0][1], probs[1][1]
+        top_o, sec_o = probs[0][0], probs[1][0]
+        ph = m.pub_prob_h or 0.0
+        pu = m.pub_prob_u or 0.0
+        pb = m.pub_prob_b or 0.0
+        _total = ph + pu + pb
+        if _total > 0.01:
+            _pmap  = {"H": ph / _total, "U": pu / _total, "B": pb / _total}
+            pp_top = _pmap[top_o]
+            pp_sec = _pmap[sec_o]
+            if pp_top > 0.001 and (pp_top + pp_sec) > 0.001:
+                if (top_p + sec_p) / (pp_top + pp_sec) < top_p / pp_top:
+                    cds_norm = 0.0  # halvdekk hurts PVR — do not promote via CDS
+
     return max(0.0, conf - cfg.cds_weight * cds_norm)
 
 
