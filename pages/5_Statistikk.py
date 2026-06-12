@@ -1,6 +1,6 @@
 """
-Statistikk — fixture analysis (premium redesign).
-Computation logic unchanged; only presentation redesigned.
+Statistikk — fixture analysis with optimizer decision.
+Shows per-fixture model breakdown and closes the loop to the coupon recommendation.
 """
 from datetime import datetime as _dt
 import streamlit as st
@@ -10,6 +10,8 @@ from db.enrichment import get_coupon_enrichment
 from models.match import Match as _MatchModel
 from analysis.probability import process_match as _bm_prior
 from analysis.model import run_model as _run_model
+from analysis.classifier import classify_match as _classify
+from analysis.optimizer import optimize_coupon as _optimize
 from analysis.estimated_prior import compute_estimated_prior as _est_prior
 from analysis.pool_value import compute_value_index as _compute_vi
 
@@ -213,7 +215,7 @@ st.markdown("""
 # ── Page title ────────────────────────────────────────────────────────────────
 st.markdown(
     '<div class="stt-title">Tippe<span class="q">Q</span>pongen — Statistikk</div>'
-    '<div class="stt-sub">Per-kamp modellanalyse &middot; API-Football enrichment</div>',
+    '<div class="stt-sub">Per-kamp modellanalyse &middot; optimizer-beslutning</div>',
     unsafe_allow_html=True,
 )
 
@@ -224,6 +226,21 @@ _all_coupons = list_coupons(week=_iso_now.week, year=_iso_now.year)
 if not _all_coupons:
     st.info("Ingen kuponger i databasen. Kjør sync.py --refresh-coupons.")
     st.stop()
+
+# ── Strategy selector ─────────────────────────────────────────────────────────
+_stt_strategy = st.radio(
+    "Strategi",
+    options=["safe", "balanced", "value", "jackpot"],
+    index=["safe", "balanced", "value", "jackpot"].index(
+        st.session_state.get("strategy", "balanced")
+    ),
+    format_func=lambda s: {
+        "safe": "Safe", "balanced": "Balansert",
+        "value": "Verdi", "jackpot": "Jackpot",
+    }[s],
+    horizontal=True,
+    label_visibility="collapsed",
+)
 
 _DAY_LBL = {"midtuke": "Midtuke", "lordag": "Lørdag", "sondag": "Søndag"}
 _tabs = st.tabs([
@@ -250,17 +267,15 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             unsafe_allow_html=True,
         )
 
+        # ── Pass 1: build + classify all match objects ────────────────────────
+        _match_triples = []   # (row, match, resolved_odds_src)
         for _row in _rows:
             _fix_num  = _row.get("match_number", "?")
             _home     = _row.get("home_name", "?")
             _away     = _row.get("away_name", "?")
-            _comp     = _row.get("arrangement_name") or _row.get("competition_id", "")
-            _ko       = _row.get("kickoff_utc", "")
-            _fix_id   = _row.get("api_football_fixture_id")
-
-            # ── Model computation (unchanged) ─────────────────────────────────
-            _oh = _row.get("odds_h"); _ou = _row.get("odds_u"); _ob = _row.get("odds_b")
             _odds_src = _row.get("odds_source", "")
+
+            _oh = _row.get("odds_h"); _ou = _row.get("odds_u"); _ob = _row.get("odds_b")
             if not (_oh and _ou and _ob):
                 _ex_h = _row.get("expert_h"); _ex_u = _row.get("expert_u"); _ex_b = _row.get("expert_b")
                 if (_ex_h and _ex_u and _ex_b
@@ -311,6 +326,26 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     _m.prob_b = float(_row["estimated_b"])
 
             _run_model(_m, _row)
+            _classify(_m)
+            _match_triples.append((_row, _m, _odds_src))
+
+        # ── Run optimizer for selected strategy ───────────────────────────────
+        _opt_picks, _ = _optimize(
+            [_m for _, _m, _ in _match_triples],
+            192.0,
+            strategy=_stt_strategy,
+        )
+
+        # ── Pass 2: render ────────────────────────────────────────────────────
+        for _row, _m, _odds_src in _match_triples:
+            _fix_num  = _row.get("match_number", "?")
+            _home     = _row.get("home_name", "?")
+            _away     = _row.get("away_name", "?")
+            _comp     = _row.get("arrangement_name") or _row.get("competition_id", "")
+            _ko       = _row.get("kickoff_utc", "")
+            _fix_id   = _row.get("api_football_fixture_id")
+            _has_pub  = _m.has_public_tips
+            _has_exp  = _m.has_expert_tips
 
             _rec  = _m.recommendation or "?"
             _conf = round(_m.confidence * 100, 1)
@@ -328,7 +363,7 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             # Left accent class
             _acc_cls = {"H": "fx-a-h", "U": "fx-a-u", "B": "fx-a-b"}.get(_rec, "fx-a-u")
 
-            # Pick label (outcome type only — teams already shown above)
+            # Pick label
             _pick_lbl = {"H": "HJEMMESEIER", "U": "UAVGJORT", "B": "BORTESEIER"}.get(_rec, _rec)
 
             # Kickoff format
@@ -363,7 +398,7 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             if _ko_fmt:
                 _meta_parts.append(f'<span class="fx-ko">{_ko_fmt}</span>')
 
-            # ── Model vs Public (advanced expander only — not shown in main view) ─
+            # ── Model vs Public ───────────────────────────────────────────────
             _mvp_html = ""
             if _has_pub and _m.pub_prob_h is not None:
                 _mvp_rows = ""
@@ -375,7 +410,6 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     _d   = (_mp - _pp) * 100
                     _dc  = "#3aaa78" if _d > 2 else "#e07a5f" if _d < -2 else "#2e4a64"
                     _oc  = "mvp-out-rec" if _o == _rec else "mvp-out"
-                    _pc  = "mvp-pct-rec" if _o == _rec else "mvp-pct"
                     _wm  = round(_mp * 100)
                     _wp  = round(_pp * 100)
                     _mvp_rows += (
@@ -452,12 +486,12 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     + '</div>'
                 )
 
-            # ── Determine conviction vs. necessary ───────────────────────────
+            # ── Conviction vs. necessary ──────────────────────────────────────
             _is_conviction = (
                 _has_pub and _rec_val is not None and abs(_rec_val) >= 10.0
             )
 
-            # ── Claim sentence (the argument, not the data) ───────────────────
+            # ── Claim sentence ────────────────────────────────────────────────
             if _has_pub and _rec_val is not None:
                 if _is_conviction:
                     _subject = (
@@ -471,6 +505,32 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     _claim = f"Modell og marked er i stor grad enige ({_rec_val:+.0f}pp). Anbefaling: {_rec} med {_conf:.0f}%."
             else:
                 _claim = f"Ingen offentlig tipsprosent. Modellen anbefaler {_rec} med {_conf:.0f}% konfidens."
+
+            # ── Optimizer decision block ──────────────────────────────────────
+            _picks_this = _opt_picks.get(_m.number, [_rec])
+            _n_p = len(_picks_this)
+            _cov_lbl = {1: "Banker", 2: "Halvdekk", 3: "Heldekkende"}.get(_n_p, "?")
+            _cov_col = {1: "#3a5a78", 2: "#c8960e", 3: "#be5050"}.get(_n_p, "#3a5a78")
+            _picks_str = " + ".join(_picks_this)
+            if _n_p == 1:
+                _opt_reason = f"konfidens {_conf:.0f}% — uten ekstra dekning"
+            elif _n_p == 2 and _cds_val is not None and _cds_val >= 10:
+                _opt_reason = f"CDS {_cds_val:.0f} — folkeavvik utløste halvdekk"
+            elif _n_p == 2:
+                _opt_reason = "halvdekk innenfor budsjettramme"
+            else:
+                _opt_reason = f"full dekning — konfidens {_conf:.0f}%"
+            _opt_html = (
+                f'<div style="font-size:.68rem;margin-bottom:16px;'
+                f'border-left:2px solid {_cov_col};padding-left:10px;">'
+                f'<span style="font-size:.58rem;font-weight:700;color:{_cov_col};'
+                f'text-transform:uppercase;letter-spacing:.5px;">Optimizer</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:#8aabb8;font-weight:600;">{_cov_lbl}</span>'
+                f'&nbsp;·&nbsp;{_picks_str}'
+                f'&nbsp;&nbsp;<span style="color:#2e4a64;">{_opt_reason}</span>'
+                f'</div>'
+            )
 
             # ── Focal block: edge (conviction) or confidence (necessary) ──────
             if _is_conviction:
@@ -498,7 +558,6 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     f'</div>'
                 )
             else:
-                # Necessary play: confidence is the focal signal, muted edge
                 _focal_html = (
                     f'<div style="display:flex;align-items:flex-end;gap:24px;margin-bottom:20px;">'
                     f'<div>'
@@ -514,7 +573,7 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     f'</div>'
                 )
 
-            # ── Supporting pills (VI, CDS only — edge already in focal block) ─
+            # ── Supporting pills (VI, CDS only) ──────────────────────────────
             _supp_pills = ""
             if _vi:
                 _vc = "pill-gold" if _vi >= 1.25 else "pill-pos" if _vi >= 1.0 else "pill-neg"
@@ -525,14 +584,15 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             if _supp_pills:
                 _supp_pills = f'<div class="fx-pills" style="margin-bottom:24px;">{_supp_pills}</div>'
 
-            # ── Render fixture (claim → focal → evidence) ─────────────────────
+            # ── Render fixture ────────────────────────────────────────────────
             st.markdown(
                 f'<div class="fx">'
                 f'<div class="fx-accent {_acc_cls}"></div>'
                 f'<div class="fx-meta">{"".join(_meta_parts)}</div>'
                 f'<div class="fx-teams">{_home}<span class="fx-vs">—</span>{_away}</div>'
-                f'<div style="font-size:.88rem;color:#8aabb8;line-height:1.6;margin-bottom:20px;'
+                f'<div style="font-size:.88rem;color:#8aabb8;line-height:1.6;margin-bottom:12px;'
                 f'font-style:italic;">{_claim}</div>'
+                f'{_opt_html}'
                 f'{_focal_html}'
                 f'{_supp_pills}'
                 f'{_ev_html}'
@@ -540,7 +600,7 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                 unsafe_allow_html=True,
             )
 
-            # ── Level 4: Advanced (expander) ──────────────────────────────────
+            # ── Advanced expander ─────────────────────────────────────────────
             with st.expander("Detaljert analyse"):
                 _exp_h = _row.get("expert_h")
                 _exp_u = _row.get("expert_u")

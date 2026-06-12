@@ -7,7 +7,7 @@ from models.match import Match
 from analysis.probability import process_match
 from analysis.model import run_model
 from analysis.classifier import classify_match
-from analysis.optimizer import optimize_coupon
+from analysis.optimizer import optimize_coupon, generate_anchor_coupon, compare_coupons
 from analysis.classifier import classification_label
 from analysis.strategy import STRATEGIES, DEFAULT_STRATEGY
 from analysis.pool_value import (
@@ -17,7 +17,7 @@ from analysis.pool_value import (
 from data.loader import load_coupons
 
 st.set_page_config(
-    page_title="TippeQongen",
+    page_title="TippeQpongen",
     page_icon="⚽",
     layout="wide",
 )
@@ -744,6 +744,71 @@ def render_match_analysis(matches: list[Match], picks: dict) -> None:
     )
 
 
+def render_conviction_summary(matches: list[Match], picks: dict) -> None:
+    """Strip showing the top conviction plays before the coupon list."""
+    plays = []
+    for m in matches:
+        rec = m.recommendation or ""
+        val_f = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
+        if val_f is None or not m.has_public_tips:
+            continue
+        if abs(val_f) < _CONVICTION_PP:
+            continue
+        mod_pct = round({"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(rec, 0) * 100)
+        pub_pct = round({"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(rec, 0) * 100)
+        plays.append((abs(val_f), m, rec, val_f, mod_pct, pub_pct))
+
+    plays.sort(key=lambda x: x[0], reverse=True)
+
+    if not plays:
+        st.markdown(
+            '<div style="font-size:0.63rem;color:#1e3448;padding:7px 0 10px;'
+            'border-top:1px solid rgba(255,255,255,0.04);">'
+            'Ingen sterk folkeavvik denne runden.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    n_total  = len(plays)
+    lbl      = "overbevisninger" if n_total != 1 else "overbevisning"
+    rows_html = ""
+    for _, m, rec, val_f, mod_pct, pub_pct in plays[:3]:
+        direction = "undervurderer" if val_f > 0 else "overvurderer"
+        edge_col  = "#f5c518" if val_f > 0 else "#e07a5f"
+        n_marks   = len(picks.get(m.number, [rec]))
+        cov_dot   = {1: "", 2: " ◐", 3: " ●"}.get(n_marks, "")
+        pick_s    = "/".join(picks.get(m.number, [rec])) + cov_dot
+        rows_html += (
+            f'<div style="display:grid;grid-template-columns:1fr 44px 60px;'
+            f'align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);">'
+            f'<div>'
+            f'<div style="font-size:0.8rem;font-weight:600;color:#c8ddf0;">{m.label}</div>'
+            f'<div style="font-size:0.62rem;color:#3a5a78;margin-top:2px;">'
+            f'Modell {rec} {mod_pct}% · Folket {rec} {pub_pct}% '
+            f'— folket {direction}</div>'
+            f'</div>'
+            f'<span style="font-size:0.88rem;font-weight:800;color:#f5c518;'
+            f'text-align:center;">{pick_s}</span>'
+            f'<span style="font-size:0.85rem;font-weight:800;color:{edge_col};'
+            f'text-align:right;font-variant-numeric:tabular-nums;">{val_f:+.0f}pp</span>'
+            f'</div>'
+        )
+
+    st.markdown(
+        f'<div style="font-family:Inter,\"Segoe UI\",system-ui,sans-serif;'
+        f'margin-bottom:0.75rem;padding:8px 0;'
+        f'border-top:1px solid rgba(255,255,255,0.05);">'
+        f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+        f'margin-bottom:5px;">'
+        f'<span style="font-size:0.6rem;font-weight:600;color:#2e4a64;'
+        f'text-transform:uppercase;letter-spacing:0.08em;">Folkeavvik</span>'
+        f'<span style="font-size:0.6rem;color:#1e3448;">{n_total} {lbl}</span>'
+        f'</div>'
+        f'{rows_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Page
 # ══════════════════════════════════════════════════════════════════════════════
@@ -761,7 +826,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Page navigation ───────────────────────────────────────────────────────────
-_na, _nb, _nc, _nd, _ne, _nf, _ = st.columns([1.4, 1, 1, 1, 1, 1, 2.6])
+_na, _nb, _nc, _nd, _ne, _ = st.columns([1.4, 1, 1, 1, 1, 3.6])
 with _na:
     st.markdown('<span class="page-nav-active-label">&#9679; Oversikt</span>', unsafe_allow_html=True)
 with _nb:
@@ -771,8 +836,6 @@ with _nc:
 with _nd:
     st.page_link("pages/2_Results.py", label="Resultater")
 with _ne:
-    st.page_link("pages/1_Team_Review.py", label="Team")
-with _nf:
     st.page_link("pages/4_Odds_Movement.py", label="Odds")
 st.markdown('<div style="height:0.75rem;"></div>', unsafe_allow_html=True)
 
@@ -833,6 +896,24 @@ for _sk in _STRATEGY_KEYS:
         if _csim.get("n_winning_sims", 0) > 0:
             _cmed = _csim["median"]
     _cmp_data.append((_sk, _cpw, _cpvr, _cmed))
+
+# Budget reducer comparison (current strategy × all budget levels vs anchor)
+_anchor_picks, _anchor_rows = generate_anchor_coupon(matches, strategy)
+_anchor_p_win = compute_p_win(matches, _anchor_picks)
+_anchor_pvr   = compute_pool_value_ratio(matches, _anchor_picks)
+
+_reducer_data: list[tuple] = []   # (_b, _br, _bp_win, _bp_pvr, _b_diff, coupon, nf, nh)
+for _b in BUDGET_OPTS:
+    if _b == budget:
+        _bp, _br = picks, total_rows
+    else:
+        _bp, _br = optimize_coupon(matches, float(_b), strategy=strategy)
+    _bp_win = compute_p_win(matches, _bp)
+    _bp_pvr = compute_pool_value_ratio(matches, _bp)
+    _b_diff = compare_coupons(_anchor_picks, _bp, matches)
+    _b_nf   = sum(1 for m in matches if len(_bp.get(m.number, [])) == 3)
+    _b_nh   = sum(1 for m in matches if len(_bp.get(m.number, [])) == 2)
+    _reducer_data.append((_b, _br, _bp_win, _bp_pvr, _b_diff, _b_nf, _b_nh))
 
 # ── Strategy selector ─────────────────────────────────────────────────────────
 st.markdown('<div class="t-overline" style="margin-bottom:14px;">Strategi</div>', unsafe_allow_html=True)
@@ -925,6 +1006,7 @@ with main_col:
     n_half = sum(1 for m in matches if len(picks[m.number]) == 2)
 
     _cpn_label = SHORT_LABELS.get(coupon_key, "")
+    render_conviction_summary(matches, picks)
     st.markdown(f"""
 <div class="cpn-header">
   <span class="cpn-title">{_STRATEGY_LABELS[strategy]} &nbsp;&middot;&nbsp; {_cpn_label} &nbsp;&middot;&nbsp; {total_rows} rekker</span>
@@ -1034,7 +1116,7 @@ with side_col:
     if st.button("Lagre kupong", use_container_width=True, type="secondary"):
         from db.schema import init_db as _init_db2
         from db.coupon import get_coupon_matches, get_best_odds
-        from db.history import save_prediction
+        from db.history import save_prediction, save_coupon_snapshot
 
         _init_db2()
         coupon_id = f"{coupon_key}-{_iso.week:02d}-{_iso.year}"
@@ -1059,8 +1141,25 @@ with side_col:
                 odds_u=best["odds_u"] if best else None,
                 odds_b=best["odds_b"] if best else None,
                 odds_source=best["source"] if best else None,
+                pub_prob_h=m.pub_prob_h,
+                pub_prob_u=m.pub_prob_u,
+                pub_prob_b=m.pub_prob_b,
+                value_h=m.value_h,
+                value_u=m.value_u,
+                value_b=m.value_b,
+                crowd_disagreement_score=m.crowd_disagreement_score,
             )
             saved += 1
+
+        if saved > 0:
+            save_coupon_snapshot(
+                coupon_id=coupon_id,
+                strategy=strategy,
+                budget_nok=float(budget),
+                total_rows=total_rows,
+                p_win=p_win,
+                pvr=pv_ratio,
+            )
 
         if saved == len(matches):
             st.success(f"Lagret {saved} kamper.")
@@ -1114,4 +1213,97 @@ with st.expander("Strategisammenligning"):
 <tbody>{_rows_html}</tbody>
 </table>
 {_med_note}
+""", unsafe_allow_html=True)
+
+with st.expander("Budsjettsammenligning — optimal vs budsjett"):
+    def _fmt_cov_diff(diff: dict) -> str:
+        parts = []
+        if diff["full_to_single"] > 0:
+            parts.append(f"−{diff['full_to_single']} heldekk→singel")
+        if diff["full_to_half"] > 0:
+            parts.append(f"−{diff['full_to_half']} heldekk→halvdekk")
+        if diff["half_to_single"] > 0:
+            parts.append(f"−{diff['half_to_single']} halvdekk→singel")
+        if diff["single_to_full"] > 0:
+            parts.append(f"+{diff['single_to_full']} singel→heldekk")
+        if diff["half_to_full"] > 0:
+            parts.append(f"+{diff['half_to_full']} halvdekk→heldekk")
+        if diff["single_to_half"] > 0:
+            parts.append(f"+{diff['single_to_half']} singel→halvdekk")
+        return ", ".join(parts) if parts else "= Optimalt"
+
+    _th_r = "padding:6px 12px;font-size:0.67rem;color:#2e4a64;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid rgba(255,255,255,0.06);"
+    _anch_pvr_s  = f"{_anchor_pvr:.2f}×" if _anchor_pvr else "—"
+    _anch_nf = sum(1 for m in matches if len(_anchor_picks.get(m.number, [])) == 3)
+    _anch_nh = sum(1 for m in matches if len(_anchor_picks.get(m.number, [])) == 2)
+
+    _red_html = (
+        "<tr style='background:rgba(245,197,24,0.08);'>"
+        f"<td style='padding:8px 12px;font-size:0.8rem;color:#f5c518;font-weight:700;'>★ Optimalt</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#8aaec8;'>{_anchor_rows}</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#8aaec8;'>{_anch_nf}H·{_anch_nh}½</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#c8ddf0;font-weight:600;'>{_anchor_p_win*100:.2f}%</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#3aaa78;font-weight:600;'>{_anch_pvr_s}</td>"
+        f"<td style='padding:8px 12px;font-size:0.8rem;color:#4a6a88;'>—</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#4a6a88;'>—</td>"
+        f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#4a6a88;'>—</td>"
+        "</tr>"
+    )
+
+    for _b, _br, _bp_win, _bp_pvr, _b_diff, _b_nf, _b_nh in _reducer_data:
+        _is_sel   = _b == budget
+        _row_bg   = "background:rgba(255,255,255,0.03);" if _is_sel else ""
+        _lbl      = ("▶ " if _is_sel else "") + f"{_b} NOK"
+        _lbl_col  = "#c8ddf0" if _is_sel else "#4a6a88"
+        _lbl_wt   = "700" if _is_sel else "400"
+
+        _pvr_s    = f"{_bp_pvr:.2f}×" if _bp_pvr else "—"
+        _pvr_col  = "#3aaa78" if (_bp_pvr or 0) >= 1.0 else "#4a6a88"
+        _cov_txt  = _fmt_cov_diff(_b_diff)
+        _cov_col  = ("#4a6a88" if _cov_txt == "= Optimalt"
+                     else "#3aaa78" if _cov_txt.startswith("+")
+                     else "#e07a5f")
+
+        _p_delta   = _bp_win - _anchor_p_win
+        _pvr_delta = (_bp_pvr - _anchor_pvr) if (_bp_pvr is not None and _anchor_pvr is not None) else None
+
+        _p_d_s   = ("+" if _p_delta >= 0 else "−") + f"{abs(_p_delta*100):.2f} pp"
+        _p_d_col = "#3aaa78" if _p_delta >= 0 else "#e07a5f"
+        if _pvr_delta is None:
+            _pvr_d_s, _pvr_d_col = "—", "#4a6a88"
+        else:
+            _pvr_d_s   = ("+" if _pvr_delta >= 0 else "−") + f"{abs(_pvr_delta):.2f}×"
+            _pvr_d_col = "#3aaa78" if _pvr_delta >= 0 else "#e07a5f"
+
+        _red_html += (
+            f"<tr style='{_row_bg}'>"
+            f"<td style='padding:8px 12px;font-size:0.8rem;color:{_lbl_col};font-weight:{_lbl_wt};'>{_lbl}</td>"
+            f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#8aaec8;'>{_br}</td>"
+            f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#8aaec8;'>{_b_nf}H·{_b_nh}½</td>"
+            f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:#c8ddf0;'>{_bp_win*100:.2f}%</td>"
+            f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:{_pvr_col};font-weight:600;'>{_pvr_s}</td>"
+            f"<td style='padding:8px 12px;font-size:0.8rem;color:{_cov_col};'>{_cov_txt}</td>"
+            f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:{_p_d_col};'>{_p_d_s}</td>"
+            f"<td style='padding:8px 12px;text-align:right;font-size:0.8rem;color:{_pvr_d_col};'>{_pvr_d_s}</td>"
+            "</tr>"
+        )
+
+    st.markdown(f"""
+<table style="width:100%;border-collapse:collapse;font-family:Inter,'Segoe UI',system-ui,sans-serif;">
+<thead><tr>
+<th style="{_th_r}text-align:left;">Budsjett</th>
+<th style="{_th_r}text-align:right;">Rekker</th>
+<th style="{_th_r}text-align:right;">Dekning</th>
+<th style="{_th_r}text-align:right;">P(12/12)</th>
+<th style="{_th_r}text-align:right;">PVR</th>
+<th style="{_th_r}text-align:left;">Endring vs optimalt</th>
+<th style="{_th_r}text-align:right;">P‑tap</th>
+<th style="{_th_r}text-align:right;">PVR‑tap</th>
+</tr></thead>
+<tbody>{_red_html}</tbody>
+</table>
+<div style="font-size:0.65rem;color:#2e4a64;margin-top:8px;">
+★ Optimalt = beste form uten budsjetttak ({_anchor_rows} rekker, {_STRATEGY_LABELS[strategy]}-strategi, maks 1536 rekker).
+&nbsp;&nbsp;H = heldekk &nbsp;·&nbsp; ½ = halvdekk
+</div>
 """, unsafe_allow_html=True)

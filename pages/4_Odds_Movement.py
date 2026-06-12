@@ -65,10 +65,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("""
-<div class="page-title">Tippe<span class="q">Q</span>pongen — Odds Movement</div>
+<div class="page-title">Tippe<span class="q">Q</span>pongen — Markedsvalidering</div>
 <div class="page-subtitle">
-Pinnacle odds over tid per kamp. Kj&#248;r <code>python sync.py --odds-snapshot</code>
-daglig for a bygge opp historikk.
+Bekreftet markedet optimizerens valg? Positiv CLV = markedet beveget seg i riktig retning etter lagring.
 </div>
 """, unsafe_allow_html=True)
 
@@ -98,7 +97,7 @@ sel = st.selectbox(
 
 # ── Summary table ─────────────────────────────────────────────────────────────────
 
-st.markdown('<div class="section-head">Odds-bevegelse per kamp</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-head">Markedsvalidering per kamp</div>', unsafe_allow_html=True)
 
 summaries = get_snapshot_summary_for_coupon(sel)
 clv_map   = {r["fixture_id"]: r for r in get_clv_for_coupon(sel)}
@@ -112,10 +111,7 @@ else:
     def _fmt(v, fallback="—"):
         return f"{v:.2f}" if v is not None else f'<span class="dim">{fallback}</span>'
 
-    def _arrow(open_h, close_h, pick):
-        """Show movement direction for the selected pick."""
-        open_v  = open_h
-        close_v = close_h
+    def _arrow(open_v, close_v):
         if open_v is None or close_v is None:
             return '<span class="flat">—</span>'
         diff = close_v - open_v
@@ -125,6 +121,8 @@ else:
             return f'<span class="up">&#8593; +{diff:.2f}</span>'
         return f'<span class="down">&#8595; {diff:.2f}</span>'
 
+    # Aggregate validation summary
+    n_confirmed = n_diverged = n_pending = 0
     rows_html = ""
     for s in summaries:
         fid     = s["fixture_id"]
@@ -138,16 +136,28 @@ else:
         away_name = clv_d.get("away_name", "?")
         pick      = clv_d.get("recommended_pick", "?")
 
-        # Odds for the selected pick column
-        pick_idx = {"H": "h", "U": "u", "B": "b"}.get(pick, "h")
+        pick_idx    = {"H": "h", "U": "u", "B": "b"}.get(pick, "h")
         open_pick   = opening[f"odds_{pick_idx}"]  if opening  else None
         latest_pick = latest[f"odds_{pick_idx}"]   if latest   else None
         close_pick  = closing[f"odds_{pick_idx}"]  if closing  else None
         saved_pick  = clv_d.get(f"pred_odds_{pick_idx}")
 
-        arrow = _arrow(open_pick, close_pick or latest_pick, pick)
+        arrow = _arrow(open_pick, close_pick or latest_pick)
 
         clv_sel = clv_d.get("clv_selected")
+        has_closing = closing is not None
+
+        if clv_sel is not None and has_closing:
+            if clv_sel >= 0:
+                verdict = '<span style="color:#3aaa78;font-weight:700;">&#10003; Bekreftet</span>'
+                n_confirmed += 1
+            else:
+                verdict = '<span style="color:#e74c3c;font-weight:700;">&#10007; Divergerte</span>'
+                n_diverged += 1
+        else:
+            verdict = '<span class="dim">&#8987; Avventer</span>'
+            n_pending += 1
+
         if clv_sel is not None:
             c_cls   = "clv-pos" if clv_sel >= 0 else "clv-neg"
             clv_str = f'<span class="{c_cls}">{clv_sel*100:+.1f}%</span>'
@@ -166,15 +176,27 @@ else:
             f"<td style='color:#8ab4d8'>{_fmt(close_pick)}</td>"
             f"<td>{arrow}</td>"
             f"<td style='text-align:center'>{clv_str}</td>"
+            f"<td style='text-align:center'>{verdict}</td>"
             f"<td>{snap_pill}</td>"
             f"</tr>"
+        )
+
+    n_decided = n_confirmed + n_diverged
+    if n_decided > 0:
+        _val_col = "#3aaa78" if n_confirmed >= n_diverged else "#e74c3c"
+        st.markdown(
+            f'<p style="font-size:11px;color:{_val_col};margin-bottom:8px;font-weight:600;">'
+            f'{n_confirmed} av {n_decided} lukkede picks bekreftet av markedet'
+            f'{"." if n_pending == 0 else f" &nbsp;·&nbsp; {n_pending} avventer closing odds."}'
+            f'</p>',
+            unsafe_allow_html=True,
         )
 
     st.markdown(
         '<table class="mov-table"><thead><tr>'
         "<th>Kamp</th><th>Valg</th>"
-        "<th>Apning</th><th>Lagret</th><th>Siste</th><th>Closing</th>"
-        "<th>Bevegelse</th><th>CLV</th><th>Snapshots</th>"
+        "<th>Åpning</th><th>Lagret</th><th>Siste</th><th>Closing</th>"
+        "<th>Bevegelse</th><th>CLV</th><th>Validering</th><th>Snapshots</th>"
         f"</tr></thead><tbody>{rows_html}</tbody></table>",
         unsafe_allow_html=True,
     )

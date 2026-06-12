@@ -291,3 +291,105 @@ def optimize_coupon(
 
     coupon = _build_coupon(ranked, best_nf, best_nh, cfg)
     return coupon, best_rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Unconstrained anchor coupon + budget comparison
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_anchor_coupon(
+    matches: list[Match],
+    strategy: str = "balanced",
+    max_rows: int = 1536,
+    min_rows: int = 16,
+) -> tuple[dict[int, list[str]], int]:
+    """
+    Finds the shape that maximises the strategy objective with no budget ceiling.
+    Searches all (n_full, n_half) pairs in [min_rows, max_rows] without applying
+    the strategy's shape_min_utilisation floor, revealing the model's natural shape.
+    """
+    cfg    = STRATEGIES.get(strategy, STRATEGIES["balanced"])
+    n      = len(matches)
+    ranked = sorted(matches, key=lambda m: _composite_score(m, cfg))
+
+    candidates: list[tuple[int, int, int]] = []
+    for nf in range(n + 1):
+        for nh in range(n - nf + 1):
+            rows = (3 ** nf) * (2 ** nh)
+            if min_rows <= rows <= max_rows:
+                candidates.append((rows, nf, nh))
+
+    if not candidates:
+        coupon = _build_coupon(ranked, 0, 0, cfg)
+        return coupon, 1
+
+    best_obj  = -1.0
+    best_rows = candidates[0][0]
+    best_nf   = candidates[0][1]
+    best_nh   = candidates[0][2]
+
+    for rows, nf, nh in candidates:
+        coupon = _build_coupon(ranked, nf, nh, cfg)
+        p_win  = compute_p_win(matches, coupon)
+
+        if cfg.min_p_win_floor > 0.0 and p_win < cfg.min_p_win_floor:
+            continue
+
+        pvr = compute_pool_value_ratio(matches, coupon)
+        if pvr is None:
+            pvr = 1.0
+
+        p_exp = cfg.shape_p_win_exp
+        v_exp = cfg.shape_pvr_exp
+
+        if p_exp == 0.0:
+            obj = pvr ** v_exp if v_exp > 0.0 else 1.0
+        elif v_exp == 0.0:
+            obj = p_win ** p_exp
+        else:
+            obj = (p_win ** p_exp) * (pvr ** v_exp)
+
+        if obj > best_obj:
+            best_obj  = obj
+            best_rows = rows
+            best_nf   = nf
+            best_nh   = nh
+
+    coupon = _build_coupon(ranked, best_nf, best_nh, cfg)
+    return coupon, best_rows
+
+
+def compare_coupons(
+    anchor_coupon: dict[int, list[str]],
+    budget_coupon: dict[int, list[str]],
+    matches: list[Match],
+) -> dict:
+    """
+    Returns per-match coverage changes from anchor to budget coupon.
+    Counts how many matches had their coverage level raised or lowered.
+    """
+    full_to_half   = 0
+    full_to_single = 0
+    half_to_single = 0
+    single_to_half = 0
+    single_to_full = 0
+    half_to_full   = 0
+
+    for m in matches:
+        a = len(anchor_coupon.get(m.number, []))
+        b = len(budget_coupon.get(m.number, []))
+        if   a == 3 and b == 2: full_to_half   += 1
+        elif a == 3 and b == 1: full_to_single += 1
+        elif a == 2 and b == 1: half_to_single += 1
+        elif a == 1 and b == 2: single_to_half += 1
+        elif a == 1 and b == 3: single_to_full += 1
+        elif a == 2 and b == 3: half_to_full   += 1
+
+    return {
+        "full_to_half":   full_to_half,
+        "full_to_single": full_to_single,
+        "half_to_single": half_to_single,
+        "single_to_half": single_to_half,
+        "single_to_full": single_to_full,
+        "half_to_full":   half_to_full,
+    }

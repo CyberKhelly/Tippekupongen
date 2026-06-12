@@ -325,6 +325,76 @@ CREATE TABLE IF NOT EXISTS fixture_estimated_prior (
 """
 
 
+# Phase 8 — automated evaluation pipeline
+_DDL_PHASE8_TABLES = """
+CREATE TABLE IF NOT EXISTS coupon_save_snapshot (
+    snapshot_id  TEXT PRIMARY KEY,
+    coupon_id    TEXT NOT NULL REFERENCES coupons(coupon_id),
+    strategy     TEXT NOT NULL,
+    budget_nok   REAL NOT NULL,
+    total_rows   INTEGER NOT NULL,
+    p_win        REAL,
+    pvr          REAL,
+    saved_at     TEXT DEFAULT (datetime('now')),
+    UNIQUE(coupon_id)
+);
+
+CREATE TABLE IF NOT EXISTS pick_evaluations (
+    pick_eval_id  TEXT PRIMARY KEY,
+    coupon_id     TEXT NOT NULL REFERENCES coupons(coupon_id),
+    fixture_id    TEXT NOT NULL REFERENCES fixtures(fixture_id),
+    match_number  INTEGER NOT NULL,
+    result_1x2    TEXT CHECK(result_1x2 IN ('H','U','B')),
+    covered       INTEGER,
+    model_correct INTEGER,
+    nt_correct    INTEGER,
+    cds           REAL,
+    cds_bucket    TEXT,
+    value_rec     REAL,
+    vi_bucket     TEXT,
+    edge_pp       REAL,
+    edge_bucket   TEXT,
+    coverage_type TEXT,
+    is_conviction INTEGER,
+    evaluated_at  TEXT DEFAULT (datetime('now')),
+    UNIQUE(coupon_id, fixture_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pick_evals_coupon  ON pick_evaluations(coupon_id);
+CREATE INDEX IF NOT EXISTS idx_pick_evals_fixture ON pick_evaluations(fixture_id);
+CREATE INDEX IF NOT EXISTS idx_snap_coupon        ON coupon_save_snapshot(coupon_id);
+"""
+
+# New columns added in Phase 8 — idempotent via try/except.
+_PHASE8_COLUMNS: list[tuple[str, str]] = [
+    # Crowd signal snapshot frozen at prediction-save time
+    ("coupon_predictions", "pub_prob_h               REAL"),
+    ("coupon_predictions", "pub_prob_u               REAL"),
+    ("coupon_predictions", "pub_prob_b               REAL"),
+    ("coupon_predictions", "value_h                  REAL"),
+    ("coupon_predictions", "value_u                  REAL"),
+    ("coupon_predictions", "value_b                  REAL"),
+    ("coupon_predictions", "crowd_disagreement_score REAL"),
+    # Extended aggregate evaluation
+    ("coupon_evaluations", "strategy                 TEXT"),
+    ("coupon_evaluations", "budget_nok               REAL"),
+    ("coupon_evaluations", "pvr_at_save              REAL"),
+    ("coupon_evaluations", "p_win_at_save            REAL"),
+    ("coupon_evaluations", "n_nt_correct             INTEGER"),
+    ("coupon_evaluations", "nt_hit_rate              REAL"),
+    ("coupon_evaluations", "actual_payout_nok        REAL"),
+    ("coupon_evaluations", "n_matches_evaluated      INTEGER"),
+]
+
+
+def _add_phase8_columns(conn) -> None:
+    for table, col_def in _PHASE8_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_DDL_BASE)
@@ -336,3 +406,5 @@ def init_db() -> None:
         conn.executescript(_DDL_PHASE4B_TABLES)
         conn.executescript(_DDL_PHASE5_TABLES)
         conn.executescript(_DDL_ESTIMATED_PRIOR)
+        conn.executescript(_DDL_PHASE8_TABLES)
+        _add_phase8_columns(conn)
