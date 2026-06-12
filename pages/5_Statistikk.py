@@ -313,7 +313,7 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     _m.prob_u = float(_row["estimated_u"])
                     _m.prob_b = float(_row["estimated_b"])
 
-            _run_model(_m)
+            _run_model(_m, _row)
 
             # Recommendation & confidence
             _rec  = _m.recommendation or "?"
