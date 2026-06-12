@@ -17,7 +17,7 @@ from analysis.pool_value import (
 from data.loader import load_coupons
 
 st.set_page_config(
-    page_title="TippeQpongen",
+    page_title="TippeQongen",
     page_icon="⚽",
     layout="wide",
 )
@@ -87,19 +87,20 @@ st.markdown("""
 /* ── Reset & shell ───────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 .stApp {
-    background: #08111c;
+    background:
+        radial-gradient(ellipse at 18% 0%, rgba(18,50,120,0.55) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 95%, rgba(10,25,70,0.35) 0%, transparent 50%),
+        #07111e;
     font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
 }
-[data-testid="stHeader"] {
-    background: #08111c !important;
-    border-bottom: none !important;
-}
+[data-testid="stHeader"] { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
 .block-container {
-    max-width: 1160px !important;
+    max-width: 1200px !important;
     margin: 0 auto !important;
-    padding-top: 3rem !important;
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
+    padding-top: 2.5rem !important;
+    padding-left: 2.5rem !important;
+    padding-right: 2.5rem !important;
     padding-bottom: 5rem !important;
 }
 [data-testid="stSidebar"] { display: none !important; }
@@ -130,13 +131,13 @@ st.markdown("""
 }
 [data-testid="stButton"] > button[kind="secondary"] {
     background: transparent !important;
-    color: #4a6a88 !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: #8aabb8 !important;
+    border: 1px solid rgba(255,255,255,0.09) !important;
 }
 [data-testid="stButton"] > button[kind="secondary"]:hover {
     background: rgba(255,255,255,0.04) !important;
-    color: #8aaec8 !important;
-    border-color: rgba(255,255,255,0.14) !important;
+    color: #c8ddf0 !important;
+    border-color: rgba(255,255,255,0.16) !important;
 }
 /* Expander */
 [data-testid="stExpander"] {
@@ -184,15 +185,15 @@ iframe { border: none !important; }
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #2e4a64;
+    color: #607888;
 }
 .t-label {
     font-size: 0.72rem;
     font-weight: 500;
-    color: #4a6a88;
+    color: #8aabb8;
 }
-.t-body { font-size: 0.82rem; color: #8aaec8; }
-.t-muted { font-size: 0.72rem; color: #2e4a64; }
+.t-body { font-size: 0.82rem; color: #a8c4d8; }
+.t-muted { font-size: 0.72rem; color: #607888; }
 
 /* ── Layout spacers ──────────────────────────────────────────────────────── */
 .gap-xs  { height: 0.5rem; }
@@ -205,19 +206,71 @@ iframe { border: none !important; }
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 3rem;
+    padding: 0.5rem 0 1rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .wordmark {
-    font-size: 1.05rem;
-    font-weight: 800;
-    color: #e0eaf4;
-    letter-spacing: -0.02em;
+    font-size: 1.45rem;
+    font-weight: 900;
+    color: #e8f2fc;
+    letter-spacing: -0.04em;
+    line-height: 1.25;
+    display: block;
+    overflow: visible;
 }
-.wordmark .q { color: #f5c518; }
+.wordmark .q {
+    color: #f5c518;
+    text-shadow: 0 0 22px rgba(245,197,24,0.4), 0 0 6px rgba(245,197,24,0.25);
+}
 .topbar-meta {
     font-size: 0.72rem;
-    color: #2e4a64;
+    color: #8aabb8;
     font-weight: 500;
+    line-height: 1.5;
+    text-align: right;
+}
+
+/* ── Page navigation links ───────────────────────────────────────────────── */
+.page-nav-strip {
+    display: flex;
+    gap: 0.15rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+[data-testid="stPageLink"] {
+    display: inline-block !important;
+}
+[data-testid="stPageLink"] > a,
+[data-testid="stPageLink"] > a:visited {
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    color: #607888 !important;
+    text-decoration: none !important;
+    padding: 4px 10px !important;
+    border-radius: 5px !important;
+    border: 1px solid rgba(255,255,255,0.05) !important;
+    background: rgba(255,255,255,0.02) !important;
+    transition: color 0.12s, background 0.12s !important;
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+}
+[data-testid="stPageLink"] > a:hover {
+    color: #c8ddf0 !important;
+    background: rgba(255,255,255,0.05) !important;
+}
+.page-nav-active-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #f5c518;
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid rgba(245,197,24,0.2);
+    background: rgba(245,197,24,0.06);
+    white-space: nowrap;
 }
 
 /* ── Segment controls (coupon / budget) ──────────────────────────────────── */
@@ -227,14 +280,14 @@ iframe { border: none !important; }
     background: rgba(255,255,255,0.03);
     border-radius: 7px;
     padding: 3px;
-    margin-bottom: 2.5rem;
+    margin-bottom: 1rem;
 }
 .seg-btn {
     padding: 5px 16px;
     border-radius: 5px;
     font-size: 0.78rem;
     font-weight: 500;
-    color: #4a6a88;
+    color: #8aabb8;
     cursor: pointer;
     border: none;
     background: transparent;
@@ -243,7 +296,7 @@ iframe { border: none !important; }
 }
 .seg-btn.active {
     background: #0f2035;
-    color: #e0eaf4;
+    color: #e8f2fc;
     font-weight: 600;
 }
 
@@ -252,56 +305,48 @@ iframe { border: none !important; }
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 10px;
-    margin-bottom: 2.5rem;
+    margin-bottom: 1rem;
 }
 .strat-tile {
-    padding: 16px 18px 14px;
+    padding: 10px 12px 8px;
     border-radius: 10px;
     background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.05);
     cursor: pointer;
     transition: background 0.12s, box-shadow 0.12s;
     position: relative;
     overflow: hidden;
+    margin-bottom: 4px;
 }
-.strat-tile:hover { background: rgba(255,255,255,0.045); }
+.strat-tile:hover { background: rgba(255,255,255,0.04); }
 .strat-tile.active {
-    background: rgba(245,197,24,0.07);
-    box-shadow: inset 0 0 0 1.5px rgba(245,197,24,0.35);
+    background: linear-gradient(135deg, rgba(245,197,24,0.13) 0%, rgba(245,197,24,0.04) 100%);
+    border-color: rgba(245,197,24,0.45);
+    box-shadow: 0 0 18px rgba(245,197,24,0.07), inset 0 1px 0 rgba(245,197,24,0.12);
 }
 .strat-tile-badge {
-    font-size: 0.6rem;
+    font-size: 0.58rem;
     font-weight: 700;
     color: #f5c518;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin-bottom: 8px;
-    height: 14px;
+    margin-bottom: 5px;
+    height: 12px;
 }
-.strat-tile-name {
-    font-size: 0.88rem;
-    font-weight: 700;
-    color: #c8ddf0;
-    margin-bottom: 4px;
-    letter-spacing: -0.01em;
-}
-.strat-tile-desc {
-    font-size: 0.7rem;
-    color: #2e4a64;
-    line-height: 1.4;
-    margin-bottom: 14px;
-}
+.strat-tile-name { display: none; }
+.strat-tile-desc { display: none; }
 .strat-tile-stat {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
 }
 .strat-stat-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
 }
-.strat-stat-lbl { font-size: 0.67rem; color: #2e4a64; font-weight: 500; }
-.strat-stat-val { font-size: 0.82rem; font-weight: 700; color: #8aaec8; }
+.strat-stat-lbl { font-size: 0.63rem; color: #607888; font-weight: 500; }
+.strat-stat-val { font-size: 0.78rem; font-weight: 700; color: #8aaec8; }
 .strat-stat-val.gold   { color: #f5c518; }
 .strat-stat-val.green  { color: #3aaa78; }
 .strat-stat-val.muted  { color: #2e4a64; }
@@ -310,18 +355,20 @@ iframe { border: none !important; }
 .hero-band {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr 1fr;
-    gap: 0;
-    margin-bottom: 2.5rem;
+    gap: 10px;
+    margin-bottom: 1.5rem;
 }
 .hero-metric {
-    padding: 0 24px 0 0;
+    padding: 16px 18px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
+    backdrop-filter: blur(4px);
 }
-.hero-metric + .hero-metric {
-    padding-left: 24px;
-    border-left: 1px solid rgba(255,255,255,0.06);
-}
+.hero-metric + .hero-metric { }
 .hero-val {
-    font-size: 2rem;
+    font-size: 1.65rem;
     font-weight: 800;
     letter-spacing: -0.04em;
     line-height: 1;
@@ -329,15 +376,15 @@ iframe { border: none !important; }
     font-variant-numeric: tabular-nums;
 }
 .hero-lbl {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 500;
-    color: #4a6a88;
+    color: #8aabb8;
     letter-spacing: 0.01em;
 }
 .hero-sub {
-    font-size: 0.67rem;
-    color: #2e4a64;
-    margin-top: 2px;
+    font-size: 0.62rem;
+    color: #607888;
+    margin-top: 3px;
 }
 
 /* ── Payout bar ──────────────────────────────────────────────────────────── */
@@ -377,20 +424,20 @@ iframe { border: none !important; }
     transform: translateX(-50%);
     text-align: center;
 }
-.pay-tick-val { font-size: 0.67rem; font-weight: 600; color: #8aaec8; white-space: nowrap; }
-.pay-tick-lbl { font-size: 0.6rem; color: #2e4a64; margin-top: 1px; white-space: nowrap; }
+.pay-tick-val { font-size: 0.67rem; font-weight: 600; color: #a8c4d8; white-space: nowrap; }
+.pay-tick-lbl { font-size: 0.6rem; color: #607888; margin-top: 1px; white-space: nowrap; }
 .pay-tick-lbl.gold { color: #f5c518; }
-.pay-footnote { font-size: 0.65rem; color: #1e3a54; margin-top: 4px; }
+.pay-footnote { font-size: 0.65rem; color: #607888; margin-top: 4px; }
 
 /* ── Coupon list ─────────────────────────────────────────────────────────── */
 .cpn-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
-.cpn-title { font-size: 0.78rem; font-weight: 600; color: #4a6a88; }
-.cpn-meta-inline { font-size: 0.72rem; color: #2e4a64; }
+.cpn-title { font-size: 0.78rem; font-weight: 600; color: #8aabb8; }
+.cpn-meta-inline { font-size: 0.72rem; color: #607888; }
 
 /* Meta sidebar */
 .meta-stat {
@@ -402,8 +449,8 @@ iframe { border: none !important; }
 .meta-stat + .meta-stat {
     border-top: 1px solid rgba(255,255,255,0.04);
 }
-.meta-stat-lbl { font-size: 0.72rem; color: #2e4a64; }
-.meta-stat-val { font-size: 0.82rem; font-weight: 600; color: #8aaec8; }
+.meta-stat-lbl { font-size: 0.72rem; color: #607888; }
+.meta-stat-val { font-size: 0.82rem; font-weight: 600; color: #c8ddf0; }
 .meta-stat-val.pos { color: #3aaa78; }
 .meta-stat-val.neg { color: #e07a5f; }
 
@@ -445,7 +492,7 @@ iframe { border: none !important; }
     gap: 8px;
     margin-bottom: 4px;
 }
-.bar-lbl { font-size: 0.65rem; color: #2e4a64; width: 12px; text-align: right; flex-shrink: 0; }
+.bar-lbl { font-size: 0.65rem; color: #607888; width: 12px; text-align: right; flex-shrink: 0; }
 .bar-track {
     flex: 1;
     height: 4px;
@@ -454,18 +501,18 @@ iframe { border: none !important; }
     overflow: hidden;
 }
 .bar-fill { height: 4px; border-radius: 2px; }
-.bar-pct { font-size: 0.65rem; color: #2e4a64; width: 28px; text-align: right; flex-shrink: 0; }
+.bar-pct { font-size: 0.65rem; color: #607888; width: 28px; text-align: right; flex-shrink: 0; }
 .match-card-bottom {
     display: flex;
     gap: 16px;
 }
 .match-chip {
     font-size: 0.67rem;
-    color: #2e4a64;
+    color: #607888;
 }
-.match-chip strong { color: #4a6a88; font-weight: 600; }
+.match-chip strong { color: #8aabb8; font-weight: 600; }
 .match-chip.highlight strong { color: #3aaa78; }
-.match-chip.coverage { color: #4a6a88; }
+.match-chip.coverage { color: #8aabb8; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -521,73 +568,111 @@ def _fmt_kr(v: int) -> str:
     return f"{v // 1000}k"
 
 
+_CONVICTION_PP = 10.0  # edge threshold (pp) that marks a meaningful crowd mispricing
+
+
 def render_coupon_list(matches: list[Match], picks: dict) -> None:
-    """Coupon as a clean pick list — no table borders, typography-led."""
-    _cov_dot = {1: "", 2: "&#9680;", 3: "&#9679;"}
-    _cov_col = {1: "#2e4a64", 2: "#8a6a00", 3: "#7a3030"}
+    """Coupon rows — conviction plays (large crowd edge) visually distinguished from necessary plays."""
+    _dot = {1: "", 2: " &#9680;", 3: " &#9679;"}
+
+    # Columns: [name] [pick] [edge — primary signal] [conf] [VI]
+    _cols = "1fr 52px 68px 38px 48px"
+    _gap  = "gap: 0 10px;"
+
+    _th = "font-size:0.58rem;color:#2e4a64;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;"
+    header = (
+        f"<div style='display:grid;grid-template-columns:{_cols};"
+        f"align-items:center;padding:4px 0 7px;{_gap}"
+        f"border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:3px;'>"
+        f"<span style='{_th}'>Kamp</span>"
+        f"<span style='{_th}'>Pick</span>"
+        f"<span style='{_th}text-align:right;'>Edge</span>"
+        f"<span style='{_th}text-align:right;'>Konf</span>"
+        f"<span style='{_th}text-align:right;'>VI</span>"
+        f"</div>"
+    )
 
     rows = ""
     for m in matches:
         n      = len(picks[m.number])
         rec    = m.recommendation or ""
-        pick_s = "/".join(picks[m.number])
-
+        pick_s = "/".join(picks[m.number]) + _dot[n]
         conf   = round(m.confidence * 100)
-        dot    = _cov_dot[n]
-        dot_col = _cov_col[n]
 
         val_f  = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
-        if val_f is not None and m.has_public_tips:
-            val_s  = f"{val_f:+.1f}pp"
-            val_col = "#3aaa78" if val_f > 0 else "#e07a5f"
+        has_edge = val_f is not None and m.has_public_tips
+        is_conviction = has_edge and abs(val_f) >= _CONVICTION_PP
+
+        if has_edge:
+            edge_s = f"{val_f:+.0f}pp"
         else:
-            val_s, val_col = "", "#2e4a64"
+            edge_s = "—"
 
         prob_r = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(rec, 0)
         pub_r  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(rec)
         vi     = compute_value_index(prob_r, pub_r)
-        vi_s   = f"VI {vi:.2f}×" if vi else ""
-        vi_col = "#3aaa78" if (vi or 0) >= 1.1 else "#2e4a64"
+        vi_s   = f"{vi:.2f}×" if vi else "—"
 
-        val_html = (f"<span style='font-size:0.67rem;color:{val_col};font-weight:600;"
-                    f"margin-left:10px;'>{val_s}</span>") if val_s else ""
-        vi_html  = (f"<span style='font-size:0.67rem;color:{vi_col};"
-                    f"margin-left:8px;'>{vi_s}</span>") if vi_s else ""
-        dot_html = (f"<span style='font-size:0.7rem;color:{dot_col};"
-                    f"margin-left:4px;'>{dot}</span>") if dot else ""
+        if is_conviction:
+            # Conviction play: crowd meaningfully wrong — edge is the story
+            name_col  = "#e8f2fc"
+            edge_col  = "#f5c518" if (val_f or 0) > 0 else "#e07a5f"
+            edge_size = "0.88rem"
+            edge_wt   = "800"
+            vi_col    = "#3aaa78" if (vi or 0) >= 1.1 else "#607888"
+            row_bg    = "background:rgba(245,197,24,0.025);"
+            left_bar  = (
+                "border-left:2px solid rgba(245,197,24,0.35);"
+                "padding-left:10px;margin-left:-2px;"
+            )
+        else:
+            # Necessary play: model and crowd broadly agree — muted presentation
+            name_col  = "#8aabb8"
+            edge_col  = "#2e4a64"
+            edge_size = "0.65rem"
+            edge_wt   = "500"
+            vi_col    = "#2e4a64"
+            row_bg    = ""
+            left_bar  = "padding-left:12px;"
 
         rows += (
-            f"<div style='display:flex;justify-content:space-between;align-items:center;"
-            f"padding:9px 0;border-bottom:1px solid rgba(255,255,255,0.035);'>"
-            f"<div>"
-            f"<span style='font-size:0.65rem;color:#2e4a64;margin-right:10px;"
-            f"font-variant-numeric:tabular-nums;'>{m.number:02d}</span>"
-            f"<span style='font-size:0.82rem;color:#c8ddf0;font-weight:500;'>{m.label}</span>"
-            f"</div>"
-            f"<div style='display:flex;align-items:center;'>"
-            f"{val_html}{vi_html}"
-            f"<span style='font-size:0.67rem;color:#4a6a88;margin-left:12px;'>{conf}%</span>"
-            f"<span style='font-size:0.95rem;font-weight:800;color:#f5c518;"
-            f"min-width:36px;text-align:right;margin-left:12px;'>{pick_s}</span>"
-            f"{dot_html}"
-            f"</div>"
+            f"<div style='display:grid;grid-template-columns:{_cols};"
+            f"align-items:center;padding:8px 0;{_gap}"
+            f"border-bottom:1px solid rgba(255,255,255,0.03);{row_bg}'>"
+            f"<span style='font-size:0.82rem;color:{name_col};font-weight:500;"
+            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;{left_bar}'>{m.label}</span>"
+            f"<span style='font-size:0.88rem;font-weight:800;color:#f5c518;'>{pick_s}</span>"
+            f"<span style='font-size:{edge_size};color:{edge_col};text-align:right;"
+            f"font-weight:{edge_wt};font-variant-numeric:tabular-nums;'>{edge_s}</span>"
+            f"<span style='font-size:0.65rem;color:#607888;text-align:right;"
+            f"font-variant-numeric:tabular-nums;'>{conf}%</span>"
+            f"<span style='font-size:0.65rem;color:{vi_col};text-align:right;"
+            f"font-variant-numeric:tabular-nums;'>{vi_s}</span>"
             f"</div>"
         )
 
     html = (
         f"<div style='font-family:Inter,\"Segoe UI\",system-ui,sans-serif;'>"
-        f"{rows}"
+        f"{header}{rows}"
         f"</div>"
     )
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_match_analysis(matches: list[Match], picks: dict) -> None:
-    """Per-match analysis with probability bars — used inside expander."""
+    """Per-match analysis — edge leads, bars as supporting evidence."""
     H_COL, U_COL, B_COL = "#4a80b0", "#3a4a58", "#a07020"
 
+    # Sort by edge magnitude descending — matches with biggest crowd mispricing first
+    def _edge_mag(m):
+        rec = m.recommendation or ""
+        v = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
+        return abs(v) if (v is not None and m.has_public_tips) else 0.0
+
+    sorted_matches = sorted(matches, key=_edge_mag, reverse=True)
+
     cards = ""
-    for m in matches:
+    for m in sorted_matches:
         n   = len(picks[m.number])
         rec = m.recommendation or ""
         cov = {1: "Single", 2: "Halvdekk", 3: "Heldekkende"}[n]
@@ -595,9 +680,14 @@ def render_match_analysis(matches: list[Match], picks: dict) -> None:
         conf = round(m.confidence * 100)
 
         val_f = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
-        val_s = (f"{val_f:+.1f}pp" if val_f is not None and m.has_public_tips
-                 else "")
-        val_col = "#3aaa78" if (val_f or 0) > 0 else "#e07a5f" if val_f else "#2e4a64"
+        has_edge = val_f is not None and m.has_public_tips
+        is_conviction = has_edge and abs(val_f) >= _CONVICTION_PP
+
+        if has_edge:
+            edge_s = f"{val_f:+.0f}pp"
+            edge_col = "#f5c518" if val_f > 0 else "#e07a5f"
+        else:
+            edge_s, edge_col = "—", "#2e4a64"
 
         prob_r = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(rec, 0)
         pub_r  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(rec)
@@ -622,21 +712,26 @@ def render_match_analysis(matches: list[Match], picks: dict) -> None:
         )
 
         chips = ""
-        chips += f"<span class='match-chip'><strong>{conf}%</strong> konf.</span>"
         chips += f"<span class='match-chip' style='color:{cov_col};'>{cov}</span>"
-        if val_s:
-            chips += f"<span class='match-chip'><strong style='color:{val_col};'>{val_s}</strong></span>"
+        chips += f"<span class='match-chip'><strong>{conf}%</strong> konf.</span>"
         if vi:
             chips += f"<span class='match-chip'><strong style='color:{vi_col};'>VI {vi:.2f}×</strong></span>"
 
+        # Header: edge is the lead number; pick + match name secondary
+        _card_border = "border-left:2px solid rgba(245,197,24,0.3);" if is_conviction else "border-left:2px solid rgba(255,255,255,0.04);"
         cards += (
-            f"<div class='match-card'>"
+            f"<div class='match-card' style='{_card_border}padding-left:12px;'>"
             f"<div class='match-card-top'>"
-            f"<div>"
-            f"<span style='font-size:0.65rem;color:#2e4a64;margin-right:8px;'>{m.number:02d}</span>"
+            f"<div style='display:flex;flex-direction:column;gap:1px;'>"
             f"<span class='match-teams'>{m.label}</span>"
+            f"<span style='font-size:0.6rem;color:#2e4a64;'>{m.number:02d}</span>"
             f"</div>"
+            f"<div style='display:flex;flex-direction:column;align-items:flex-end;gap:2px;'>"
             f"<span class='match-pick'>{'/'.join(picks[m.number])}</span>"
+            f"<span style='font-size:{'0.82rem' if is_conviction else '0.65rem'};"
+            f"font-weight:{'700' if is_conviction else '400'};"
+            f"color:{edge_col};font-variant-numeric:tabular-nums;'>{edge_s}</span>"
+            f"</div>"
             f"</div>"
             f"<div class='match-card-bars'>{bars}</div>"
             f"<div class='match-card-bottom'>{chips}</div>"
@@ -660,10 +755,26 @@ strategy   = st.session_state.strategy
 
 st.markdown(f"""
 <div class="topbar">
-  <span class="wordmark">Tippe<span class="q">Q</span>pongen</span>
+  <span class="wordmark">Tippe<span class="q">Q</span>ongen</span>
   <span class="topbar-meta">{_WEEK_LABEL} &nbsp;·&nbsp; {SHORT_LABELS.get(coupon_key, '')} &nbsp;·&nbsp; Frist {DEADLINES.get(coupon_key, '')}</span>
 </div>
 """, unsafe_allow_html=True)
+
+# ── Page navigation ───────────────────────────────────────────────────────────
+_na, _nb, _nc, _nd, _ne, _nf, _ = st.columns([1.4, 1, 1, 1, 1, 1, 2.6])
+with _na:
+    st.markdown('<span class="page-nav-active-label">&#9679; Oversikt</span>', unsafe_allow_html=True)
+with _nb:
+    st.page_link("pages/5_Statistikk.py", label="Statistikk")
+with _nc:
+    st.page_link("pages/3_History.py", label="Historikk")
+with _nd:
+    st.page_link("pages/2_Results.py", label="Resultater")
+with _ne:
+    st.page_link("pages/1_Team_Review.py", label="Team")
+with _nf:
+    st.page_link("pages/4_Odds_Movement.py", label="Odds")
+st.markdown('<div style="height:0.75rem;"></div>', unsafe_allow_html=True)
 
 # ── Coupon + Budget selectors (compact row) ───────────────────────────────────
 sel_col, _, bud_col = st.columns([3, 1, 5])
@@ -692,7 +803,7 @@ with bud_col:
                 st.session_state.budget = amt
                 st.rerun()
 
-st.markdown('<div class="gap-lg"></div>', unsafe_allow_html=True)
+st.markdown('<div class="gap-sm"></div>', unsafe_allow_html=True)
 
 # ── Compute ───────────────────────────────────────────────────────────────────
 coupon_key = st.session_state.coupon_key
@@ -763,7 +874,7 @@ for col, (_sk, _cpw, _cpvr, _cmed) in zip([sc1, sc2, sc3, sc4], _cmp_data):
             st.session_state.strategy = _sk
             st.rerun()
 
-st.markdown('<div class="gap-lg"></div>', unsafe_allow_html=True)
+st.markdown('<div class="gap-xs"></div>', unsafe_allow_html=True)
 
 # ── Hero metrics ──────────────────────────────────────────────────────────────
 _pwin_col = "#3aaa78" if p_win >= 0.05 else "#c8960e" if p_win >= 0.02 else "#e07a5f"
@@ -798,83 +909,18 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Payout bar ────────────────────────────────────────────────────────────────
+# ── Omsetning callback ────────────────────────────────────────────────────────
 def _on_om_change():
     v = st.session_state._om_raw
     st.session_state.omsetning = int(v) if v and v > 0 else None
 
-if _sim and _sim.get("n_winning_sims", 0) > 0:
-    _vmin = _sim["min"]
-    _vmax = _sim.get("p99", _sim["max"])
-    if _vmax <= _vmin:
-        _vmax = _vmin + 1
-
-    def _bp(v):
-        return max(0.5, min(98.5, (v - _vmin) / (_vmax - _vmin) * 100))
-
-    _ticks = [
-        (_bp(_sim["min"]),    _fmt_kr(_sim["min"]),    "Min",    False),
-        (_bp(_sim["p10"]),    _fmt_kr(_sim["p10"]),    "P10",    False),
-        (_bp(_sim["median"]), _fmt_kr(_sim["median"]), "Median", True),
-        (_bp(_sim["p90"]),    _fmt_kr(_sim["p90"]),    "P90",    False),
-        (_bp(_vmax),          _fmt_kr(_vmax),           "P99",    False),
-    ]
-    _tick_html = "".join(
-        f'<div class="pay-tick" style="left:{p:.1f}%;">'
-        f'<div class="pay-tick-val">{v}</div>'
-        f'<div class="pay-tick-lbl{"" if not g else " gold"}">{l}</div>'
-        f'</div>'
-        for p, v, l, g in _ticks
-    )
-    _rl = _bp(_sim["p10"])
-    _rw = _bp(_sim["p90"]) - _rl
-    _mp = _bp(_sim["median"]) - 0.2
-
-    _ew = _sim.get("e_winners", 0)
-    st.markdown(f"""
-<div class="pay-wrap">
-  <div class="pay-label-row">
-    <span class="t-label">Utdelingsfordeling ved 12/12</span>
-    <span class="t-muted">~{_ew:,} forventede vinnere</span>
-  </div>
-  <div class="pay-track-outer">
-    <div class="pay-track-fill" style="left:{_rl:.1f}%;width:{_rw:.1f}%;"></div>
-    <div class="pay-track-median" style="left:{_mp:.1f}%;"></div>
-    {_tick_html}
-  </div>
-  <div class="pay-footnote">Simuleringsestimat &middot; 50 000 simuleringer &middot; 52% premieandel &middot; Omsetning {int(_omsetning or 0):,} NOK</div>
-</div>
-""", unsafe_allow_html=True)
-else:
-    st.markdown(f"""
-<div class="om-cta">
-  <div class="om-cta-txt">Legg inn ukens omsetning for å estimere potensiell gevinst</div>
-  <div class="om-cta-sub">Finner du på norsk-tipping.no under Tippekupongen</div>
-</div>
-""", unsafe_allow_html=True)
-
-# Omsetning input — always visible
-_om_col, _ = st.columns([3, 7])
-with _om_col:
-    st.number_input(
-        "Omsetning (NOK)",
-        key="_om_raw",
-        min_value=0,
-        max_value=200_000_000,
-        value=int(_omsetning or 0),
-        step=500_000,
-        on_change=_on_om_change,
-        label_visibility="collapsed",
-        help="Finn aktuell omsetning på norsk-tipping.no",
-    )
-
-st.markdown('<div class="gap-lg"></div>', unsafe_allow_html=True)
+st.markdown('<div class="gap-xs"></div>', unsafe_allow_html=True)
 
 # ── Coupon + meta ─────────────────────────────────────────────────────────────
 main_col, side_col = st.columns([7, 3])
 
 with main_col:
-    total_cost = total_rows * 2
+    total_cost = total_rows  # 1 NOK per combination (cost_per_row=1.0 in optimizer)
     n_full = sum(1 for m in matches if len(picks[m.number]) == 3)
     n_half = sum(1 for m in matches if len(picks[m.number]) == 2)
 
@@ -899,7 +945,7 @@ with side_col:
     )
 
     st.markdown(f"""
-<div style="padding-top:2rem;">
+<div style="padding-top:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 16px;">
   <div class="meta-stat">
     <span class="meta-stat-lbl">Rekker</span>
     <span class="meta-stat-val">{total_rows}</span>
@@ -913,11 +959,11 @@ with side_col:
     <span class="meta-stat-val {rem_cls}">{remaining:+.0f} NOK</span>
   </div>
   <div class="meta-stat">
-    <span class="meta-stat-lbl">Poolverdi ratio</span>
+    <span class="meta-stat-lbl">PVR</span>
     <span class="meta-stat-val {_pvr_sc}">{_pvr_s2}</span>
   </div>
   <div class="meta-stat">
-    <span class="meta-stat-lbl">Poolverdi score</span>
+    <span class="meta-stat-lbl">Poolverdi</span>
     <span class="meta-stat-val">{_pvs_s}</span>
   </div>
   <div class="meta-stat">
@@ -927,7 +973,63 @@ with side_col:
 </div>
 """, unsafe_allow_html=True)
 
-    st.markdown('<div class="gap-sm"></div>', unsafe_allow_html=True)
+    # ── Payout bar (compact, in sidebar) ──────────────────────────────────────
+    if _sim and _sim.get("n_winning_sims", 0) > 0:
+        _vmin = _sim["min"]
+        _vmax = _sim.get("p99", _sim["max"])
+        if _vmax <= _vmin:
+            _vmax = _vmin + 1
+        def _bp(v):
+            return max(0.5, min(98.5, (v - _vmin) / (_vmax - _vmin) * 100))
+        _rl = _bp(_sim["p10"])
+        _rw = _bp(_sim["p90"]) - _rl
+        _mp = _bp(_sim["median"]) - 0.2
+        _ew = _sim.get("e_winners", 0)
+        _p10_s = _fmt_kr(_sim["p10"])
+        _med_s = _fmt_kr(_sim["median"])
+        _p90_s = _fmt_kr(_sim["p90"])
+        st.markdown(f"""
+<div style="margin-top:12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 16px;">
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+<span style="font-size:0.67rem;font-weight:500;color:#4a6a88;">Utdeling ved 12/12</span>
+<span style="font-size:0.6rem;color:#2e4a64;">~{_ew:,} vinnere</span>
+</div>
+<div class="pay-track-outer" style="margin-bottom:14px;">
+<div class="pay-track-fill" style="left:{_rl:.1f}%;width:{_rw:.1f}%;"></div>
+<div class="pay-track-median" style="left:{_mp:.1f}%;"></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;">
+<div style="text-align:left;">
+<div style="font-size:0.65rem;font-weight:600;color:#8aaec8;">{_p10_s}</div>
+<div style="font-size:0.57rem;color:#2e4a64;">P10</div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:0.65rem;font-weight:700;color:#f5c518;">{_med_s}</div>
+<div style="font-size:0.57rem;color:#f5c518;">Median</div>
+</div>
+<div style="text-align:right;">
+<div style="font-size:0.65rem;font-weight:600;color:#8aaec8;">{_p90_s}</div>
+<div style="font-size:0.57rem;color:#2e4a64;">P90</div>
+</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Omsetning input ────────────────────────────────────────────────────────
+    st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+    st.number_input(
+        "Omsetning (NOK)",
+        key="_om_raw",
+        min_value=0,
+        max_value=200_000_000,
+        value=int(_omsetning or 0),
+        step=500_000,
+        on_change=_on_om_change,
+        label_visibility="visible",
+        help="Finn aktuell omsetning på norsk-tipping.no",
+    )
+
+    st.markdown('<div class="gap-xs"></div>', unsafe_allow_html=True)
 
     if st.button("Lagre kupong", use_container_width=True, type="secondary"):
         from db.schema import init_db as _init_db2
@@ -967,7 +1069,7 @@ with side_col:
         else:
             st.error("Ingen lagret — kjør sync.py --seed-only.")
 
-st.markdown('<div class="gap-lg"></div>', unsafe_allow_html=True)
+st.markdown('<div class="gap-sm"></div>', unsafe_allow_html=True)
 
 # ── Progressive disclosure ────────────────────────────────────────────────────
 with st.expander("Kampanalyse — sannsynligheter og pool-verdi per kamp"):

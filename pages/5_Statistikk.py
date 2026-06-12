@@ -1,11 +1,8 @@
 """
-Statistikk — fixture analysis cards (redesigned Phase 8 UI).
-
-Keeps all existing data loading and computation logic unchanged.
-Only presentation is redesigned.
+Statistikk — fixture analysis (premium redesign).
+Computation logic unchanged; only presentation redesigned.
 """
 from datetime import datetime as _dt
-import json as _json
 import streamlit as st
 from db.schema import init_db
 from db.coupon import list_coupons
@@ -24,205 +21,215 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.stApp { background-color: #0b1623; }
+.stApp { background:#0b1623; }
 [data-testid="stHeader"] {
-    background-color: #0b1623 !important;
-    border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+    background:#0b1623 !important;
+    border-bottom:1px solid rgba(255,255,255,0.04) !important;
 }
 .block-container {
-    max-width: 1320px !important;
-    padding-top: 2.5rem !important;
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
+    max-width:820px !important;
+    padding-top:3rem !important;
+    padding-left:2rem !important;
+    padding-right:2rem !important;
 }
 
-/* ── Page header ─────────────────────────────────────────── */
-.stat-page-title { font-size:1.4rem; font-weight:900; color:#fff; margin-bottom:0.15rem; }
-.stat-page-title .q { color:#f5c518; }
-.stat-page-sub { font-size:0.72rem; color:#3a5a78; margin-bottom:1.5rem; }
+/* ── Page header ─────────────────────────────────────────────── */
+.stt-title {
+    font-size:1rem; font-weight:900; color:#e8f2fc;
+    letter-spacing:-.2px; margin-bottom:2px;
+}
+.stt-title .q { color:#f5c518; }
+.stt-sub { font-size:.68rem; color:#2e4a64; margin-bottom:3rem; }
 
-/* ── Fixture card ────────────────────────────────────────── */
-.fx-card {
-    border:1px solid rgba(255,255,255,0.06);
-    border-radius:12px;
-    padding:18px 20px 16px;
-    background:rgba(255,255,255,0.02);
-    margin-bottom:16px;
+/* ── Tabs ────────────────────────────────────────────────────── */
+[data-testid="stTabs"] button {
+    font-size:.72rem !important; color:#3a5a78 !important;
+    padding:6px 16px !important;
 }
-.fx-card:hover { border-color:rgba(255,255,255,0.10); }
-
-/* ── Match header ────────────────────────────────────────── */
-.fx-match-header {
-    display:flex; justify-content:space-between; align-items:flex-start;
-    margin-bottom:14px; padding-bottom:12px;
-    border-bottom:1px solid rgba(255,255,255,0.05);
-}
-.fx-match-num {
-    font-size:10px; font-weight:700; color:#2e4a64;
-    text-transform:uppercase; letter-spacing:1px;
-    min-width:24px;
-}
-.fx-match-teams {
-    font-size:1rem; font-weight:800; color:#e0eaf4;
-    letter-spacing:-0.2px; flex:1; margin:0 12px;
-}
-.fx-match-meta {
-    font-size:9px; color:#3a5a78; text-align:right; line-height:1.6;
-}
-.fx-match-comp {
-    display:inline-block; font-size:8px; color:#3a5a78;
-    padding:2px 7px; border:1px solid rgba(255,255,255,0.06);
-    border-radius:10px; margin-top:3px;
+[data-testid="stTabs"] button[aria-selected="true"] {
+    color:#e8f2fc !important;
 }
 
-/* ── Recommendation badge ────────────────────────────────── */
-.fx-rec-block {
-    display:flex; align-items:center; gap:10px; margin-bottom:14px;
-}
-.fx-rec-pick {
-    font-size:1.6rem; font-weight:900; color:#f5c518;
-    min-width:40px; text-align:center;
-    line-height:1;
-}
-.fx-rec-meta { font-size:10px; color:#6a90b0; }
-.fx-rec-meta strong { color:#c8ddf0; }
-.conf-badge {
-    font-size:10px; font-weight:700; padding:3px 10px;
-    border-radius:6px; white-space:nowrap;
+/* ── Section label ───────────────────────────────────────────── */
+.stt-sect {
+    font-size:.62rem; font-weight:700; color:#2e4a64;
+    text-transform:uppercase; letter-spacing:1.5px;
+    margin-bottom:2.5rem;
 }
 
-/* ── Probability bars ────────────────────────────────────── */
-.prob-section { margin-bottom:14px; }
-.prob-row {
-    display:flex; align-items:center; gap:8px; margin-bottom:5px;
+/* ── Fixture wrapper — no box, only a thin top rule ─────────── */
+.fx {
+    padding:32px 0 8px;
+    border-top:1px solid rgba(255,255,255,0.05);
+    position:relative;
+    padding-left:18px;
 }
-.prob-label {
-    width:14px; font-size:10px; font-weight:700; color:#3a5a78;
-    text-align:right; flex-shrink:0;
-}
-.prob-track {
-    flex:1; height:8px; background:rgba(255,255,255,0.05);
-    border-radius:4px; overflow:hidden;
-}
-.prob-fill-h { height:8px; background:#5096cc; border-radius:4px; }
-.prob-fill-u { height:8px; background:#6a7a88; border-radius:4px; }
-.prob-fill-b { height:8px; background:#c8960e; border-radius:4px; }
-.prob-pct { width:36px; font-size:10px; color:#6a90b0; text-align:right; flex-shrink:0; }
-.prob-rec-marker {
-    width:14px; font-size:9px; color:#f5c518; text-align:center; flex-shrink:0;
-}
+.fx:first-child { border-top:none; padding-top:8px; }
 
-/* ── Model vs Public ─────────────────────────────────────── */
-.mvp-section { margin-bottom:14px; }
-.mvp-title {
-    font-size:9px; font-weight:700; color:#2e4a64;
-    text-transform:uppercase; letter-spacing:1px;
+/* ── Left accent stripe ──────────────────────────────────────── */
+.fx-accent {
+    position:absolute; left:0; top:40px;
+    width:2px; height:48px; border-radius:2px;
+    opacity:.8;
+}
+.fx-a-h { background:linear-gradient(180deg,#5096cc 0%,transparent 100%); }
+.fx-a-u { background:linear-gradient(180deg,#6a7a88 0%,transparent 100%); }
+.fx-a-b { background:linear-gradient(180deg,#c8960e 0%,transparent 100%); }
+
+/* ── Meta row ────────────────────────────────────────────────── */
+.fx-meta {
+    display:flex; align-items:center; gap:6px;
     margin-bottom:8px;
 }
-.mvp-row {
-    display:grid; grid-template-columns:60px 1fr 40px 50px;
-    gap:6px; align-items:center; margin-bottom:6px;
-}
-.mvp-lbl { font-size:9px; color:#3a5a78; white-space:nowrap; }
-.mvp-bar-wrap { height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden; }
-.mvp-bar-model { height:6px; background:#5096cc; border-radius:3px; }
-.mvp-bar-public { height:6px; background:rgba(80,150,204,0.35); border-radius:3px; }
-.mvp-pct { font-size:9px; color:#6a90b0; text-align:right; }
-.mvp-diff {
-    font-size:9px; font-weight:700; text-align:right;
-}
-.mvp-diff.pos { color:#3aaa78; }
-.mvp-diff.neg { color:#e07a5f; }
-.mvp-diff.neu { color:#3a5a78; }
+.fx-num  { font-size:.62rem; font-weight:700; color:#2e4a64; }
+.fx-dot  { font-size:.55rem; color:#1a3040; }
+.fx-comp { font-size:.62rem; color:#2e4a64; }
+.fx-ko   { font-size:.62rem; color:#1e3448; margin-left:auto; }
 
-/* ── Value/CDS block ─────────────────────────────────────── */
-.value-block {
-    display:grid; grid-template-columns:1fr 1fr 1fr;
-    gap:10px; margin-bottom:14px;
+/* ── Team names ──────────────────────────────────────────────── */
+.fx-teams {
+    font-size:1.55rem; font-weight:800; color:#e8f2fc;
+    letter-spacing:-.5px; line-height:1.05;
+    margin-bottom:28px;
 }
-.val-card {
-    padding:10px 12px;
-    background:rgba(255,255,255,0.02);
-    border:1px solid rgba(255,255,255,0.05);
-    border-radius:8px;
-    text-align:center;
-}
-.val-card-num {
-    font-size:1.1rem; font-weight:800;
-    line-height:1.1; margin-bottom:3px;
-}
-.val-card-lbl { font-size:8px; color:#3a5a78; text-transform:uppercase; letter-spacing:0.8px; }
+.fx-vs { color:#1a2e40; font-weight:300; margin:0 10px; font-size:1.2rem; }
 
-/* ── Signal badges ───────────────────────────────────────── */
-.signal-row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
-.sig-badge {
-    display:flex; align-items:center; gap:4px;
-    padding:4px 9px; border-radius:16px;
-    font-size:9px; font-weight:700;
-    border:1px solid;
+/* ── Hero block ──────────────────────────────────────────────── */
+.fx-conf-num {
+    font-size:4.2rem; font-weight:900;
+    letter-spacing:-3px; line-height:1;
+    margin-bottom:6px;
 }
-.sig-ok   { background:rgba(58,170,120,0.12); color:#3aaa78; border-color:rgba(58,170,120,0.25); }
-.sig-miss { background:rgba(46,74,100,0.15);  color:#2e4a64; border-color:rgba(46,74,100,0.25); }
-
-/* ── Form badges ─────────────────────────────────────────── */
-.form-row { display:flex; gap:4px; margin-top:3px; }
-.fb { width:20px; height:20px; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; }
-.fb-w { background:#0c2a14; color:#3aaa78; }
-.fb-d { background:rgba(255,255,255,0.06); color:#6a90b0; }
-.fb-l { background:#260c0c; color:#e07a5f; }
-
-/* ── Expander ────────────────────────────────────────────── */
-[data-testid="stExpander"] {
-    border:1px solid rgba(255,255,255,0.05) !important;
-    border-radius:8px !important;
-    background:rgba(255,255,255,0.01) !important;
-    margin-bottom:8px !important;
-}
-[data-testid="stExpander"] summary {
-    font-size:9px !important; font-weight:700 !important;
-    color:#3a5a78 !important; text-transform:uppercase !important;
-    letter-spacing:1px !important;
+.fx-pick-lbl {
+    font-size:.65rem; font-weight:700; color:#607888;
+    text-transform:uppercase; letter-spacing:2px;
+    margin-bottom:20px;
 }
 
-/* ── Section label ───────────────────────────────────────── */
-.stat-section-lbl {
-    font-size:9px; font-weight:700; color:#2e4a64;
+/* ── Pills ───────────────────────────────────────────────────── */
+.fx-pills { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:32px; }
+.fx-pill {
+    font-size:.7rem; font-weight:700;
+    padding:4px 11px; border-radius:20px;
+    border:1px solid; white-space:nowrap; line-height:1.4;
+}
+.pill-pos  { color:#3aaa78; border-color:rgba(58,170,120,.28); background:rgba(58,170,120,.06); }
+.pill-neg  { color:#e07a5f; border-color:rgba(224,122,95,.28); background:rgba(224,122,95,.06); }
+.pill-gold { color:#f5c518; border-color:rgba(245,197,24,.28); background:rgba(245,197,24,.06); }
+.pill-neu  { color:#8aabb8; border-color:rgba(138,171,184,.15); background:rgba(138,171,184,.03); }
+.pill-dim  { color:#3a5a78; border-color:rgba(58,90,120,.18); background:transparent; }
+
+/* ── Model vs Public ─────────────────────────────────────────── */
+.mvp-lbl {
+    font-size:.6rem; font-weight:700; color:#2e4a64;
     text-transform:uppercase; letter-spacing:1.5px;
-    padding:5px 0 10px; border-bottom:1px solid rgba(255,255,255,0.05);
     margin-bottom:14px;
 }
-.no-data-note {
-    font-size:10px; color:#2e4a64;
-    padding:10px 14px;
-    background:rgba(255,255,255,0.02);
-    border:1px solid rgba(255,255,255,0.04);
-    border-radius:6px;
-    margin-bottom:8px;
+.mvp-row {
+    display:grid;
+    grid-template-columns:16px 80px 80px 1fr 48px;
+    gap:10px; align-items:center; margin-bottom:10px;
 }
+.mvp-out { font-size:.72rem; font-weight:700; color:#3a5a78; }
+.mvp-out-rec { color:#e8f2fc; }
+.mvp-pct { font-size:.68rem; color:#607888; text-align:right; }
+.mvp-pct-rec { color:#c8ddf0; font-weight:700; }
+.mvp-bar { position:relative; height:2px; border-radius:2px; background:rgba(255,255,255,.05); }
+.mvp-delta { font-size:.72rem; font-weight:800; text-align:right; }
+.mvp-section { margin-bottom:30px; }
+
+/* ── Evidence ────────────────────────────────────────────────── */
+.ev-lbl {
+    font-size:.6rem; font-weight:700; color:#2e4a64;
+    text-transform:uppercase; letter-spacing:1.5px;
+    margin-bottom:14px;
+}
+.ev-team-row {
+    display:flex; align-items:center; gap:10px;
+    margin-bottom:10px; flex-wrap:wrap;
+}
+.ev-name { font-size:.78rem; font-weight:700; color:#c8ddf0; min-width:110px; }
+.ev-pos {
+    font-size:.62rem; font-weight:700; color:#607888;
+    background:rgba(255,255,255,.03);
+    border:1px solid rgba(255,255,255,.06);
+    padding:1px 6px; border-radius:8px;
+}
+.ev-badges { display:flex; gap:3px; }
+.fb {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:19px; height:19px; border-radius:3px;
+    font-size:.6rem; font-weight:700;
+}
+.fb-w { background:#0c2a14; color:#3aaa78; }
+.fb-d { background:rgba(255,255,255,.05); color:#5a7a90; }
+.fb-l { background:#260c0c; color:#e07a5f; }
+.ev-rec { font-size:.62rem; color:#2e4a64; }
+.ev-goals { font-size:.62rem; color:#2e4a64; }
+.ev-section { margin-bottom:20px; }
+
+/* ── Expander — strip style, no box ─────────────────────────── */
+[data-testid="stExpander"] {
+    border:none !important;
+    border-top:1px solid rgba(255,255,255,0.04) !important;
+    border-radius:0 !important;
+    background:transparent !important;
+    margin-top:12px !important;
+    margin-bottom:0 !important;
+}
+[data-testid="stExpander"] summary {
+    font-size:.62rem !important; font-weight:600 !important;
+    color:#1e3448 !important; letter-spacing:.5px !important;
+    padding:10px 0 !important;
+    text-transform:uppercase !important;
+}
+[data-testid="stExpander"] summary:hover { color:#3a5a78 !important; }
+[data-testid="stExpander"] > div[data-testid="stExpanderDetails"] {
+    padding:8px 0 16px !important;
+}
+
+/* ── Advanced table ──────────────────────────────────────────── */
+.adv-head {
+    display:grid; grid-template-columns:32px 1fr 1fr 1fr;
+    gap:10px; padding:4px 0 8px;
+    border-bottom:1px solid rgba(255,255,255,.04);
+    font-size:.58rem; font-weight:700; color:#2e4a64;
+    text-transform:uppercase; letter-spacing:1px;
+}
+.adv-row {
+    display:grid; grid-template-columns:32px 1fr 1fr 1fr;
+    gap:10px; align-items:center; padding:7px 0;
+    border-bottom:1px solid rgba(255,255,255,.025);
+    font-size:.7rem;
+}
+.adv-out { color:#3a5a78; font-weight:700; }
+.adv-out-rec { color:#e8f2fc; font-weight:800; }
+.adv-val { color:#607888; text-align:right; }
+.adv-val-rec { color:#c8ddf0; font-weight:700; text-align:right; }
+.adv-meta { font-size:.6rem; color:#1e3448; padding-top:10px; line-height:2; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Page title ────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="stat-page-title">Tippe<span class="q">Q</span>pongen — Statistikk</div>
-<div class="stat-page-sub">Detaljert modellanalyse per kamp &middot; API-Football enrichment</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    '<div class="stt-title">Tippe<span class="q">Q</span>pongen — Statistikk</div>'
+    '<div class="stt-sub">Per-kamp modellanalyse &middot; API-Football enrichment</div>',
+    unsafe_allow_html=True,
+)
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 init_db()
-
-_iso_now = _dt.now().isocalendar()
+_iso_now     = _dt.now().isocalendar()
 _all_coupons = list_coupons(week=_iso_now.week, year=_iso_now.year)
 if not _all_coupons:
-    st.info("Ingen kuponger i databasen for denne uken. Kjør sync.py --refresh-coupons.")
+    st.info("Ingen kuponger i databasen. Kjør sync.py --refresh-coupons.")
     st.stop()
 
-_COUPON_DAY_LABELS = {"midtuke": "Midtuke", "lordag": "Lørdag", "sondag": "Søndag"}
-_tabs_labels = [
-    _COUPON_DAY_LABELS.get(c.get("day_type", ""), c.get("coupon_id", "?").split("-")[0].capitalize())
+_DAY_LBL = {"midtuke": "Midtuke", "lordag": "Lørdag", "sondag": "Søndag"}
+_tabs = st.tabs([
+    _DAY_LBL.get(c.get("day_type", ""), c.get("coupon_id", "?").split("-")[0].capitalize())
     for c in _all_coupons
-]
-_tabs = st.tabs(_tabs_labels)
+])
 
 for _tab, _coupon in zip(_tabs, _all_coupons):
     with _tab:
@@ -231,30 +238,29 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
 
         if not _rows:
             st.markdown(
-                '<div class="no-data-note">Ingen enrichment-data for denne kupongen. Kjør: <code>python sync.py --daily</code></div>',
+                '<div style="font-size:.72rem;color:#2e4a64;padding:20px 0;">'
+                'Ingen enrichment-data. Kjør: <code>python sync.py --daily</code></div>',
                 unsafe_allow_html=True,
             )
             continue
 
-        _n_with_af = sum(1 for r in _rows if r.get("has_api_football_data"))
+        _n_af = sum(1 for r in _rows if r.get("has_api_football_data"))
         st.markdown(
-            f'<div class="stat-section-lbl">{len(_rows)} kamper &middot; {_n_with_af} med API-Football data</div>',
+            f'<div class="stt-sect">{len(_rows)} kamper &middot; {_n_af} med API-Football</div>',
             unsafe_allow_html=True,
         )
 
         for _row in _rows:
-            _fix_num = _row.get("match_number", "?")
-            _home    = _row.get("home_name", "?")
-            _away    = _row.get("away_name", "?")
-            _comp    = _row.get("arrangement_name") or _row.get("competition_id", "")
-            _ko      = _row.get("kickoff_utc", "")
-            _fix_id  = _row.get("api_football_fixture_id")
+            _fix_num  = _row.get("match_number", "?")
+            _home     = _row.get("home_name", "?")
+            _away     = _row.get("away_name", "?")
+            _comp     = _row.get("arrangement_name") or _row.get("competition_id", "")
+            _ko       = _row.get("kickoff_utc", "")
+            _fix_id   = _row.get("api_football_fixture_id")
 
-            # ── Build Match and run model (same logic as original Statistikk) ─
+            # ── Model computation (unchanged) ─────────────────────────────────
             _oh = _row.get("odds_h"); _ou = _row.get("odds_u"); _ob = _row.get("odds_b")
             _odds_src = _row.get("odds_source", "")
-
-            # NT expert tips fallback (mirrors data/loader.py)
             if not (_oh and _ou and _ob):
                 _ex_h = _row.get("expert_h"); _ex_u = _row.get("expert_u"); _ex_b = _row.get("expert_b")
                 if (_ex_h and _ex_u and _ex_b
@@ -268,12 +274,10 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             _odds_u = float(_ou or 3.5)
             _odds_b = float(_ob or 3.0)
 
-            # Public tips as probabilities
             _pb_h = _row.get("public_h"); _pb_u = _row.get("public_u"); _pb_b = _row.get("public_b")
             _has_pub = _pb_h is not None and _pb_u is not None and _pb_b is not None
             _has_exp = bool(_row.get("expert_h"))
 
-            # Normalise public tips to probs
             _pub_h = _pub_u = _pub_b = None
             if _has_pub:
                 _pb_sum = float(_pb_h) + float(_pb_u) + float(_pb_b)
@@ -283,16 +287,10 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
                     _pub_b = float(_pb_b) / _pb_sum
 
             _m = _MatchModel(
-                number=_fix_num,
-                home_team=_home,
-                away_team=_away,
-                odds_h=_odds_h,
-                odds_u=_odds_u,
-                odds_b=_odds_b,
+                number=_fix_num, home_team=_home, away_team=_away,
+                odds_h=_odds_h, odds_u=_odds_u, odds_b=_odds_b,
                 odds_source=_odds_src,
-                pub_prob_h=_pub_h,
-                pub_prob_u=_pub_u,
-                pub_prob_b=_pub_b,
+                pub_prob_h=_pub_h, pub_prob_u=_pub_u, pub_prob_b=_pub_b,
                 has_public_tips=bool(_has_pub and _pub_h is not None),
                 has_expert_tips=bool(_has_exp),
             )
@@ -301,7 +299,6 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             _m.bm_prob_u = _m.prob_u
             _m.bm_prob_b = _m.prob_b
 
-            # Estimated prior fallback
             if not (_row.get("odds_h") or _row.get("expert_h")):
                 _est_vals = _est_prior(_row)
                 if _est_vals:
@@ -315,227 +312,275 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
 
             _run_model(_m, _row)
 
-            # Recommendation & confidence
             _rec  = _m.recommendation or "?"
             _conf = round(_m.confidence * 100, 1)
 
-            # Confidence badge styling
-            if _conf >= 60:   _cbg, _cfg = "#0c2a14", "#3ecf7a"
-            elif _conf >= 52: _cbg, _cfg = "#122212", "#74c472"
-            elif _conf >= 45: _cbg, _cfg = "#261c04", "#c8960e"
-            else:             _cbg, _cfg = "#260c0c", "#be5050"
-
-            # VI for recommended pick
+            # Derived values
             _rec_prob = {"H": _m.prob_h, "U": _m.prob_u, "B": _m.prob_b}.get(_rec)
             _rec_pub  = {"H": _m.pub_prob_h, "U": _m.pub_prob_u, "B": _m.pub_prob_b}.get(_rec)
-            _vi = _compute_vi(_rec_prob or 0, _rec_pub)
-            _vi_str = f"{_vi:.2f}&times;" if _vi else "&#8212;"
-            _vi_col = "#3aaa78" if (_vi or 0) >= 1.25 else "#74cc9a" if (_vi or 0) >= 1.0 else "#e0956a" if (_vi or 0) >= 0.80 else "#e07a5f" if _vi else "#2e4a64"
+            _vi       = _compute_vi(_rec_prob or 0, _rec_pub)
+            _rec_val  = {"H": _m.value_h, "U": _m.value_u, "B": _m.value_b}.get(_rec)
+            _cds_val  = _m.crowd_disagreement_score
 
-            # CDS badge
-            _cds_val = _m.crowd_disagreement_score
-            if _cds_val is not None:
-                if _cds_val >= 15:   _cds_lbl, _cds_col, _cds_bg = "Høy CDS", "#e07a5f", "#260c0c"
-                elif _cds_val >= 7:  _cds_lbl, _cds_col, _cds_bg = "Middels CDS", "#c8960e", "#261c04"
-                else:                _cds_lbl, _cds_col, _cds_bg = "Lav CDS", "#3aaa78", "#0c2a14"
-            else:
-                _cds_lbl, _cds_col, _cds_bg = "&#8212;", "#2e4a64", "transparent"
+            # Confidence colour
+            _conf_col = "#3aaa78" if _conf >= 60 else "#c8960e" if _conf >= 45 else "#be5050"
 
-            # Value for recommended pick
-            _rec_val = {"H": _m.value_h, "U": _m.value_u, "B": _m.value_b}.get(_rec)
-            if _rec_val is not None and _has_pub:
-                _vpp_str = f"{_rec_val:+.1f}pp"
-                _vpp_col = "#3aaa78" if _rec_val > 0 else "#e07a5f"
-                _vpp_bg  = "#0c2a14" if _rec_val > 0 else "#260c0c"
-            else:
-                _vpp_str, _vpp_col, _vpp_bg = "&#8212;", "#2e4a64", "transparent"
+            # Left accent class
+            _acc_cls = {"H": "fx-a-h", "U": "fx-a-u", "B": "fx-a-b"}.get(_rec, "fx-a-u")
 
-            # Format kickoff
+            # Pick label (outcome type only — teams already shown above)
+            _pick_lbl = {"H": "HJEMMESEIER", "U": "UAVGJORT", "B": "BORTESEIER"}.get(_rec, _rec)
+
+            # Kickoff format
             _ko_fmt = ""
             if _ko:
                 try:
-                    _ko_dt  = _dt.fromisoformat(_ko[:16])
-                    _ko_fmt = _ko_dt.strftime("%d. %b %H:%M")
+                    _ko_fmt = _dt.fromisoformat(_ko[:16]).strftime("%d. %b %H:%M")
                 except Exception:
                     _ko_fmt = _ko[:16]
 
-            # ── Fixture card ──────────────────────────────────────────────────
-            st.markdown(f"""
-<div class="fx-card">
-  <div class="fx-match-header">
-    <div class="fx-match-num">#{_fix_num}</div>
-    <div class="fx-match-teams">{_home} &ndash; {_away}</div>
-    <div class="fx-match-meta">
-      {_ko_fmt}
-      {"<br><span class='fx-match-comp'>" + _comp + "</span>" if _comp else ""}
-    </div>
-  </div>
+            # ── Pills ─────────────────────────────────────────────────────────
+            _pills_html = ""
+            if _rec_val is not None and _has_pub:
+                _pc = "pill-pos" if _rec_val > 2 else "pill-neg" if _rec_val < -2 else "pill-neu"
+                _pills_html += f'<span class="fx-pill {_pc}">{_rec_val:+.0f}pp Edge</span>'
+            if _vi:
+                _vc = "pill-gold" if _vi >= 1.25 else "pill-pos" if _vi >= 1.0 else "pill-neg"
+                _pills_html += f'<span class="fx-pill {_vc}">{_vi:.2f}&times; VI</span>'
+            if _cds_val is not None:
+                _dc = "pill-neg" if _cds_val >= 15 else "pill-neu" if _cds_val >= 7 else "pill-dim"
+                _pills_html += f'<span class="fx-pill {_dc}">CDS {_cds_val:.0f}</span>'
+            if not _has_pub:
+                _pills_html += f'<span class="fx-pill pill-dim">{_odds_src or "bookmaker"}</span>'
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-    <div>
-      <div class="fx-rec-block" style="margin-bottom:12px;">
-        <div class="fx-rec-pick">{_rec}</div>
-        <div class="fx-rec-meta">
-          <span class="conf-badge" style="background:{_cbg};color:{_cfg};">{_conf:.0f}%</span>
-          <div style="margin-top:4px;font-size:9px;color:#3a5a78;">Anbefalt utfall</div>
-        </div>
-      </div>
+            # ── Meta row ─────────────────────────────────────────────────────
+            _meta_parts = [f'<span class="fx-num">#{_fix_num}</span>']
+            if _comp:
+                _meta_parts += [
+                    '<span class="fx-dot">·</span>',
+                    f'<span class="fx-comp">{_comp}</span>',
+                ]
+            if _ko_fmt:
+                _meta_parts.append(f'<span class="fx-ko">{_ko_fmt}</span>')
 
-      <div class="prob-section">
-        <div class="prob-row">
-          <div class="prob-label">H</div>
-          <div class="prob-track"><div class="prob-fill-h" style="width:{min(100,_m.prob_h*100):.0f}%;"></div></div>
-          <div class="prob-pct">{_m.prob_h*100:.0f}%</div>
-          <div class="prob-rec-marker">{"&#9733;" if _rec == "H" else ""}</div>
-        </div>
-        <div class="prob-row">
-          <div class="prob-label">U</div>
-          <div class="prob-track"><div class="prob-fill-u" style="width:{min(100,_m.prob_u*100):.0f}%;"></div></div>
-          <div class="prob-pct">{_m.prob_u*100:.0f}%</div>
-          <div class="prob-rec-marker">{"&#9733;" if _rec == "U" else ""}</div>
-        </div>
-        <div class="prob-row">
-          <div class="prob-label">B</div>
-          <div class="prob-track"><div class="prob-fill-b" style="width:{min(100,_m.prob_b*100):.0f}%;"></div></div>
-          <div class="prob-pct">{_m.prob_b*100:.0f}%</div>
-          <div class="prob-rec-marker">{"&#9733;" if _rec == "B" else ""}</div>
-        </div>
-      </div>
-    </div>
-
-    <div>
-      <div class="value-block">
-        <div class="val-card">
-          <div class="val-card-num" style="color:{_vpp_col};">{_vpp_str}</div>
-          <div class="val-card-lbl">Pool Value</div>
-        </div>
-        <div class="val-card">
-          <div class="val-card-num" style="color:{_vi_col};">{_vi_str}</div>
-          <div class="val-card-lbl">Verdiindeks</div>
-        </div>
-        <div class="val-card" style="background:{_cds_bg};border-color:{_cds_col}20;">
-          <div class="val-card-num" style="color:{_cds_col};">{f"{_cds_val:.0f}" if _cds_val is not None else "&#8212;"}</div>
-          <div class="val-card-lbl" style="color:{_cds_col};">{_cds_lbl}</div>
-        </div>
-      </div>
-""", unsafe_allow_html=True)
-
-            # Model vs Public comparison
+            # ── Model vs Public (advanced expander only — not shown in main view) ─
+            _mvp_html = ""
             if _has_pub and _m.pub_prob_h is not None:
-                _outcomes = [
+                _mvp_rows = ""
+                for _o, _mp, _pp in [
                     ("H", _m.prob_h, _m.pub_prob_h or 0),
                     ("U", _m.prob_u, _m.pub_prob_u or 0),
                     ("B", _m.prob_b, _m.pub_prob_b or 0),
-                ]
-                mvp_rows = ""
-                for _o, _mp, _pp in _outcomes:
-                    _diff = (_mp - _pp) * 100
-                    _diff_cls = "pos" if _diff > 1 else "neg" if _diff < -1 else "neu"
-                    _diff_s = f"{_diff:+.0f}pp"
-                    _w_model  = min(100, round(_mp * 100))
-                    _w_public = min(100, round(_pp * 100))
-                    mvp_rows += f"""
-<div class="mvp-row">
-  <div class="mvp-lbl">{_o} Mod/Folk</div>
-  <div>
-    <div class="mvp-bar-wrap" style="margin-bottom:2px;">
-      <div class="mvp-bar-model" style="width:{_w_model}%;"></div>
-    </div>
-    <div class="mvp-bar-wrap">
-      <div class="mvp-bar-public" style="width:{_w_public}%;"></div>
-    </div>
-  </div>
-  <div class="mvp-pct">{_mp*100:.0f}%/{_pp*100:.0f}%</div>
-  <div class="mvp-diff {_diff_cls}">{_diff_s}</div>
-</div>"""
-                st.markdown(
-                    f'<div class="mvp-section"><div class="mvp-title">Modell vs Folket</div>{mvp_rows}</div>',
-                    unsafe_allow_html=True,
+                ]:
+                    _d   = (_mp - _pp) * 100
+                    _dc  = "#3aaa78" if _d > 2 else "#e07a5f" if _d < -2 else "#2e4a64"
+                    _oc  = "mvp-out-rec" if _o == _rec else "mvp-out"
+                    _pc  = "mvp-pct-rec" if _o == _rec else "mvp-pct"
+                    _wm  = round(_mp * 100)
+                    _wp  = round(_pp * 100)
+                    _mvp_rows += (
+                        f'<div class="mvp-row">'
+                        f'<span class="{_oc}">{_o}</span>'
+                        f'<div style="font-size:.68rem;color:#607888;text-align:right;">'
+                        f'Modell <span style="color:#8aabb8;font-weight:700;">{_wm}%</span></div>'
+                        f'<div style="font-size:.68rem;color:#607888;text-align:right;">'
+                        f'Folket <span style="color:rgba(200,150,14,.7);font-weight:700;">{_wp}%</span></div>'
+                        f'<div class="mvp-bar">'
+                        f'<div style="position:absolute;left:0;top:0;height:2px;width:{_wm}%;'
+                        f'background:#5096cc;border-radius:2px;"></div>'
+                        f'<div style="position:absolute;left:0;top:0;height:2px;width:{_wp}%;'
+                        f'background:rgba(200,150,14,.45);border-radius:2px;"></div>'
+                        f'</div>'
+                        f'<span class="mvp-delta" style="color:{_dc};">{_d:+.0f}pp</span>'
+                        f'</div>'
+                    )
+                _mvp_html = (
+                    f'<div class="mvp-section">'
+                    f'<div class="mvp-lbl">Modell vs. Folket</div>'
+                    f'{_mvp_rows}'
+                    f'</div>'
                 )
 
-            # Signal badges — enrichment data comes as flat columns from get_coupon_enrichment
-            _has_form  = bool(_row.get("home_form") or _row.get("away_form"))
-            _has_ha    = bool(_row.get("home_home_record") or _row.get("away_away_record"))
-            _has_goals = bool(_row.get("home_goals_for") or _row.get("away_goals_for"))
-            _has_stand = bool(_row.get("home_position") or _row.get("away_position"))
+            # ── Team evidence ─────────────────────────────────────────────────
+            _hf_str = str(_row.get("home_form", "") or "")
+            _af_str = str(_row.get("away_form", "") or "")
+            _hpos   = _row.get("home_position")
+            _apos   = _row.get("away_position")
+            _hgf    = _row.get("home_goals_for")
+            _hgc    = _row.get("home_goals_against")
+            _agf    = _row.get("away_goals_for")
+            _agc    = _row.get("away_goals_against")
+            _hhr    = str(_row.get("home_home_record", "") or "")
+            _aar    = str(_row.get("away_away_record", "") or "")
 
-            def _sig(label, ok):
-                cls = "sig-ok" if ok else "sig-miss"
-                icon = "&#10003;" if ok else "&#9675;"
-                return f'<span class="sig-badge {cls}">{icon} {label}</span>'
+            _has_form  = bool(_hf_str or _af_str)
+            _has_goals = bool(_hgf or _agf)
+            _has_stand = bool(_hpos or _apos)
+            _has_ha    = bool(_hhr or _aar)
 
-            _sig_html = (
-                _sig("Form", _has_form) +
-                _sig("Hjemme/Borte", _has_ha) +
-                _sig("Mål", _has_goals) +
-                _sig("Tabell", _has_stand) +
-                _sig("Ekspert", _has_exp) +
-                _sig("Folket", _has_pub)
+            def _fbadges(fs):
+                if not fs: return ""
+                out = '<span class="ev-badges">'
+                for ch in str(fs)[:5]:
+                    cls = "fb-w" if ch == "W" else "fb-l" if ch == "L" else "fb-d"
+                    out += f'<span class="fb {cls}">{ch}</span>'
+                return out + '</span>'
+
+            def _ev_team(name, pos, form_s, record, gf, gc):
+                h = '<div class="ev-team-row">'
+                h += f'<span class="ev-name">{name}</span>'
+                if pos:
+                    h += f'<span class="ev-pos">#{pos}</span>'
+                if form_s:
+                    h += _fbadges(form_s)
+                if record:
+                    h += f'<span class="ev-rec">{record}</span>'
+                try:
+                    h += f'<span class="ev-goals">{int(float(gf))}&thinsp;/&thinsp;{int(float(gc))}</span>'
+                except Exception:
+                    pass
+                h += '</div>'
+                return h
+
+            _ev_html = ""
+            if _has_form or _has_stand or _has_goals or _has_ha:
+                _ev_html = (
+                    f'<div class="ev-section">'
+                    f'<div class="ev-lbl">Lag</div>'
+                    + _ev_team(_home, _hpos, _hf_str, _hhr, _hgf, _hgc)
+                    + _ev_team(_away, _apos, _af_str, _aar, _agf, _agc)
+                    + '</div>'
+                )
+
+            # ── Determine conviction vs. necessary ───────────────────────────
+            _is_conviction = (
+                _has_pub and _rec_val is not None and abs(_rec_val) >= 10.0
             )
-            st.markdown(f'<div class="signal-row">{_sig_html}</div>', unsafe_allow_html=True)
 
-            st.markdown('</div></div>', unsafe_allow_html=True)  # close grid + card
-
-            # ── Advanced details expander (per fixture) ───────────────────────
-            if _has_form or _has_exp or _has_goals or _has_stand:
-                with st.expander(f"Detaljer — {_home} vs {_away}"):
-                    # Form display
-                    if _has_form:
-                        st.markdown("**Form (siste 5)**", unsafe_allow_html=False)
-
-                        def _form_badges(form_str: str) -> str:
-                            html = '<div class="form-row">'
-                            for ch in str(form_str)[:5]:
-                                cls = "fb-w" if ch == "W" else "fb-l" if ch == "L" else "fb-d"
-                                html += f'<div class="fb {cls}">{ch}</div>'
-                            html += "</div>"
-                            return html
-
-                        _hf = _row.get("home_form", "")
-                        _af = _row.get("away_form", "")
-                        cols = st.columns(2)
-                        if _hf:
-                            cols[0].markdown(f"**{_home}**")
-                            cols[0].markdown(_form_badges(_hf), unsafe_allow_html=True)
-                        if _af:
-                            cols[1].markdown(f"**{_away}**")
-                            cols[1].markdown(_form_badges(_af), unsafe_allow_html=True)
-
-                    # Raw probabilities
-                    st.markdown("**Råsannsynligheter (modell)**")
-                    st.markdown(
-                        f"H: {_m.prob_h*100:.1f}%  ·  U: {_m.prob_u*100:.1f}%  ·  B: {_m.prob_b*100:.1f}%"
+            # ── Claim sentence (the argument, not the data) ───────────────────
+            if _has_pub and _rec_val is not None:
+                if _is_conviction:
+                    _subject = (
+                        f"hjemmelaget ({_home})" if _rec == "H"
+                        else f"bortelaget ({_away})" if _rec == "B"
+                        else "uavgjort"
                     )
-                    if getattr(_m, "bm_prob_h", None):
-                        st.markdown(
-                            f"BM prior — H: {_m.bm_prob_h*100:.1f}%  U: {_m.bm_prob_u*100:.1f}%  B: {_m.bm_prob_b*100:.1f}%"
-                        )
+                    _direction = "undervurderer" if _rec_val > 0 else "overvurderer"
+                    _claim = f"Folket {_direction} {_subject} med {abs(_rec_val):.0f}pp."
+                else:
+                    _claim = f"Modell og marked er i stor grad enige ({_rec_val:+.0f}pp). Anbefaling: {_rec} med {_conf:.0f}%."
+            else:
+                _claim = f"Ingen offentlig tipsprosent. Modellen anbefaler {_rec} med {_conf:.0f}% konfidens."
 
-                    # Standing data
-                    if _has_stand:
-                        st.markdown("**Tabellplassering**")
-                        _hpos = _row.get("home_position", "?")
-                        _apos = _row.get("away_position", "?")
-                        st.markdown(f"{_home}: plass {_hpos}  ·  {_away}: plass {_apos}")
+            # ── Focal block: edge (conviction) or confidence (necessary) ──────
+            if _is_conviction:
+                _edge_col2 = "#f5c518" if _rec_val > 0 else "#e07a5f"
+                _pub_pct   = round((_rec_pub or 0) * 100)
+                _mod_pct   = round((_rec_prob or 0) * 100)
+                _focal_html = (
+                    f'<div style="display:flex;align-items:flex-end;gap:32px;margin-bottom:20px;">'
+                    f'<div>'
+                    f'<div style="font-size:3.2rem;font-weight:900;letter-spacing:-2px;line-height:1;'
+                    f'color:{_edge_col2};font-variant-numeric:tabular-nums;">{_rec_val:+.0f}pp</div>'
+                    f'<div style="font-size:.6rem;font-weight:700;color:#2e4a64;text-transform:uppercase;'
+                    f'letter-spacing:2px;margin-top:4px;">Markedsavvik</div>'
+                    f'</div>'
+                    f'<div style="display:flex;flex-direction:column;gap:8px;padding-bottom:4px;">'
+                    f'<div style="display:flex;align-items:baseline;gap:6px;">'
+                    f'<span style="font-size:1.4rem;font-weight:800;color:#e8f2fc;">{_mod_pct}%</span>'
+                    f'<span style="font-size:.62rem;color:#3a5a78;text-transform:uppercase;letter-spacing:.8px;">Modell</span>'
+                    f'</div>'
+                    f'<div style="display:flex;align-items:baseline;gap:6px;">'
+                    f'<span style="font-size:1.4rem;font-weight:800;color:rgba(200,150,14,0.7);">{_pub_pct}%</span>'
+                    f'<span style="font-size:.62rem;color:#3a5a78;text-transform:uppercase;letter-spacing:.8px;">Marked</span>'
+                    f'</div>'
+                    f'</div>'
+                    f'</div>'
+                )
+            else:
+                # Necessary play: confidence is the focal signal, muted edge
+                _focal_html = (
+                    f'<div style="display:flex;align-items:flex-end;gap:24px;margin-bottom:20px;">'
+                    f'<div>'
+                    f'<div style="font-size:2.4rem;font-weight:900;letter-spacing:-1px;line-height:1;'
+                    f'color:{_conf_col};font-variant-numeric:tabular-nums;">{_conf:.0f}%</div>'
+                    f'<div style="font-size:.6rem;font-weight:700;color:#2e4a64;text-transform:uppercase;'
+                    f'letter-spacing:2px;margin-top:4px;">Konfidens</div>'
+                    f'</div>'
+                    f'<div style="padding-bottom:4px;">'
+                    f'<div style="font-size:1.1rem;font-weight:800;color:#607888;">{_pick_lbl}</div>'
+                    f'{"<div style=\"font-size:.62rem;color:#1e3448;margin-top:4px;\">Markedsavvik: " + f"{_rec_val:+.0f}pp</div>" if _rec_val is not None and _has_pub else ""}'
+                    f'</div>'
+                    f'</div>'
+                )
 
-                    # Goals
-                    if _has_goals:
-                        st.markdown("**Mål**")
-                        _hgs = _row.get("home_goals_for", "?")
-                        _hgc = _row.get("home_goals_against", "?")
-                        _ags = _row.get("away_goals_for", "?")
-                        _agc = _row.get("away_goals_against", "?")
-                        st.markdown(f"{_home}: {_hgs} scoret / {_hgc} sluppet inn  ·  {_away}: {_ags} scoret / {_agc} sluppet inn")
+            # ── Supporting pills (VI, CDS only — edge already in focal block) ─
+            _supp_pills = ""
+            if _vi:
+                _vc = "pill-gold" if _vi >= 1.25 else "pill-pos" if _vi >= 1.0 else "pill-neg"
+                _supp_pills += f'<span class="fx-pill {_vc}">{_vi:.2f}&times; VI</span>'
+            if _cds_val is not None:
+                _dc = "pill-neg" if _cds_val >= 15 else "pill-neu" if _cds_val >= 7 else "pill-dim"
+                _supp_pills += f'<span class="fx-pill {_dc}">CDS {_cds_val:.0f}</span>'
+            if _supp_pills:
+                _supp_pills = f'<div class="fx-pills" style="margin-bottom:24px;">{_supp_pills}</div>'
 
-                    # Public tips detail
-                    if _has_pub and _m.pub_prob_h is not None:
-                        st.markdown("**Folkets tips**")
-                        st.markdown(
-                            f"H: {(_m.pub_prob_h or 0)*100:.0f}%  ·  U: {(_m.pub_prob_u or 0)*100:.0f}%  ·  B: {(_m.pub_prob_b or 0)*100:.0f}%"
-                        )
-                        if _m.crowd_pressure_pick:
-                            st.markdown(f"Folkepresset på: **{_m.crowd_pressure_pick}**")
+            # ── Render fixture (claim → focal → evidence) ─────────────────────
+            st.markdown(
+                f'<div class="fx">'
+                f'<div class="fx-accent {_acc_cls}"></div>'
+                f'<div class="fx-meta">{"".join(_meta_parts)}</div>'
+                f'<div class="fx-teams">{_home}<span class="fx-vs">—</span>{_away}</div>'
+                f'<div style="font-size:.88rem;color:#8aabb8;line-height:1.6;margin-bottom:20px;'
+                f'font-style:italic;">{_claim}</div>'
+                f'{_focal_html}'
+                f'{_supp_pills}'
+                f'{_ev_html}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-                    # API-Football ID
-                    if _fix_id:
-                        st.caption(f"API-Football fixture ID: {_fix_id}")
+            # ── Level 4: Advanced (expander) ──────────────────────────────────
+            with st.expander("Detaljert analyse"):
+                _exp_h = _row.get("expert_h")
+                _exp_u = _row.get("expert_u")
+                _exp_b = _row.get("expert_b")
+
+                _adv_body = (
+                    f'<div class="adv-head">'
+                    f'<span></span><span style="text-align:right;">Modell</span>'
+                    f'<span style="text-align:right;">Folket</span>'
+                    f'<span style="text-align:right;">Ekspert</span>'
+                    f'</div>'
+                )
+                for _o, _mp, _pp, _ep_raw in [
+                    ("H", _m.prob_h, _m.pub_prob_h, _exp_h),
+                    ("U", _m.prob_u, _m.pub_prob_u, _exp_u),
+                    ("B", _m.prob_b, _m.pub_prob_b, _exp_b),
+                ]:
+                    _is_rec = (_o == _rec)
+                    _oc  = "adv-out-rec" if _is_rec else "adv-out"
+                    _vc  = "adv-val-rec" if _is_rec else "adv-val"
+                    _pp_s = f"{_pp*100:.0f}%" if _pp is not None else "—"
+                    try:
+                        _ep_s = f"{float(_ep_raw):.0f}%"
+                    except Exception:
+                        _ep_s = "—"
+                    _adv_body += (
+                        f'<div class="adv-row">'
+                        f'<span class="{_oc}">{_o}{"&#9733;" if _is_rec else ""}</span>'
+                        f'<span class="{_vc}">{_mp*100:.1f}%</span>'
+                        f'<span class="adv-val">{_pp_s}</span>'
+                        f'<span class="adv-val">{_ep_s}</span>'
+                        f'</div>'
+                    )
+
+                _meta_lines = []
+                if _odds_src:
+                    _meta_lines.append(f"Odds: {_odds_src}")
+                if _fix_id:
+                    _meta_lines.append(f"AF: {_fix_id}")
+                if _meta_lines:
+                    _adv_body += f'<div class="adv-meta">{"&nbsp;&nbsp;·&nbsp;&nbsp;".join(_meta_lines)}</div>'
+
+                st.markdown(f'<div>{_adv_body}</div>', unsafe_allow_html=True)
