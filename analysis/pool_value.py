@@ -288,6 +288,7 @@ def simulate_payout(
         "p10":      round(payouts[n_w // 10]) if n_w >= 10 else round(payouts[0]),
         "median":   round(payouts[n_w // 2]),
         "p90":      round(payouts[min(9 * n_w // 10, n_w - 1)]),
+        "p99":      round(payouts[min(99 * n_w // 100, n_w - 1)]),
         "max":      round(payouts[-1]),
         "mean":     round(sum(payouts) / n_w),
         "e_winners": e_winners,

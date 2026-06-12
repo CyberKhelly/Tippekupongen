@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import streamlit.components.v1 as components
 
 from datetime import datetime as _dt
@@ -92,45 +92,35 @@ st.markdown("""
     border-bottom: 1px solid rgba(255,255,255,0.04) !important;
 }
 .block-container {
-    max-width: 1180px !important;
+    max-width: 1320px !important;
     margin: 0 auto !important;
-    padding-top: 3.25rem !important;
+    padding-top: 2.5rem !important;
     padding-left: 2rem !important;
     padding-right: 2rem !important;
-    padding-bottom: 2rem !important;
+    padding-bottom: 3rem !important;
 }
 
-/* ── Column layout ──────────────────────────────────────────────── */
-/* Outer main split */
+/* ── Column layout ───────────────────────────────────────── */
 [data-testid="stHorizontalBlock"] {
-    gap: 2rem !important;
+    gap: 1.5rem !important;
     align-items: flex-start !important;
 }
-/*
- * Selector rows: any stHorizontalBlock nested inside another.
- * Keep display:flex (Streamlit's own model) but lock to one row with
- * equal-width columns. Streamlit ≥1.40 renamed column data-testid
- * from "column" to "stColumn"; both are listed for safety.
- */
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] {
     display: flex !important;
     flex-wrap: nowrap !important;
     gap: 5px !important;
     align-items: stretch !important;
 }
-/* Equal-width columns: flex-basis 0 + flex-grow 1 → all the same */
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"],
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
     flex: 1 1 0 !important;
     min-width: 0 !important;
     width: 0 !important;
 }
-/* stButton Box wrapper: fill column */
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] [data-testid="stButton"] {
     width: 100% !important;
     display: block !important;
 }
-/* Buttons: fill column, no text wrap, slightly compact font */
 .stApp [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] button {
     min-width: 0 !important;
     width: 100% !important;
@@ -138,323 +128,241 @@ st.markdown("""
     font-size: 0.8rem !important;
 }
 
-/* ── Logo mark ──────────────────────────────────────────────────── */
-.logo-lockup {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-/*
- * Football badge: circular dark-navy container with gold border and
- * glow. The SVG football icon inside is rendered inline in the header
- * HTML using <path d="M…L…Z"> with spaces (not commas) so Streamlit's
- * markdown parser does not misinterpret coordinate values.
- */
+/* ── Logo ────────────────────────────────────────────────── */
+.logo-lockup { display:flex; align-items:center; gap:14px; }
 .logo-mark {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
+    width:48px; height:48px; border-radius:50%;
     background: radial-gradient(circle at 36% 30%, #1e3d7c 0%, #07101e 100%);
     border: 2.5px solid #f5c518;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    overflow: hidden;
-    box-shadow:
-        0 0 24px rgba(245,197,24,0.22),
-        0 4px 16px rgba(0,0,0,0.65),
-        inset 0 1px 0 rgba(255,255,255,0.09);
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; overflow:hidden;
+    box-shadow: 0 0 24px rgba(245,197,24,0.22), 0 4px 16px rgba(0,0,0,0.65),
+                inset 0 1px 0 rgba(255,255,255,0.09);
 }
-
-/* ── App wordmark ───────────────────────────────────────────────── */
-.app-wordmark {
-    font-size: 1.6rem;
-    font-weight: 900;
-    color: #ffffff;
-    letter-spacing: -0.3px;
-    line-height: 1.05;
-}
-.app-wordmark .q { color: #f5c518; }
-
-.app-meta-date {
-    font-size: 0.78rem;
-    color: #5a7a96;
-    font-weight: 500;
-    white-space: nowrap;
-    padding-top: 4px;
-}
-.app-subtitle {
-    font-size: 0.65rem;
-    color: #2e4a64;
-    margin-top: 2px;
-}
-
-/* ── Header row ─────────────────────────────────────────────────── */
+.app-wordmark { font-size:1.6rem; font-weight:900; color:#fff; letter-spacing:-0.3px; line-height:1.05; }
+.app-wordmark .q { color:#f5c518; }
+.app-meta-date { font-size:0.78rem; color:#5a7a96; font-weight:500; white-space:nowrap; padding-top:4px; }
+.app-subtitle { font-size:0.65rem; color:#2e4a64; margin-top:2px; }
 .app-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 1rem;
-    margin-bottom: 1.25rem;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display:flex; justify-content:space-between; align-items:center;
+    padding-bottom:1rem; margin-bottom:1rem;
+    border-bottom:1px solid rgba(255,255,255,0.05);
 }
 
-/* ── Section labels ─────────────────────────────────────────────── */
+/* ── Control bar ─────────────────────────────────────────── */
+.control-bar {
+    display:flex; align-items:center; gap:1.5rem;
+    padding:0.6rem 1rem; margin-bottom:1.25rem;
+    background:rgba(255,255,255,0.02);
+    border:1px solid rgba(255,255,255,0.05);
+    border-radius:8px;
+}
 .section-label {
-    font-size: 0.6rem;
-    font-weight: 700;
-    color: #2e4a64;
-    text-transform: uppercase;
-    letter-spacing: 1.8px;
-    margin-bottom: 0.35rem;
-    margin-top: 0.85rem;
+    font-size:0.6rem; font-weight:700; color:#2e4a64;
+    text-transform:uppercase; letter-spacing:1.8px;
+    margin-bottom:0.35rem; margin-top:0.85rem;
 }
-.section-label:first-of-type { margin-top: 0; }
-
-/* ── Deadline ────────────────────────────────────────────────────── */
-.deadline-text {
-    font-size: 0.72rem;
-    color: #3aaa78;
-    font-weight: 500;
-    margin-top: 0.28rem;
-    margin-bottom: 0;
-}
-
-/* ── Budget sub-labels ───────────────────────────────────────────── */
-.budget-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 5px;
-    margin-top: 3px;
-    margin-bottom: 0.85rem;
-}
+.deadline-text { font-size:0.7rem; color:#2e4a64; margin-top:3px; }
+.budget-row { display:flex; gap:0; margin-top:2px; }
 .budget-sublabel {
-    text-align: center;
-    font-size: 0.61rem;
-    color: #2e4a64;
-    line-height: 1.4;
-}
-.budget-sublabel strong {
-    display: block;
-    color: #5a7a96;
-    font-weight: 600;
-    font-size: 0.63rem;
+    flex:1; font-size:0.6rem; color:#2e4a64;
+    text-align:center; padding:1px 0;
 }
 
-/* ── Buttons: selected = gold fill ──────────────────────────────── */
-button[kind="primary"],
-[data-testid="stBaseButton-primary"] {
-    background-color: #f5c518 !important;
-    color: #0b1623 !important;
-    border: 2px solid #f5c518 !important;
-    font-weight: 700 !important;
-    width: 100% !important;
-    transition: background 0.12s, box-shadow 0.12s !important;
+/* ── Buttons ─────────────────────────────────────────────── */
+[data-testid="stButton"] > button[kind="primary"] {
+    background:#f5c518 !important; color:#0b1623 !important;
+    border:2px solid #f5c518 !important; font-weight:700 !important;
+    border-radius:6px !important;
 }
-button[kind="primary"]:hover,
-[data-testid="stBaseButton-primary"]:hover {
-    background-color: #f7d045 !important;
-    border-color: #f7d045 !important;
-    box-shadow: 0 0 14px rgba(245,197,24,.28) !important;
+[data-testid="stButton"] > button[kind="primary"]:hover {
+    background:#f7d045 !important;
+    box-shadow:0 0 14px rgba(245,197,24,.28) !important;
 }
-/* ── Buttons: unselected = ghost ─────────────────────────────────── */
-button[kind="secondary"],
-[data-testid="stBaseButton-secondary"] {
-    background-color: rgba(255,255,255,0.04) !important;
-    color: rgba(180,206,228,0.5) !important;
-    border: 1px solid rgba(255,255,255,0.07) !important;
-    width: 100% !important;
+[data-testid="stButton"] > button[kind="secondary"] {
+    background:rgba(255,255,255,0.04) !important; color:#c8ddf0 !important;
+    border:1px solid rgba(255,255,255,0.07) !important;
+    border-radius:6px !important;
 }
-button[kind="secondary"]:hover,
-[data-testid="stBaseButton-secondary"]:hover {
-    background-color: rgba(255,255,255,0.09) !important;
-    color: rgba(180,206,228,0.85) !important;
-    border-color: rgba(255,255,255,0.18) !important;
+[data-testid="stButton"] > button[kind="secondary"]:hover {
+    background:rgba(255,255,255,0.09) !important;
 }
 
-/* ── Summary strip ───────────────────────────────────────────────── */
-.summary-strip {
-    display: flex;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 8px;
-    overflow: hidden;
-    margin-top: 0.55rem;
+/* ── Strategy cards ──────────────────────────────────────── */
+.strat-section { margin-bottom:1.5rem; }
+.strat-card-wrap {
+    border:1px solid rgba(255,255,255,0.06);
+    border-radius:10px;
+    padding:12px 10px 10px;
+    background:rgba(255,255,255,0.02);
+    transition:border-color 0.15s;
+    margin-bottom:0.25rem;
+    min-height:140px;
+    position:relative;
 }
-.s-cell {
-    flex: 1;
-    padding: 8px 2px;
-    text-align: center;
-    border-right: 1px solid rgba(255,255,255,0.04);
+.strat-card-wrap.active {
+    border:1.5px solid #f5c518;
+    background:rgba(245,197,24,0.06);
+    box-shadow:0 0 18px rgba(245,197,24,0.10);
 }
-.s-cell:last-child { border-right: none; }
-.s-val {
-    font-size: 0.95rem;
-    font-weight: 800;
-    color: #e0eaf4;
-    line-height: 1.2;
+.strat-card-wrap:hover { border-color:rgba(255,255,255,0.12); }
+.strat-rec-badge {
+    font-size:8px; font-weight:700; color:#f5c518;
+    text-transform:uppercase; letter-spacing:0.8px;
+    margin-bottom:4px;
 }
-.s-val.green { color: #2ecc71; }
-.s-val.red   { color: #e74c3c; }
-.s-key {
-    font-size: 0.52rem;
-    color: #2e4a64;
-    text-transform: uppercase;
-    letter-spacing: 0.9px;
-    margin-top: 2px;
+.strat-card-metrics {
+    margin-top:8px;
+    font-family:'Segoe UI',system-ui,Arial,sans-serif;
+    font-size:11px;
+}
+.strat-card-metrics .m-row { display:flex; justify-content:space-between; margin-bottom:3px; }
+.strat-card-metrics .m-lbl { color:#3a5a78; font-size:9px; text-transform:uppercase; letter-spacing:0.5px; }
+.strat-card-metrics .m-val { color:#c8ddf0; font-weight:600; font-size:11px; }
+.strat-card-metrics .m-val.active { color:#f5c518; }
+.strat-card-metrics .m-val.green  { color:#3aaa78; }
+.strat-card-metrics .m-val.red    { color:#e07a5f; }
+
+/* ── KPI section ─────────────────────────────────────────── */
+.kpi-strip {
+    display:flex; gap:12px; margin-bottom:0.5rem;
+}
+.kpi-card {
+    flex:1; padding:16px 18px 14px;
+    background:rgba(255,255,255,0.03);
+    border:1px solid rgba(255,255,255,0.06);
+    border-radius:10px;
+    display:flex; flex-direction:column; gap:4px;
+}
+.kpi-val {
+    font-size:1.5rem; font-weight:800; color:#e0eaf4;
+    letter-spacing:-0.5px; line-height:1.1;
+    font-family:'Segoe UI',system-ui,Arial,sans-serif;
+}
+.kpi-lbl {
+    font-size:10px; font-weight:700; color:#3a5a78;
+    text-transform:uppercase; letter-spacing:1px;
+}
+.kpi-sub { font-size:10px; color:#2e4a64; }
+.kpi-secondary {
+    display:flex; gap:8px; margin-bottom:1.25rem;
+    flex-wrap:wrap;
+}
+.kpi-chip {
+    font-size:10px; color:#5a7a96; font-weight:500;
+    padding:4px 10px;
+    background:rgba(255,255,255,0.03);
+    border:1px solid rgba(255,255,255,0.05);
+    border-radius:20px;
 }
 
-/* ── Right panel ─────────────────────────────────────────────────── */
+/* ── Payout bar ──────────────────────────────────────────── */
+.pay-section {
+    padding:18px 20px 16px;
+    background:rgba(255,255,255,0.02);
+    border:1px solid rgba(255,255,255,0.05);
+    border-radius:10px;
+    margin-bottom:1.5rem;
+}
+.pay-header-row {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:14px;
+}
+.pay-title { font-size:10px; font-weight:700; color:#3a5a78; text-transform:uppercase; letter-spacing:1px; }
+.pay-om-label { font-size:10px; color:#2e4a64; }
+.pay-bar-outer {
+    position:relative; height:8px;
+    background:rgba(255,255,255,0.05); border-radius:4px;
+    margin-bottom:28px;
+}
+.pay-bar-range {
+    position:absolute; top:0; height:8px;
+    background:rgba(200,220,240,0.15); border-radius:4px;
+}
+.pay-bar-median {
+    position:absolute; top:0; height:8px;
+    background:#f5c518; border-radius:4px; width:6px;
+    box-shadow:0 0 8px rgba(245,197,24,0.5);
+}
+.pay-tick {
+    position:absolute; top:14px;
+    display:flex; flex-direction:column; align-items:center;
+    transform:translateX(-50%);
+}
+.pay-tick-val { font-size:9px; font-weight:700; color:#c8ddf0; }
+.pay-tick-lbl { font-size:8px; color:#3a5a78; margin-top:1px; }
+.pay-tick-lbl.gold { color:#f5c518; font-weight:700; }
+.pay-meta { font-size:9px; color:#3a5a78; margin-top:6px; line-height:1.5; }
+.pay-meta .green { color:#3aaa78; }
+.pay-strat-note { font-size:9px; color:#3a5a78; margin-top:4px; font-style:italic; }
+.pay-warn { font-size:8px; color:#2e4a64; margin-top:6px; padding:5px 8px; background:rgba(0,0,0,0.2); border-radius:4px; }
+.pay-placeholder {
+    text-align:center; padding:20px;
+    font-size:11px; color:#2e4a64;
+}
+
+/* ── Coupon v2 ───────────────────────────────────────────── */
 .panel-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: #c8d8e8;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    padding-bottom: 0.6rem;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    margin-bottom: 0.6rem;
+    font-size:9px; font-weight:700; color:#2e4a64;
+    text-transform:uppercase; letter-spacing:1.5px;
+    padding-bottom:8px; margin-bottom:8px;
+    border-bottom:1px solid rgba(255,255,255,0.06);
 }
-.footnote {
-    font-size: 0.75rem;
-    color: #4a6a88;
-    margin-top: 0.85rem;
-    line-height: 1.65;
-    padding-top: 0.7rem;
-    border-top: 1px solid rgba(255,255,255,0.05);
+.cpn-meta-box {
+    padding:14px 16px;
+    background:rgba(255,255,255,0.02);
+    border:1px solid rgba(255,255,255,0.05);
+    border-radius:8px;
+    margin-bottom:12px;
 }
-.footnote strong { color: #6a90b0; }
-
-/* Remove bottom border from last analysis row to prevent phantom line */
-.analysis-tbl tbody tr:last-child td {
-    border-bottom: none !important;
+.cpn-meta-row { display:flex; justify-content:space-between; margin-bottom:6px; }
+.cpn-meta-lbl { font-size:10px; color:#3a5a78; text-transform:uppercase; letter-spacing:0.5px; }
+.cpn-meta-val { font-size:10px; color:#c8ddf0; font-weight:600; }
+.cpn-pvr-badge {
+    display:inline-block; padding:3px 9px; border-radius:12px;
+    font-size:9px; font-weight:700;
 }
 
-/* ── Misc ────────────────────────────────────────────────────────── */
-hr { border-color: rgba(255,255,255,0.05) !important; margin: 0.75rem 0 !important; }
+/* ── Analysis table ──────────────────────────────────────── */
+.analysis-section-label {
+    font-size:9px; font-weight:700; color:#2e4a64;
+    text-transform:uppercase; letter-spacing:1.5px;
+    padding-bottom:8px; margin-top:1rem; margin-bottom:0.5rem;
+    border-bottom:1px solid rgba(255,255,255,0.06);
+}
+.footnote { font-size:9px; color:#2e4a64; margin-top:6px; }
+
+/* ── Advanced expander ───────────────────────────────────── */
+[data-testid="stExpander"] {
+    border:1px solid rgba(255,255,255,0.05) !important;
+    border-radius:8px !important;
+    background:rgba(255,255,255,0.01) !important;
+}
+[data-testid="stExpander"] summary {
+    font-size:10px !important; font-weight:700 !important;
+    color:#3a5a78 !important; text-transform:uppercase !important;
+    letter-spacing:1px !important;
+}
+
+/* ── Misc ────────────────────────────────────────────────── */
 iframe { border: none !important; }
-
-/* ── Estimert verdi panel ────────────────────────────────────────── */
-.ev-panel {
-    margin-top: 0.45rem;
-    padding: 8px 12px 7px;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 8px;
-    font-family: 'Segoe UI', system-ui, Arial, sans-serif;
-}
-.ev-header {
-    font-size: 8px; font-weight: 700; color: #2e4a64;
-    text-transform: uppercase; letter-spacing: 1.2px;
-    display: flex; align-items: center; gap: 6px;
-    margin-bottom: 6px;
-}
-.ev-strat-badge {
-    font-size: 8px; font-weight: 700;
-    padding: 1px 7px; border-radius: 3px;
-}
-.ev-grid {
-    display: flex; gap: 0;
-    border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 5px; overflow: hidden;
-    margin-bottom: 6px;
-}
-.ev-cell {
-    flex: 1; text-align: center;
-    padding: 6px 2px;
-    border-right: 1px solid rgba(255,255,255,0.04);
-}
-.ev-cell:last-child { border-right: none; }
-.ev-val {
-    font-size: 1.0rem; font-weight: 800; color: #e0eaf4; line-height: 1.2;
-}
-.ev-key {
-    font-size: 0.48rem; color: #2e4a64;
-    text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px;
-}
-.ev-payout {
-    border-top: 1px solid rgba(255,255,255,0.04);
-    padding-top: 5px; margin-top: 2px;
-}
-.ev-payout-label {
-    font-size: 8px; color: #2e4a64; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.9px;
-    margin-bottom: 4px;
-}
-.ev-payout-grid {
-    display: flex; gap: 0;
-    border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 4px; overflow: hidden;
-}
-.ev-payout-cell {
-    flex: 1; text-align: center; padding: 4px 2px;
-    border-right: 1px solid rgba(255,255,255,0.04);
-}
-.ev-payout-cell:last-child { border-right: none; }
-.ev-payout-val {
-    font-size: 0.85rem; font-weight: 800; color: #c8ddf0;
-}
-.ev-payout-key {
-    font-size: 0.45rem; color: #2e4a64;
-    text-transform: uppercase; letter-spacing: 0.7px; margin-top: 1px;
-}
-.ev-disclaimer {
-    font-size: 7.5px; color: #1e3248; margin-top: 4px; font-style: italic;
-}
-.ev-warning {
-    margin-top: 5px; font-size: 8.5px; color: #c8960e;
-    padding: 3px 7px; background: rgba(200,150,14,0.06); border-radius: 3px;
-}
-/* ── Strategy comparison table ──────────────────────────────────── */
-.strat-cmp {
-    margin-top: 8px;
-    padding: 7px 10px 8px;
-    background: rgba(255,255,255,0.015);
-    border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 7px;
-}
-.strat-cmp-hdr-row {
-    font-size: 7.5px; color: #2e4a64; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 1px;
-    margin-bottom: 5px;
-}
-.strat-cmp-grid {
-    display: grid; gap: 0;
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 4px; overflow: hidden;
-}
-.strat-cmp-th {
-    font-size: 6.5px; color: #2e4a64; text-transform: uppercase;
-    letter-spacing: 0.5px; padding: 3px 5px;
-    background: rgba(255,255,255,0.025);
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    text-align: center;
-}
-.strat-cmp-td {
-    font-size: 8.5px; padding: 4px 5px; color: #4a6a88;
-    border-top: 1px solid rgba(255,255,255,0.03);
-    text-align: center;
-}
-.strat-cmp-td.cmp-name { text-align: left; color: #5a7a98; }
-.strat-cmp-td.cmp-active { color: #c8ddf0; background: rgba(255,255,255,0.04); font-weight: 700; }
-.strat-cmp-td.cmp-active.cmp-name { color: #e0eaf4; }
-/* ── Strategy narrative + sim-warn ──────────────────────────────── */
-.strat-note {
-    font-size: 8px; color: #4a7090; margin: 4px 0 2px; font-style: italic;
-}
-.sim-warn {
-    margin-top: 6px; padding: 4px 8px;
-    background: rgba(200,150,14,0.06);
-    border-left: 2px solid rgba(200,150,14,0.5);
-    border-radius: 0 3px 3px 0;
-    font-size: 8px; color: #c8960e; line-height: 1.5;
-}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _val_pp_for_pick(m, rec: str):
+    """Returns (value_pp_float, has_public) for the recommended pick."""
+    field = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
+    return field, m.has_public_tips
+
+def _vi_for_pick(m, rec: str):
+    """Returns VI float or None for the recommended pick."""
+    from analysis.pool_value import compute_value_index
+    prob = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(rec)
+    pub  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(rec)
+    return compute_value_index(prob or 0, pub)
 
 def load_matches(coupon_key: str) -> list[Match]:
     # Fetch enrichment data (form, standings, NT tips) keyed by match_number.
@@ -506,176 +414,116 @@ def compute_pool_value_score(matches: list[Match], picks: dict) -> float | None:
     return round(sum(values) / len(values), 1)
 
 
-def short_note(m: Match, picks: list[str]) -> str:
-    h = round(m.prob_h * 100)
-    u = round(m.prob_u * 100)
-    b = round(m.prob_b * 100)
-    n = len(picks)
-    if n == 3:
-        return f"Åpen kamp — {h}% / {u}% / {b}%"
-    if n == 2:
-        probs = sorted(
-            [("H", m.prob_h, h), ("U", m.prob_u, u), ("B", m.prob_b, b)],
-            key=lambda x: x[1], reverse=True,
-        )
-        l1, _, p1 = probs[0]
-        l2, _, p2 = probs[1]
-        if p1 - p2 <= 4:
-            return f"{l1} og {l2} nesten like ({p1}% vs {p2}%)"
-        return f"{l1} leder, men {l2} er reell ({p1}% vs {p2}%)"
-    probs = sorted(
-        [("H", m.prob_h, h), ("U", m.prob_u, u), ("B", m.prob_b, b)],
-        key=lambda x: x[1], reverse=True,
-    )
-    l, _, p = probs[0]
-    return f"{l} — {p}%"
-
-
-def render_coupon_card(
+def render_coupon_card_v2(
     coupon_key: str,
     matches: list[Match],
     picks: dict,
     total_rows: int,
-    budget: int,
-    cost_per_row: float = 1.0,
+    budget: float,
 ) -> None:
-    total_cost   = total_rows * cost_per_row
-    remaining    = budget - total_cost
-    rem_color    = "#2ecc71" if remaining >= 0 else "#e74c3c"
-    coupon_label = COUPONS[coupon_key]["label"]
+    """Redesigned coupon card with rich match rows: pick, confidence, value pp, VI."""
+    from analysis.pool_value import compute_value_index as _cvi
 
-    def circle(label: str, selected: bool) -> str:
-        if selected:
-            bg, fg, bd = "#1a3a6e", "#fff", "#1a3a6e"
-            shadow = "box-shadow:0 1px 5px rgba(26,58,110,.5);"
-        else:
-            bg, fg, bd = "#edf1f7", "#b0bac8", "#d8e0ea"
-            shadow = ""
-        return (
-            f'<div style="width:28px;height:28px;border-radius:50%;'
-            f'background:{bg};color:{fg};border:2px solid {bd};{shadow}'
-            f'display:flex;align-items:center;justify-content:center;'
-            f'font-size:10.5px;font-weight:800;flex-shrink:0;">{label}</div>'
-        )
+    _cov_labels = {1: "Single", 2: "Halvdekk", 3: "Heldekkende"}
+    _strat_name  = _STRATEGY_LABELS.get(st.session_state.strategy, "")
+    _coupon_name = SHORT_LABELS.get(coupon_key, coupon_key.capitalize())
+    _iso         = _dt.now().isocalendar()
 
-    _cov_bg = {
-        1: "transparent",
-        2: "#fffcf0",
-        3: "#fff8f8",
-    }
-    _note_col = {
-        1: "#9aacbe",
-        2: "#a07a10",
-        3: "#a03030",
-    }
-
+    # Build rows HTML
     rows_html = ""
-    for idx, m in enumerate(matches):
-        mp     = picks[m.number]
-        n      = len(mp)
-        row_bg = "#f8fbff" if idx % 2 == 0 else "#ffffff"
-        if n > 1:
-            row_bg = _cov_bg[n]
+    for m in matches:
+        n_picks  = len(picks[m.number])
+        cov_lbl  = _cov_labels[n_picks]
+        rec      = m.recommendation or ""
 
-        note     = short_note(m, mp)
-        note_col = _note_col[n]
+        # Confidence
+        conf_val = round(m.confidence * 100, 0)
+        conf_str = f"{conf_val:.0f}%"
 
-        rows_html += (
-            f'<div style="display:grid;grid-template-columns:18px 1fr auto;gap:8px;'
-            f'padding:6px 13px;background:{row_bg};border-bottom:1px solid #eaf0f8;'
-            f'align-items:center;min-height:0;">'
-            f'  <span style="color:#b0bec8;font-size:9.5px;font-weight:700;'
-            f'        text-align:center;line-height:1;">{m.number}</span>'
-            f'  <div style="min-width:0;overflow:hidden;">'
-            f'    <div style="font-size:12px;font-weight:600;color:#1a1e2e;'
-            f'         white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
-            f'         line-height:1.3;">{m.label}</div>'
-            f'    <div style="font-size:9px;color:{note_col};margin-top:1px;'
-            f'         white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
-            f'         line-height:1.3;">{note}</div>'
-            f'  </div>'
-            f'  <div style="display:flex;gap:3px;flex-shrink:0;">'
-            f'    {circle("H","H" in mp)}{circle("U","U" in mp)}{circle("B","B" in mp)}'
-            f'  </div>'
-            f'</div>'
-        )
+        # Value pp for recommended pick
+        val_field = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
+        if val_field is not None and m.has_public_tips:
+            vpp = val_field * 100
+            val_str = f"{vpp:+.1f}pp"
+            val_col = "#3aaa78" if vpp > 0 else "#e07a5f"
+        else:
+            val_str = "—"
+            val_col = "#2e4a64"
 
-    rem_sign = f"+{remaining:.0f}" if remaining >= 0 else f"{remaining:.0f}"
+        # VI for recommended pick
+        prob = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(rec)
+        pub  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(rec)
+        vi   = _cvi(prob or 0, pub)
+        if vi is not None:
+            vi_str = f"{vi:.2f}×"
+            vi_col = "#3aaa78" if vi >= 1.25 else "#74cc9a" if vi >= 1.0 else "#e0956a" if vi >= 0.80 else "#e07a5f"
+        else:
+            vi_str = "—"
+            vi_col = "#2e4a64"
 
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>*{{margin:0;padding:0;box-sizing:border-box;}}
-body{{font-family:'Segoe UI',system-ui,Arial,sans-serif;background:transparent;}}
+        # Coverage color
+        cov_col = {"Single": "#5096cc", "Halvdekk": "#c8960e", "Heldekkende": "#be5050"}[cov_lbl]
+
+        rows_html += f"""
+<tr>
+  <td style="padding:7px 8px 7px 10px;color:#2e4a64;font-size:10px;text-align:center;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,0.03);">{m.number}</td>
+  <td style="padding:7px 10px;color:#c8ddf0;font-size:11px;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,0.03);max-width:160px;overflow:hidden;text-overflow:ellipsis;">{m.label}</td>
+  <td style="padding:7px 10px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.03);white-space:nowrap;">
+    <span style="font-size:11px;font-weight:800;color:#f5c518;">{"/".join(picks[m.number])}</span>
+    {"<span style='font-size:9px;color:#c8960e;margin-left:3px;'>&#9680;</span>" if n_picks == 2 else ""}
+    {"<span style='font-size:9px;color:#be5050;margin-left:3px;'>&#9679;</span>" if n_picks == 3 else ""}
+    <div style="font-size:8px;color:{cov_col};margin-top:1px;">{cov_lbl}</div>
+  </td>
+  <td style="padding:7px 10px;text-align:center;font-size:10px;color:#6a90b0;border-bottom:1px solid rgba(255,255,255,0.03);white-space:nowrap;">{conf_str}</td>
+  <td style="padding:7px 10px;text-align:right;font-size:10px;color:{val_col};font-weight:600;border-bottom:1px solid rgba(255,255,255,0.03);white-space:nowrap;">{val_str}</td>
+  <td style="padding:7px 10px;text-align:right;font-size:10px;color:{vi_col};font-weight:700;border-bottom:1px solid rgba(255,255,255,0.03);white-space:nowrap;">{vi_str}</td>
+</tr>"""
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+body{{margin:0;padding:0;background:transparent;font-family:'Segoe UI',system-ui,Arial,sans-serif;}}
+table{{width:100%;border-collapse:collapse;}}
+thead th{{font-size:8px;font-weight:700;color:#2e4a64;text-transform:uppercase;letter-spacing:1px;
+    padding:6px 10px 6px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.03);white-space:nowrap;}}
+.hdr-card{{background:linear-gradient(135deg,#0d2050 0%,#1a3a6e 100%);
+    padding:12px 14px 10px;border-radius:8px 8px 0 0;margin-bottom:0;}}
+.hdr-title{{font-size:11px;font-weight:900;color:#e0eaf4;letter-spacing:1px;text-transform:uppercase;}}
+.hdr-sub{{font-size:9px;color:#5a7a96;margin-top:2px;}}
+.card-wrap{{border:1px solid rgba(255,255,255,0.07);border-radius:8px;overflow:hidden;
+    background:rgba(255,255,255,0.02);}}
 </style>
 </head><body>
-<div style="border:2px solid #19356a;border-radius:12px;overflow:hidden;
-            box-shadow:0 6px 28px rgba(0,0,0,.45);">
-
-  <!-- Header -->
-  <div style="background:linear-gradient(135deg,#0d2050 0%,#1a3a6e 100%);
-              padding:11px 15px;display:flex;justify-content:space-between;align-items:center;">
-    <div>
-      <div style="font-size:14.5px;font-weight:900;letter-spacing:3.5px;
-                  color:#fff;line-height:1;">TIPPE<span style="color:#f5c518;">Q</span>PONGEN</div>
-      <div style="font-size:9.5px;color:rgba(255,255,255,.45);margin-top:3px;">{coupon_label}</div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:21px;font-weight:900;color:#fff;line-height:1;">{total_rows}</div>
-      <div style="font-size:8.5px;color:rgba(255,255,255,.45);text-transform:uppercase;
-                  letter-spacing:1px;margin-top:2px;">rekker</div>
-    </div>
-  </div>
-
-  <!-- Column header -->
-  <div style="display:grid;grid-template-columns:18px 1fr auto;gap:8px;
-              padding:5px 13px;background:#dde6f2;border-bottom:1.5px solid #19356a;
-              font-size:8.5px;font-weight:800;color:#19356a;text-transform:uppercase;
-              letter-spacing:1.2px;">
-    <span style="text-align:center;">#</span>
-    <span>Kamp</span>
-    <div style="display:flex;gap:3px;">
-      <span style="width:28px;text-align:center;">H</span>
-      <span style="width:28px;text-align:center;">U</span>
-      <span style="width:28px;text-align:center;">B</span>
-    </div>
-  </div>
-
-  <!-- Match rows -->
-  <div>{rows_html}</div>
-
-  <!-- Footer -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);
-              background:#dde6f2;border-top:1.5px solid #19356a;">
-    <div style="padding:8px 10px;text-align:center;border-right:1px solid #c2d0e4;">
-      <div style="font-size:8.5px;font-weight:700;color:#5a78a0;text-transform:uppercase;
-                  letter-spacing:1px;">Rekker</div>
-      <div style="font-size:17px;font-weight:900;color:#0d2050;margin-top:1px;">{total_rows}</div>
-    </div>
-    <div style="padding:8px 10px;text-align:center;border-right:1px solid #c2d0e4;">
-      <div style="font-size:8.5px;font-weight:700;color:#5a78a0;text-transform:uppercase;
-                  letter-spacing:1px;">Kostnad</div>
-      <div style="font-size:17px;font-weight:900;color:#0d2050;margin-top:1px;">{total_cost:.0f} NOK</div>
-    </div>
-    <div style="padding:8px 10px;text-align:center;">
-      <div style="font-size:8.5px;font-weight:700;color:#5a78a0;text-transform:uppercase;
-                  letter-spacing:1px;">Rest</div>
-      <div style="font-size:17px;font-weight:900;color:{rem_color};margin-top:1px;">{rem_sign} NOK</div>
-    </div>
-  </div>
-
+<div class="card-wrap">
+<div class="hdr-card">
+  <div class="hdr-title">TIPPEQUPONGEN</div>
+  <div class="hdr-sub">{_strat_name} &middot; {_coupon_name} &middot; Uke {_iso.week}</div>
+</div>
+<table>
+<thead>
+<tr>
+  <th style="text-align:center;">#</th>
+  <th style="text-align:left;">Kamp</th>
+  <th style="text-align:center;">Pick</th>
+  <th style="text-align:center;">Konf.</th>
+  <th style="text-align:right;">Verdi</th>
+  <th style="text-align:right;">VI</th>
+</tr>
+</thead>
+<tbody>{rows_html}</tbody>
+</table>
 </div>
 </body></html>"""
 
-    # row_h: 12px pad + (12px×1.3 name + 1px gap + 9px×1.3 note) + 1px border = 42px
-    # header 52px, col-header 22px, footer 52px (includes 1.5px border-top + 2px outer border)
-    row_h  = 42
-    height = 52 + 22 + len(matches) * row_h + 52
+    n_matches = len(matches)
+    height = 56 + 28 + n_matches * 52 + 10  # header + col-head + rows + padding
     components.html(html, height=height, scrolling=False)
 
 
-def render_analysis_table(matches: list[Match], picks: dict) -> None:
-    _cov = {1: "Single", 2: "Halvdekk", 3: "Heldekkende"}
+def render_analysis_table_v2(matches: list[Match], picks: dict) -> None:
+    """Analysis table with probability bars."""
+    from analysis.pool_value import compute_value_index as _cvi
 
+    _cov = {1: "Single", 2: "Halvdekk", 3: "Heldekkende"}
     _conf_tiers = [
         (60, "#0c2a14", "#3ecf7a"),
         (52, "#122212", "#74c472"),
@@ -687,50 +535,49 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         "Halvdekk":    ("#261c04", "#c8960e"),
         "Heldekkende": ("#260c0c", "#be5050"),
     }
+    _badge = "font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;"
 
-    def conf_colors(v: float):
+    def conf_colors(v):
         for thr, bg, fg in _conf_tiers:
             if v >= thr:
                 return bg, fg
         return _conf_tiers[-1][1], _conf_tiers[-1][2]
 
-    # Single source-of-truth for shared style fragments — no string substitution tricks.
-    _th_base = ("font-size:9px;font-weight:700;color:#2e4a64;text-transform:uppercase;"
-                "letter-spacing:1.3px;border-bottom:1px solid rgba(255,255,255,0.07);"
-                "white-space:nowrap;background:rgba(255,255,255,0.04);padding:8px 9px;")
-    _td_base = "padding:6px 9px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px;"
-    _badge   = "font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;"
+    _th = ("font-size:9px;font-weight:700;color:#2e4a64;text-transform:uppercase;"
+           "letter-spacing:1.3px;border-bottom:1px solid rgba(255,255,255,0.07);"
+           "white-space:nowrap;background:rgba(255,255,255,0.04);padding:8px 9px;")
 
-    # Build exactly 9 <th> cells — alignment appended per column, never via .replace()
     thead = (
         f'<tr>'
-        f'<th style="{_th_base}text-align:center;">#</th>'
-        f'<th style="{_th_base}text-align:left;">Kamp</th>'
-        f'<th style="{_th_base}text-align:right;">H</th>'
-        f'<th style="{_th_base}text-align:right;">U</th>'
-        f'<th style="{_th_base}text-align:right;">B</th>'
-        f'<th style="{_th_base}text-align:center;">Tips</th>'
-        f'<th style="{_th_base}text-align:center;">Konf.</th>'
-        f'<th style="{_th_base}text-align:center;">Dekning</th>'
-        f'<th style="{_th_base}text-align:right;" title="Verdiindeks: modell/folket for anbefalt utfall. 1.00=nøytralt, >1.25=god verdi">VI</th>'
+        f'<th style="{_th}text-align:center;">#</th>'
+        f'<th style="{_th}text-align:left;">Kamp</th>'
+        f'<th style="{_th}text-align:left;min-width:160px;">Sannsynlighet</th>'
+        f'<th style="{_th}text-align:center;">Tips</th>'
+        f'<th style="{_th}text-align:center;">Konf.</th>'
+        f'<th style="{_th}text-align:center;">Dek.</th>'
+        f'<th style="{_th}text-align:right;">VI</th>'
         f'</tr>'
     )
 
-    _src_badge = {
-        "nt_expert":   ('<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;'
-                        'background:#1a2d1a;color:#4a9a4a;margin-left:5px;vertical-align:middle;">Tips</span>'),
-        "placeholder": ('<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;'
-                        'background:#1a1a1a;color:#444;margin-left:5px;vertical-align:middle;">—</span>'),
-    }
+    _td = "padding:5px 9px;font-size:11px;"
 
-    def _src_tag(src: str) -> str:
-        if not src or src == "pinnacle":
-            return ""
-        if src in _src_badge:
-            return _src_badge[src]
-        # Other bookmakers (betsson, unibet_se, etc.) → "Alt" badge
-        return ('<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;'
-                'background:#1a1e2e;color:#5a7a96;margin-left:5px;vertical-align:middle;">Alt</span>')
+    # Bar colors
+    H_COL = "#5096cc"
+    U_COL = "#6a7a88"
+    B_COL = "#c8960e"
+    TRACK = "rgba(255,255,255,0.05)"
+
+    def bar_html(label: str, pct: float, color: str) -> str:
+        w = min(100, max(0, round(pct)))
+        return (
+            f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'
+            f'<div style="width:14px;font-size:9px;color:#3a5a78;text-align:right;">{label}</div>'
+            f'<div style="flex:1;height:6px;background:{TRACK};border-radius:3px;overflow:hidden;">'
+            f'<div style="width:{w}%;height:6px;background:{color};border-radius:3px;"></div>'
+            f'</div>'
+            f'<div style="width:32px;font-size:9px;color:#6a90b0;text-align:right;">{pct:.0f}%</div>'
+            f'</div>'
+        )
 
     rows_html = ""
     for i, m in enumerate(matches):
@@ -739,40 +586,40 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
         conf_val = round(m.confidence * 100, 1)
         cbg, cfg = conf_colors(conf_val)
         vbg, vfg = _cov_colors[cov_lbl]
-        row_bg   = "rgba(255,255,255,0.02)" if i % 2 == 0 else "transparent"
-        src_tag  = _src_tag(m.odds_source)
+        row_bg   = "rgba(255,255,255,0.015)" if i % 2 == 0 else "transparent"
 
-        # Value index for the recommended pick (model_prob / public_prob)
-        _vi_val = None
-        if m.has_public_tips and m.recommendation:
-            _prob = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(m.recommendation)
-            _pub  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(m.recommendation)
-            _vi_val = compute_value_index(_prob or 0, _pub)
-        if _vi_val is not None:
-            _vi_color = "#3aaa78" if _vi_val >= 1.25 else "#74cc9a" if _vi_val >= 1.0 else "#e0956a" if _vi_val >= 0.80 else "#e07a5f"
-            _vi_str   = f"{_vi_val:.2f}×"
+        # VI
+        rec = m.recommendation or ""
+        prob = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}.get(rec)
+        pub  = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}.get(rec)
+        vi   = _cvi(prob or 0, pub)
+        if vi is not None:
+            vi_col = "#3aaa78" if vi >= 1.25 else "#74cc9a" if vi >= 1.0 else "#e0956a" if vi >= 0.80 else "#e07a5f"
+            vi_str = f"{vi:.2f}×"
         else:
-            _vi_color = "#2e4a64"
-            _vi_str   = "—"
+            vi_col, vi_str = "#2e4a64", "—"
+
+        bars = (
+            bar_html("H", m.prob_h * 100, H_COL) +
+            bar_html("U", m.prob_u * 100, U_COL) +
+            bar_html("B", m.prob_b * 100, B_COL)
+        )
 
         rows_html += (
             f'<tr style="background:{row_bg};">'
-            f'<td style="{_td_base}color:#2e4a64;text-align:center;">{m.number}</td>'
-            f'<td style="{_td_base}color:#c8ddf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">{m.label}{src_tag}</td>'
-            f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_h*100,1)}%</td>'
-            f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_u*100,1)}%</td>'
-            f'<td style="{_td_base}color:#6a90b0;text-align:right;">{round(m.prob_b*100,1)}%</td>'
-            f'<td style="{_td_base}text-align:center;font-weight:800;color:#f5c518;">{m.recommendation}</td>'
-            f'<td style="{_td_base}text-align:center;"><span style="{_badge}background:{cbg};color:{cfg};">{conf_val:.1f}%</span></td>'
-            f'<td style="{_td_base}text-align:center;"><span style="{_badge}background:{vbg};color:{vfg};">{cov_lbl}</span></td>'
-            f'<td style="{_td_base}text-align:right;font-weight:700;color:{_vi_color};font-size:10px;" title="Verdiindeks: modell/folket for valgt utfall">{_vi_str}</td>'
+            f'<td style="{_td}color:#2e4a64;text-align:center;vertical-align:middle;">{m.number}</td>'
+            f'<td style="{_td}color:#c8ddf0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;vertical-align:middle;">{m.label}</td>'
+            f'<td style="{_td}vertical-align:middle;padding:8px 9px 8px;">{bars}</td>'
+            f'<td style="{_td}text-align:center;font-weight:800;color:#f5c518;vertical-align:middle;">{m.recommendation}</td>'
+            f'<td style="{_td}text-align:center;vertical-align:middle;"><span style="{_badge}background:{cbg};color:{cfg};">{conf_val:.0f}%</span></td>'
+            f'<td style="{_td}text-align:center;vertical-align:middle;"><span style="{_badge}background:{vbg};color:{vfg};">{cov_lbl}</span></td>'
+            f'<td style="{_td}text-align:right;font-weight:700;color:{vi_col};font-size:10px;vertical-align:middle;">{vi_str}</td>'
             f'</tr>'
         )
 
     html = (
         '<div style="overflow-x:auto;border-radius:8px;border:1px solid rgba(255,255,255,0.05);">'
-        '<table class="analysis-tbl" style="width:100%;border-collapse:collapse;'
-        'font-family:\'Segoe UI\',system-ui,Arial,sans-serif;">'
+        '<table style="width:100%;border-collapse:collapse;font-family:\'Segoe UI\',system-ui,Arial,sans-serif;">'
         f'<thead>{thead}</thead>'
         f'<tbody>{rows_html}</tbody>'
         '</table></div>'
@@ -784,7 +631,7 @@ def render_analysis_table(matches: list[Match], picks: dict) -> None:
 # Page layout
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Full-width header ──────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="app-header-row">
   <div class="logo-lockup">
@@ -808,355 +655,279 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Two-panel split ────────────────────────────────────────────────────────────
-left_col, right_col = st.columns([5, 6])
+# ── Coupon selector ───────────────────────────────────────────────────────────
+st.markdown('<div class="section-label">Kupong</div>', unsafe_allow_html=True)
+t1, t2, t3 = st.columns(3)
+for col, key in zip([t1, t2, t3], COUPON_KEYS):
+    with col:
+        active = st.session_state.coupon_key == key
+        if st.button(SHORT_LABELS[key], key=f"tab_{key}",
+                     use_container_width=True,
+                     type="primary" if active else "secondary"):
+            st.session_state.coupon_key = key
+            st.rerun()
 
-# ╔══════════════════════════════════════════════════════╗
-# ║  LEFT PANEL — controls + coupon                      ║
-# ╚══════════════════════════════════════════════════════╝
-with left_col:
+coupon_key = st.session_state.coupon_key
+st.markdown(
+    f'<div class="deadline-text">&#9679; Frist: {DEADLINES[coupon_key]} &middot; 12 kamper</div>',
+    unsafe_allow_html=True,
+)
 
-    # Coupon type selector
-    st.markdown('<div class="section-label">Kupong</div>', unsafe_allow_html=True)
-    t1, t2, t3 = st.columns(3)
-    for col, key in zip([t1, t2, t3], COUPON_KEYS):
-        with col:
-            active = st.session_state.coupon_key == key
-            if st.button(SHORT_LABELS[key], key=f"tab_{key}",
-                         use_container_width=True,
-                         type="primary" if active else "secondary"):
-                st.session_state.coupon_key = key
-                st.rerun()
+st.markdown('<div class="section-label">Budsjett</div>', unsafe_allow_html=True)
+b1, b2, b3, b4 = st.columns(4)
+for col, amt in zip([b1, b2, b3, b4], BUDGET_OPTS):
+    with col:
+        active = st.session_state.budget == amt
+        if st.button(f"{amt} NOK", key=f"budget_{amt}",
+                     use_container_width=True,
+                     type="primary" if active else "secondary"):
+            st.session_state.budget = amt
+            st.rerun()
 
-    coupon_key = st.session_state.coupon_key
-    st.markdown(
-        f'<div class="deadline-text">● Frist: {DEADLINES[coupon_key]} · 12 kamper</div>',
-        unsafe_allow_html=True,
+st.markdown(
+    '<div class="budget-row">'
+    + "".join(
+        f'<div class="budget-sublabel"><strong>{BUDGET_LABELS[amt]}</strong><br>{BUDGET_ROWS[amt]} rek.</div>'
+        for amt in BUDGET_OPTS
     )
+    + "</div>",
+    unsafe_allow_html=True,
+)
 
-    # Budget selector
-    st.markdown('<div class="section-label">Budsjett</div>', unsafe_allow_html=True)
-    b1, b2, b3, b4 = st.columns(4)
-    for col, amt in zip([b1, b2, b3, b4], BUDGET_OPTS):
-        with col:
-            active = st.session_state.budget == amt
-            if st.button(f"{amt} NOK", key=f"budget_{amt}",
-                         use_container_width=True,
-                         type="primary" if active else "secondary"):
-                st.session_state.budget = amt
-                st.rerun()
+budget   = st.session_state.budget
+strategy = st.session_state.strategy
 
-    st.markdown(
-        '<div class="budget-row">'
-        + "".join(
-            f'<div class="budget-sublabel"><strong>{BUDGET_LABELS[amt]}</strong>'
-            f'{BUDGET_ROWS[amt]} rek.</div>'
-            for amt in BUDGET_OPTS
-        )
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+# ── Compute block (hoisted) ────────────────────────────────────────────────────
+matches = load_matches(coupon_key)
+picks, total_rows = optimize_coupon(matches, float(budget), strategy=strategy)
+pvs = compute_pool_value_score(matches, picks)
+p_win    = compute_p_win(matches, picks)
+pv_ratio = compute_pool_value_ratio(matches, picks)
 
-    # Strategy selector
-    st.markdown('<div class="section-label">Strategi</div>', unsafe_allow_html=True)
-    s1, s2, s3, s4 = st.columns(4)
-    for col, key in zip([s1, s2, s3, s4], _STRATEGY_KEYS):
-        with col:
-            active = st.session_state.strategy == key
-            if st.button(_STRATEGY_LABELS[key], key=f"strategy_{key}",
-                         use_container_width=True,
-                         type="primary" if active else "secondary"):
-                st.session_state.strategy = key
-                st.rerun()
+_omsetning = st.session_state.omsetning
+_sim = None
+if _omsetning and _omsetning > 0:
+    _sim = simulate_payout(matches, picks, total_rows, float(_omsetning))
 
-    budget   = st.session_state.budget
-    strategy = st.session_state.strategy
-
-    # Compute
-    matches = load_matches(coupon_key)
-    picks, total_rows = optimize_coupon(matches, float(budget), strategy=strategy)
-    pvs = compute_pool_value_score(matches, picks)
-
-    # Pool value analytics (deterministic)
-    p_win   = compute_p_win(matches, picks)
-    pv_ratio = compute_pool_value_ratio(matches, picks)
-
-    # Coupon card (hero)
-    render_coupon_card(coupon_key, matches, picks, total_rows, budget)
-
-    # Summary strip
-    n_full     = sum(1 for m in matches if len(picks[m.number]) == 3)
-    n_half     = sum(1 for m in matches if len(picks[m.number]) == 2)
-    n_single   = sum(1 for m in matches if len(picks[m.number]) == 1)
-    total_cost = total_rows * 1.0
-    remaining  = budget - total_cost
-    rem_cls    = "green" if remaining >= 0 else "red"
-    rem_str    = f"+{remaining:.0f}" if remaining >= 0 else f"{remaining:.0f}"
-
-    if pvs is not None:
-        _pvs_color = "#3aaa78" if pvs > 0 else "#e07a5f"
-        _pvs_str   = f"{pvs:+.1f}pp"
-        pvs_cell   = (
-            f'<div class="s-cell">'
-            f'<div class="s-val" style="color:{_pvs_color};">{_pvs_str}</div>'
-            f'<div class="s-key">Poolverdi</div>'
-            f'</div>'
-        )
-    else:
-        pvs_cell = (
-            '<div class="s-cell">'
-            '<div class="s-val" style="color:#2e4a64;">—</div>'
-            '<div class="s-key">Poolverdi</div>'
-            '</div>'
-        )
-
-    st.markdown(f"""
-<div class="summary-strip">
-  <div class="s-cell"><div class="s-val">{n_full}</div><div class="s-key">Heldekkende</div></div>
-  <div class="s-cell"><div class="s-val">{n_half}</div><div class="s-key">Halvdekk</div></div>
-  <div class="s-cell"><div class="s-val">{n_single}</div><div class="s-key">Single</div></div>
-  <div class="s-cell"><div class="s-val">{total_rows}</div><div class="s-key">Rekker</div></div>
-  <div class="s-cell"><div class="s-val">{total_cost:.0f} NOK</div><div class="s-key">Kostnad</div></div>
-  <div class="s-cell"><div class="s-val {rem_cls}">{rem_str} NOK</div><div class="s-key">Rest</div></div>
-  {pvs_cell}
-</div>
-""", unsafe_allow_html=True)
-
-    # ── Estimert verdi panel ───────────────────────────────────────────────────
-    _strat_bg, _strat_fg = _STRATEGY_COLORS[strategy]
-    _strat_name = _STRATEGY_LABELS[strategy]
-
-    _pwin_str = f"{p_win * 100:.2f}%"
-    _pwin_col = "#3aaa78" if p_win >= 0.05 else "#c8960e" if p_win >= 0.01 else "#e07a5f"
-
-    _pvr_str = f"{pv_ratio:.2f}×" if pv_ratio is not None else "—"
-    _pvr_col = "#3aaa78" if (pv_ratio or 0) >= 1.0 else "#e07a5f"
-
-    _n_val_picks = sum(
-        1 for m in matches
-        if m.has_public_tips and m.recommendation and
-        ({"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(m.recommendation) or 0) > 0
-    )
-
-    # Payout simulation (only when omsetning is set)
-    _omsetning = st.session_state.omsetning
-    _sim = None
+# Strategy comparison data (all 4 strategies)
+_cmp_data: list[tuple] = []
+for _sk in _STRATEGY_KEYS:
+    _sp, _sr = optimize_coupon(matches, float(budget), strategy=_sk)
+    _cmp_pw  = compute_p_win(matches, _sp)
+    _cmp_pvr = compute_pool_value_ratio(matches, _sp)
+    _cmp_med: int | None = None
     if _omsetning and _omsetning > 0:
-        _sim = simulate_payout(matches, picks, total_rows, float(_omsetning))
+        _csim = simulate_payout(matches, _sp, _sr, float(_omsetning), n_sims=10_000)
+        if _csim.get("n_winning_sims", 0) > 0:
+            _cmp_med = _csim["median"]
+    _cmp_data.append((_sk, _cmp_pw, _cmp_pvr, _cmp_med))
 
-    # Warning if coupon is too crowd-aligned
-    _warning_html = ""
-    if pv_ratio is not None and pv_ratio < 0.85:
-        _warning_html = (
-            '<div class="ev-warning">'
-            '⚠ Kupongen er nær folkets valg — vurder Verdi eller Jackpot strategi'
-            '</div>'
-        )
+# ── 1. Strategy cards ──────────────────────────────────────────────────────────
+st.markdown('<div class="section-label">Velg strategi</div>', unsafe_allow_html=True)
+sc1, sc2, sc3, sc4 = st.columns(4)
+for col, (_sk, _cpw, _cpvr, _cmed) in zip([sc1, sc2, sc3, sc4], _cmp_data):
+    with col:
+        is_active = strategy == _sk
+        is_rec    = _sk == "balanced"
+        card_cls  = "strat-card-wrap active" if is_active else "strat-card-wrap"
+        pw_str    = f"{_cpw*100:.1f}%"
+        pvr_str   = f"{_cpvr:.2f}&times;" if _cpvr else "&#8212;"
+        med_str   = f"{_cmed:,} kr" if _cmed else "&#8212;"
+        pvr_cls   = "green" if (_cpvr or 0) >= 1.0 else "red"
+        act_cls   = "active" if is_active else ""
+        rec_html  = '<div class="strat-rec-badge">&#9733; Anbefalt</div>' if is_rec else ""
+        st.markdown(f'<div class="{card_cls}">{rec_html}</div>', unsafe_allow_html=True)
+        if st.button(_STRATEGY_LABELS[_sk], key=f"strategy_{_sk}",
+                     use_container_width=True,
+                     type="primary" if is_active else "secondary"):
+            st.session_state.strategy = _sk
+            st.rerun()
+        st.markdown(f"""
+<div class="strat-card-metrics">
+  <div class="m-row"><span class="m-lbl">P(12/12)</span><span class="m-val {act_cls}">{pw_str}</span></div>
+  <div class="m-row"><span class="m-lbl">PVR</span><span class="m-val {pvr_cls}">{pvr_str}</span></div>
+  <div class="m-row"><span class="m-lbl">Median</span><span class="m-val">{med_str}</span></div>
+</div>""", unsafe_allow_html=True)
 
-    _payout_html = ""
-    if _sim and _sim.get("n_winning_sims", 0) > 0:
-        _ew = _sim.get("e_winners", "—")
-        _ew_str = f"{_ew:,}" if isinstance(_ew, int) else "—"
-        _narrative = _sim.get("narrative", "")
-        _strat_note = _STRATEGY_NARRATIVES[strategy]
-        _payout_html = f"""
-<div class="ev-payout">
-  <div class="ev-payout-label">Estimert utdeling ved 12/12</div>
-  <div class="ev-payout-grid">
-    <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['min']:,}</div>
-      <div class="ev-payout-key">Min</div>
-    </div>
-    <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['p10']:,}</div>
-      <div class="ev-payout-key">P10</div>
-    </div>
-    <div class="ev-payout-cell">
-      <div class="ev-payout-val" style="color:#f5c518;">{_sim['median']:,}</div>
-      <div class="ev-payout-key">Median</div>
-    </div>
-    <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['p90']:,}</div>
-      <div class="ev-payout-key">P90</div>
-    </div>
-    <div class="ev-payout-cell">
-      <div class="ev-payout-val">{_sim['max']:,}</div>
-      <div class="ev-payout-key">Max</div>
-    </div>
-  </div>
-  <div style="font-size:7.5px;color:#3a5a78;margin-top:4px;">
-    Vinnere ved gevinst (snitt): ~{_ew_str} rekker deler potten
-  </div>
-  <div class="strat-note">{_strat_note}</div>
-  <div style="font-size:7.5px;color:#3a5a78;margin-top:1px;font-style:italic;">{_narrative}</div>
-  <div class="sim-warn">
-    ⚠ Simuleringsestimat — ikke garantert utbetaling &nbsp;·&nbsp;
-    50 000 simuleringer &nbsp;·&nbsp; 52% premieandel &nbsp;·&nbsp;
-    Omsetning {_omsetning:,.0f} NOK
-  </div>
-</div>"""
+# ── 2. KPI section ─────────────────────────────────────────────────────────────
+_pwin_col = "#3aaa78" if p_win >= 0.05 else "#c8960e" if p_win >= 0.01 else "#e07a5f"
+_pvr_col  = "#3aaa78" if (pv_ratio or 0) >= 1.0 else "#e07a5f"
+_pwin_str = f"{p_win*100:.2f}%"
+_pvr_str_kpi  = f"{pv_ratio:.2f}&times;" if pv_ratio else "&#8212;"
+_pvr_sub  = "&#9679; positiv pool-edge" if (pv_ratio or 0) >= 1.0 else "&#9679; under markedet"
+_med_str  = f"{_sim['median']:,} kr" if _sim and _sim.get("n_winning_sims", 0) > 0 else "&#8212;"
+_p90_str  = f"{_sim['p90']:,} kr"   if _sim and _sim.get("n_winning_sims", 0) > 0 else "&#8212;"
+_med_sub  = "ved 12/12" if _sim else "Legg inn omsetning"
+_p90_sub  = "90% scenario" if _sim else "Legg inn omsetning"
 
-    st.markdown(f"""
-<div class="ev-panel">
-  <div class="ev-header">
-    Estimert verdi
-    <span class="ev-strat-badge" style="background:{_strat_bg};color:{_strat_fg};">
-      {_strat_name}
-    </span>
+_n_val_picks = sum(
+    1 for m in matches
+    if m.has_public_tips and m.recommendation and
+    ({"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(m.recommendation) or 0) > 0
+)
+
+_pvs_str = f"{pvs:+.1f}pp" if pvs is not None else "&#8212;"
+_ew_str  = f"~{_sim['e_winners']:,}" if _sim and _sim.get("n_winning_sims", 0) > 0 else "&#8212;"
+
+st.markdown(f"""
+<div class="kpi-strip">
+  <div class="kpi-card">
+    <div class="kpi-val" style="color:{_pwin_col};">{_pwin_str}</div>
+    <div class="kpi-lbl">P(12/12)</div>
+    <div class="kpi-sub">Sjanse for 12 rette</div>
   </div>
-  <div class="ev-grid">
-    <div class="ev-cell">
-      <div class="ev-val" style="color:{_pwin_col};">{_pwin_str}</div>
-      <div class="ev-key">Sjanse 12/12</div>
-    </div>
-    <div class="ev-cell">
-      <div class="ev-val" style="color:{_pvr_col};">{_pvr_str}</div>
-      <div class="ev-key">Poolverdi ratio</div>
-    </div>
-    <div class="ev-cell">
-      <div class="ev-val">{_n_val_picks}</div>
-      <div class="ev-key">Verdivalg</div>
-    </div>
+  <div class="kpi-card">
+    <div class="kpi-val" style="color:#f5c518;">{_med_str}</div>
+    <div class="kpi-lbl">Median utdeling</div>
+    <div class="kpi-sub">{_med_sub}</div>
   </div>
-  {_payout_html}
-  {_warning_html}
+  <div class="kpi-card">
+    <div class="kpi-val" style="color:{_pvr_col};">{_pvr_str_kpi}</div>
+    <div class="kpi-lbl">Poolverdi ratio</div>
+    <div class="kpi-sub">{_pvr_sub}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-val">{_p90_str}</div>
+    <div class="kpi-lbl">P90 utdeling</div>
+    <div class="kpi-sub">{_p90_sub}</div>
+  </div>
+</div>
+<div class="kpi-secondary">
+  <span class="kpi-chip">Poolverdi: {_pvs_str}</span>
+  <span class="kpi-chip">Verdivalg: {_n_val_picks} kamper</span>
+  <span class="kpi-chip">E[vinnere]: {_ew_str}</span>
 </div>
 """, unsafe_allow_html=True)
 
-    # ── Strategy comparison table ──────────────────────────────────────────────
-    _cmp_data: list[tuple] = []
-    for _sk in _STRATEGY_KEYS:
-        _sp, _sr = optimize_coupon(matches, float(budget), strategy=_sk)
-        _cmp_pw  = compute_p_win(matches, _sp)
-        _cmp_pvr = compute_pool_value_ratio(matches, _sp)
-        _cmp_med: int | None = None
-        if _omsetning and _omsetning > 0:
-            _csim = simulate_payout(
-                matches, _sp, _sr, float(_omsetning), n_sims=10_000
-            )
-            if _csim.get("n_winning_sims", 0) > 0:
-                _cmp_med = _csim["median"]
-        _cmp_data.append((_sk, _cmp_pw, _cmp_pvr, _cmp_med))
+# ── 3. Payout section ──────────────────────────────────────────────────────────
+def _on_om_change():
+    v = st.session_state._om_raw
+    st.session_state.omsetning = int(v) if v and v > 0 else None
 
-    _has_med_col = any(d[3] is not None for d in _cmp_data)
-    _grid_tpl = "2.3fr 1.4fr 1.4fr 2fr" if _has_med_col else "2.8fr 1.5fr 1.5fr"
-    _med_hdr  = '<div class="strat-cmp-th">Median *</div>' if _has_med_col else ""
+_om_display = f"{int(_omsetning):,} NOK" if _omsetning else "ikke satt"
+st.markdown(
+    f'<div class="pay-section"><div class="pay-header-row">'
+    f'<div class="pay-title">Estimert utdeling ved 12/12</div>'
+    f'<div class="pay-om-label">Omsetning: {_om_display}</div></div>',
+    unsafe_allow_html=True,
+)
 
-    _cmp_rows_html = ""
-    for _sk, _cpw, _cpvr, _cmed in _cmp_data:
-        _is_act = _sk == strategy
-        _ac     = "cmp-active" if _is_act else ""
-        _lbl    = ("▶ " if _is_act else " ") + _STRATEGY_LABELS[_sk]
-        _pw_s   = f"{_cpw * 100:.2f}%"
-        _pvr_s  = f"{_cpvr:.2f}×" if _cpvr is not None else "—"
-        _pvr_c  = ""
-        if _is_act and _cpvr is not None:
-            _pvr_c = f" style=\"color:{'#3aaa78' if _cpvr >= 1.0 else '#e07a5f'};\""
-        _cmp_rows_html += (
-            f'<div class="strat-cmp-td cmp-name {_ac}">{_lbl}</div>'
-            f'<div class="strat-cmp-td {_ac}">{_pw_s}</div>'
-            f'<div class="strat-cmp-td {_ac}"{_pvr_c}>{_pvr_s}</div>'
-        )
-        if _has_med_col:
-            _med_s = f"{_cmed:,} kr" if _cmed is not None else "—"
-            _cmp_rows_html += f'<div class="strat-cmp-td {_ac}">{_med_s}</div>'
+if _sim and _sim.get("n_winning_sims", 0) > 0:
+    _vmin = _sim["min"]
+    _vmax = _sim.get("p99", _sim["max"])
+    if _vmax <= _vmin:
+        _vmax = _vmin + 1
 
-    _med_foot = (
-        '<div style="font-size:6.5px;color:#2e4a64;margin-top:3px;font-style:italic;">'
-        '* Median simulert utdeling ved 12/12 — 10 000 simuleringer pr. strategi</div>'
-    ) if _has_med_col else ""
+    def _bar_pct(v):
+        return max(0.0, min(98.0, (v - _vmin) / (_vmax - _vmin) * 100))
 
-    # Render comparison table via components.html to bypass markdown parsing.
-    # The global <style> block won't reach an iframe, so styles are inlined here.
-    _cmp_css = """
-body{margin:0;padding:0;background:transparent;
-     font-family:'Segoe UI',system-ui,Arial,sans-serif;}
-.wrap{padding:7px 10px 8px;background:rgba(255,255,255,0.015);
-      border:1px solid rgba(255,255,255,0.04);border-radius:7px;}
-.hdr{font-size:7.5px;color:#2e4a64;font-weight:700;text-transform:uppercase;
-     letter-spacing:1px;margin-bottom:5px;}
-.grid{display:grid;border:1px solid rgba(255,255,255,0.05);
-      border-radius:4px;overflow:hidden;}
-.th{font-size:6.5px;color:#2e4a64;text-transform:uppercase;letter-spacing:.5px;
-    padding:3px 5px;background:rgba(255,255,255,0.025);
-    border-bottom:1px solid rgba(255,255,255,0.05);text-align:center;}
-.th.left{text-align:left;}
-.td{font-size:8.5px;padding:4px 5px;color:#4a6a88;
-    border-top:1px solid rgba(255,255,255,0.03);text-align:center;}
-.td.name{text-align:left;color:#5a7a98;}
-.td.act{color:#c8ddf0;background:rgba(255,255,255,0.04);font-weight:700;}
-.td.act.name{color:#e0eaf4;}
-.td.grn{color:#3aaa78;}
-.td.red{color:#e07a5f;}
-.foot{font-size:6.5px;color:#2e4a64;margin-top:3px;font-style:italic;}
-"""
-    _cmp_th_med = '<div class="th">Median *</div>' if _has_med_col else ""
+    _ticks = [
+        (_bar_pct(_sim["min"]),    f"{_sim['min']//1000}k",    "Min",    False),
+        (_bar_pct(_sim["p10"]),    f"{_sim['p10']//1000}k",    "P10",    False),
+        (_bar_pct(_sim["median"]), f"{_sim['median']//1000}k", "Median", True),
+        (_bar_pct(_sim["p90"]),    f"{_sim['p90']//1000}k",    "P90",    False),
+        (_bar_pct(_vmax),          f"{_vmax//1000}k",          "P99",    False),
+    ]
+    _range_l = _bar_pct(_sim["p10"])
+    _range_w = _bar_pct(_sim["p90"]) - _range_l
+    _med_pos = _bar_pct(_sim["median"]) - 0.3
 
-    _cmp_rows2 = ""
-    for _sk, _cpw, _cpvr, _cmed in _cmp_data:
-        _is_act  = _sk == strategy
-        _ac      = " act" if _is_act else ""
-        _lbl2    = ("&#9654; " if _is_act else "&nbsp;&nbsp;") + _STRATEGY_LABELS[_sk]
-        _pw_s2   = f"{_cpw * 100:.2f}%"
-        _pvr_s2  = f"{_cpvr:.2f}&times;" if _cpvr is not None else "—"
-        _pvr_cls = (" grn" if (_cpvr or 0) >= 1.0 else " red") if _is_act else ""
-        _cmp_rows2 += (
-            f'<div class="td name{_ac}">{_lbl2}</div>'
-            f'<div class="td{_ac}">{_pw_s2}</div>'
-            f'<div class="td{_ac}{_pvr_cls}">{_pvr_s2}</div>'
-        )
-        if _has_med_col:
-            _med_s2 = f"{_cmed:,}&nbsp;kr" if _cmed is not None else "—"
-            _cmp_rows2 += f'<div class="td{_ac}">{_med_s2}</div>'
+    _tick_html = "".join(
+        f'<div class="pay-tick" style="left:{pos:.1f}%;">'
+        f'<div class="pay-tick-val">{val}</div>'
+        f'<div class="pay-tick-lbl{"" if not gold else " gold"}">{lbl}</div>'
+        f'</div>'
+        for pos, val, lbl, gold in _ticks
+    )
 
-    _foot2 = (
-        '<div class="foot">* Median simulert utdeling ved 12/12 '
-        '— 10&nbsp;000 simuleringer pr. strategi</div>'
-    ) if _has_med_col else ""
+    _ew_pay  = _sim.get("e_winners", 0)
+    _ew_pay_s = f"~{_ew_pay:,}" if isinstance(_ew_pay, int) else "&#8212;"
+    _strat_note = _STRATEGY_NARRATIVES[strategy]
 
-    _cmp_iframe = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>{_cmp_css}</style></head>
-<body>
-<div class="wrap">
-<div class="hdr">Strategisammenligning &mdash; {budget}&nbsp;NOK</div>
-<div class="grid" style="grid-template-columns:{_grid_tpl};">
-<div class="th left">Strategi</div>
-<div class="th">12/12</div>
-<div class="th">PVR</div>{_cmp_th_med}{_cmp_rows2}</div>
-{_foot2}
+    st.markdown(f"""
+<div class="pay-bar-outer">
+  <div class="pay-bar-range" style="left:{_range_l:.1f}%;width:{_range_w:.1f}%;"></div>
+  <div class="pay-bar-median" style="left:{_med_pos:.1f}%;"></div>
+  {_tick_html}
 </div>
-</body></html>"""
+<div class="pay-meta">
+  E[vinnere]: {_ew_pay_s} rekker deler potten ved gevinst
+  {"&nbsp;&middot;&nbsp;<span class='green'>PVR " + f"{pv_ratio:.2f}&times;" + " &rarr; underpopulert pool</span>" if (pv_ratio or 0) >= 1.0 else ""}
+</div>
+<div class="pay-strat-note">{_strat_note}</div>
+<div class="pay-warn">&#9888; Simuleringsestimat &mdash; ikke garantert utbetaling &middot; 50&#8239;000 simuleringer &middot; 52% premieandel &middot; Omsetning {int(_omsetning or 0):,} NOK</div>
+""", unsafe_allow_html=True)
+else:
+    st.markdown(
+        '<div class="pay-placeholder">Legg inn omsetning nedenfor for å estimere potensiell utdeling.</div>',
+        unsafe_allow_html=True,
+    )
 
-    _cmp_height = 148 if _has_med_col else 133
-    components.html(_cmp_iframe, height=_cmp_height, scrolling=False)
+st.markdown('</div>', unsafe_allow_html=True)  # close pay-section
 
-    # ── Optional omsetning input ───────────────────────────────────────────────
-    # on_change updates session_state.omsetning BEFORE the next render so the
-    # EV panel above sees the new value without a two-render lag.
-    def _on_om_change():
-        v = st.session_state._om_raw
-        st.session_state.omsetning = int(v) if v and v > 0 else None
+st.number_input(
+    "Omsetning (NOK)",
+    key="_om_raw",
+    min_value=0,
+    max_value=200_000_000,
+    value=int(st.session_state.omsetning or 0),
+    step=500_000,
+    on_change=_on_om_change,
+    help="Finn aktuell omsetning på Norsk Tipping sin nettside.",
+    label_visibility="collapsed",
+)
 
-    with st.expander("Legg inn omsetning for utdelingsestimat", expanded=False):
-        st.number_input(
-            "Omsetning (NOK)",
-            key="_om_raw",
-            min_value=0,
-            max_value=200_000_000,
-            value=int(st.session_state.omsetning or 0),
-            step=500_000,
-            on_change=_on_om_change,
-            help="Finn aktuell omsetning på Norsk Tipping sin nettside. Brukes til å estimere utdeling.",
+st.markdown("<div style='height:0.25rem'></div>", unsafe_allow_html=True)
+
+# ── 4. Coupon + meta ──────────────────────────────────────────────────────────
+cpn_col, meta_col = st.columns([7, 4])
+
+with cpn_col:
+    st.markdown('<div class="panel-title">Kupong</div>', unsafe_allow_html=True)
+    render_coupon_card_v2(coupon_key, matches, picks, total_rows, budget)
+
+with meta_col:
+    st.markdown('<div class="panel-title">Kupongoversikt</div>', unsafe_allow_html=True)
+    total_cost = total_rows * 2  # 2 NOK per row
+    remaining  = float(budget) - total_cost
+    rem_clr    = "color:#3aaa78" if remaining >= 0 else "color:#e07a5f"
+
+    n_full = sum(1 for m in matches if len(picks[m.number]) == 3)
+    n_half = sum(1 for m in matches if len(picks[m.number]) == 2)
+    n_sing = sum(1 for m in matches if len(picks[m.number]) == 1)
+
+    _pvr_badge_bg  = "#0c2a14" if (pv_ratio or 0) >= 1.0 else "#260c0c"
+    _pvr_badge_fg  = "#3aaa78" if (pv_ratio or 0) >= 1.0 else "#e07a5f"
+    _pvr_badge_str = f"{pv_ratio:.2f}&times;" if pv_ratio else "&#8212;"
+
+    st.markdown(f"""
+<div class="cpn-meta-box">
+  <div class="cpn-meta-row"><span class="cpn-meta-lbl">Rekker</span><span class="cpn-meta-val">{total_rows}</span></div>
+  <div class="cpn-meta-row"><span class="cpn-meta-lbl">Kostnad</span><span class="cpn-meta-val">{total_cost:.0f} NOK</span></div>
+  <div class="cpn-meta-row"><span class="cpn-meta-lbl">Rest</span><span class="cpn-meta-val" style="{rem_clr};">{remaining:+.0f} NOK</span></div>
+  <div class="cpn-meta-row"><span class="cpn-meta-lbl">Heldekkende</span><span class="cpn-meta-val">{n_full}</span></div>
+  <div class="cpn-meta-row"><span class="cpn-meta-lbl">Halvdekk</span><span class="cpn-meta-val">{n_half}</span></div>
+  <div class="cpn-meta-row"><span class="cpn-meta-lbl">Single</span><span class="cpn-meta-val">{n_sing}</span></div>
+</div>
+<div style="margin-bottom:10px;">
+  <span class="kpi-lbl">Poolverdi ratio</span><br>
+  <span class="cpn-pvr-badge" style="background:{_pvr_badge_bg};color:{_pvr_badge_fg};margin-top:4px;">{_pvr_badge_str}</span>
+</div>
+""", unsafe_allow_html=True)
+
+    if (pv_ratio or 0) < 0.85:
+        st.markdown(
+            '<div style="font-size:9px;background:#261c04;color:#c8960e;padding:6px 10px;border-radius:6px;margin-bottom:10px;">&#9888; Kupongen er nær folkemeningen — vurder Verdi eller Jackpot</div>',
+            unsafe_allow_html=True,
         )
 
-    # ── Save coupon snapshot ───────────────────────────────────────────────────
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-    if st.button("💾 Lagre kupong", use_container_width=True, type="secondary"):
-        from db.schema import init_db
+    if st.button("Lagre kupong", use_container_width=True, type="secondary"):
+        from db.schema import init_db as _init_db2
         from db.coupon import get_coupon_matches, get_best_odds
         from db.history import save_prediction
 
-        init_db()
+        _init_db2()
         coupon_id = f"{coupon_key}-{_iso.week:02d}-{_iso.year}"
         db_matches = get_coupon_matches(coupon_id)
         fid_map = {r["match_number"]: r["fixture_id"] for r in db_matches}
@@ -1191,19 +962,61 @@ body{margin:0;padding:0;background:transparent;
         if saved == len(matches):
             st.success(f"Kupong lagret! ({saved} kamper)")
         elif saved > 0:
-            st.warning(f"{saved} av {len(matches)} lagret. {missing} kamp(er) mangler fixture_id — kjør sync først.")
+            st.warning(f"{saved} av {len(matches)} lagret. {missing} kamp(er) mangler fixture_id.")
         else:
-            st.error("Kunne ikke lagre: kupongen er ikke i databasen ennå. Kjør `python sync.py --seed-only` først.")
+            st.error("Kunne ikke lagre: kjør sync.py --seed-only først.")
 
-# ╔══════════════════════════════════════════════════════╗
-# ║  RIGHT PANEL — analysis table (always visible)       ║
-# ╚══════════════════════════════════════════════════════╝
-with right_col:
-    st.markdown('<div class="panel-title">Kampanalyse</div>', unsafe_allow_html=True)
-    render_analysis_table(matches, picks)
-    st.markdown("""
-<div class="footnote">
-<strong>Dekning:</strong> Single ×1 &nbsp;·&nbsp; Halvdekk ×2 &nbsp;·&nbsp; Heldekkende ×3<br>
-<strong>Trygghet:</strong> Sannsynlighet for det sterkeste enkeltutfallet — ikke for at hele kupongen vinner.
-</div>
-""", unsafe_allow_html=True)
+# ── 5. Analysis table ─────────────────────────────────────────────────────────
+st.markdown('<div class="analysis-section-label">Kampanalyse</div>', unsafe_allow_html=True)
+render_analysis_table_v2(matches, picks)
+st.markdown(
+    '<div class="footnote">Konf. = modellens konfidensgrad for anbefalt utfall &middot; '
+    'Dek. = dekningstype (&times;1 Single, &times;2 Halvdekk, &times;3 Heldekkende) &middot; '
+    'VI = Verdiindeks (modell / folket for valgt utfall)</div>',
+    unsafe_allow_html=True,
+)
+
+# ── 6. Advanced collapsible ───────────────────────────────────────────────────
+with st.expander("Avanserte detaljer — strategisammenligning og diagnostikk"):
+    _has_med_col = any(d[3] is not None for d in _cmp_data)
+
+    _cmp_rows_adv = ""
+    for _sk, _cpw, _cpvr, _cmed in _cmp_data:
+        _is_act = _sk == strategy
+        _ac     = " style='color:#e0eaf4;font-weight:700;background:rgba(255,255,255,0.04);'" if _is_act else ""
+        _lbl    = ("&#9654; " if _is_act else "  ") + _STRATEGY_LABELS[_sk]
+        _pw_s   = f"{_cpw*100:.2f}%"
+        _pvr_s  = f"{_cpvr:.2f}&times;" if _cpvr else "&#8212;"
+        _pvr_style = ""
+        if _is_act and _cpvr:
+            _pvr_style = f" style='color:{'#3aaa78' if _cpvr >= 1.0 else '#e07a5f'};'"
+        _cmp_rows_adv += (
+            f"<tr{_ac}>"
+            f"<td style='text-align:left;padding:4px 8px;'>{_lbl}</td>"
+            f"<td style='text-align:center;padding:4px 8px;'>{_pw_s}</td>"
+            f"<td style='text-align:center;padding:4px 8px;'{_pvr_style}>{_pvr_s}</td>"
+        )
+        if _has_med_col:
+            _med_s = f"{_cmed:,} kr" if _cmed else "&#8212;"
+            _cmp_rows_adv += f"<td style='text-align:center;padding:4px 8px;'>{_med_s}</td>"
+        _cmp_rows_adv += "</tr>"
+
+    _med_th = "<th style='text-align:center;'>Median *</th>" if _has_med_col else ""
+    _cmp_table = f"""
+<div style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Segoe UI',system-ui,Arial,sans-serif;">
+<thead>
+<tr style="font-size:9px;color:#2e4a64;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.07);">
+<th style="text-align:left;padding:5px 8px;">Strategi</th>
+<th style="text-align:center;padding:5px 8px;">P(12/12)</th>
+<th style="text-align:center;padding:5px 8px;">PVR</th>
+{_med_th}
+</tr>
+</thead>
+<tbody style="color:#4a6a88;">{_cmp_rows_adv}</tbody>
+</table>
+</div>"""
+    if _has_med_col:
+        _cmp_table += '<div style="font-size:8px;color:#2e4a64;margin-top:4px;font-style:italic;">* Median simulert utdeling ved 12/12 &mdash; 10&#8239;000 simuleringer pr. strategi</div>'
+
+    st.markdown(_cmp_table, unsafe_allow_html=True)
