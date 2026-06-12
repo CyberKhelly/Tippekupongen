@@ -344,10 +344,9 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             # Value for recommended pick
             _rec_val = {"H": _m.value_h, "U": _m.value_u, "B": _m.value_b}.get(_rec)
             if _rec_val is not None and _has_pub:
-                _vpp = _rec_val * 100
-                _vpp_str = f"{_vpp:+.1f}pp"
-                _vpp_col = "#3aaa78" if _vpp > 0 else "#e07a5f"
-                _vpp_bg  = "#0c2a14" if _vpp > 0 else "#260c0c"
+                _vpp_str = f"{_rec_val:+.1f}pp"
+                _vpp_col = "#3aaa78" if _rec_val > 0 else "#e07a5f"
+                _vpp_bg  = "#0c2a14" if _rec_val > 0 else "#260c0c"
             else:
                 _vpp_str, _vpp_col, _vpp_bg = "&#8212;", "#2e4a64", "transparent"
 

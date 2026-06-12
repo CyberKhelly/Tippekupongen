@@ -538,9 +538,8 @@ def render_coupon_list(matches: list[Match], picks: dict) -> None:
 
         val_f  = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
         if val_f is not None and m.has_public_tips:
-            vpp    = val_f * 100
-            val_s  = f"{vpp:+.1f}pp"
-            val_col = "#3aaa78" if vpp > 0 else "#e07a5f"
+            val_s  = f"{val_f:+.1f}pp"
+            val_col = "#3aaa78" if val_f > 0 else "#e07a5f"
         else:
             val_s, val_col = "", "#2e4a64"
 
@@ -596,7 +595,7 @@ def render_match_analysis(matches: list[Match], picks: dict) -> None:
         conf = round(m.confidence * 100)
 
         val_f = {"H": m.value_h, "U": m.value_u, "B": m.value_b}.get(rec)
-        val_s = (f"{val_f*100:+.1f}pp" if val_f is not None and m.has_public_tips
+        val_s = (f"{val_f:+.1f}pp" if val_f is not None and m.has_public_tips
                  else "")
         val_col = "#3aaa78" if (val_f or 0) > 0 else "#e07a5f" if val_f else "#2e4a64"
 
