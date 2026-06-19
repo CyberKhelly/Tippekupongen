@@ -19,8 +19,8 @@ Summary per coupon:
 
 Usage:
     python verify_model.py
-    python verify_model.py --strategy value
-    python verify_model.py --budget 96 --strategy jackpot
+    python verify_model.py --strategy jackpot
+    python verify_model.py --budget 96 --strategy balanced
     python verify_model.py --week 24 --year 2026 --omsetning 15000000
 """
 from __future__ import annotations
@@ -70,9 +70,16 @@ def _is_contrarian(m, picks: list[str]) -> tuple[bool, str]:
     expected = sorted([top_out, sec_out])
     if sorted(picks) == expected:
         return False, ""
-    # Identify the contrarian pick
-    actual_second = [p for p in picks if p != top_out][0]
     prob_map = {o: p for o, p in probs}
+    # Jackpot may exclude the top outcome entirely (best-PVR pair logic)
+    if top_out not in picks:
+        p0 = prob_map.get(picks[0], 0)
+        p1 = prob_map.get(picks[1], 0)
+        top_p = prob_map.get(top_out, 0)
+        return True, (f"excl. top {top_out} ({top_p*100:.0f}%) — picks "
+                      f"{picks[0]}({p0*100:.0f}%)+{picks[1]}({p1*100:.0f}%)")
+    # Standard case: top included but second pick differs from #2 by probability
+    actual_second = [p for p in picks if p != top_out][0]
     prob_sec = prob_map.get(sec_out, 0)
     prob_act = prob_map.get(actual_second, 0)
     return True, f"contrarian: {actual_second} ({prob_act*100:.0f}%) over {sec_out} ({prob_sec*100:.0f}%)"
@@ -85,7 +92,7 @@ def main() -> None:
     parser.add_argument("--budget",    type=float, default=192.0,
                         help="Budget in NOK (default 192)")
     parser.add_argument("--strategy",  type=str,   default="balanced",
-                        choices=["safe", "balanced", "value", "jackpot"],
+                        choices=["safe", "balanced", "jackpot"],
                         help="Strategy mode (default balanced)")
     parser.add_argument("--week",      type=int,   default=None)
     parser.add_argument("--year",      type=int,   default=None)

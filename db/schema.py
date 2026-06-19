@@ -109,6 +109,7 @@ _PHASE1_COLUMNS: list[tuple[str, str]] = [
     ("coupons",        "content_hash     TEXT"),
     ("coupons",        "last_synced_at   TEXT"),
     ("coupons",        "updated_at       TEXT"),
+    ("coupons",        "omsetning        REAL"),
     # Tips percentages — stored separately from odds; never used as probability baseline.
     ("coupon_fixtures", "arrangement_name TEXT"),
     ("coupon_fixtures", "expert_h         REAL"),

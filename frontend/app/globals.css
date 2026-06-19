@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold: #f5c518;
+  --gold-dim: rgba(245, 197, 24, 0.12);
+  --page-bg: #07101b;
+  --card-bg: rgba(255, 255, 255, 0.025);
+  --card-border: rgba(255, 255, 255, 0.07);
+  --text-primary: #e2eefc;
+  --text-secondary: #7a9bb8;
+  --text-muted: #2e4a60;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Slim custom scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+
+::selection {
+  background: rgba(245, 197, 24, 0.18);
+  color: #fff;
+}
+
+@layer components {
+  /* Base glass card */
+  .glass {
+    @apply bg-white/[0.025] border border-white/[0.07] backdrop-blur-sm;
+  }
+
+  /* Shimmer skeleton */
+  .skeleton {
+    @apply relative overflow-hidden bg-white/[0.04] rounded;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255,255,255,0.055) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmerSlide 1.6s linear infinite;
+  }
+
+  /* Top accent gradient line */
+  .card-top-line::before {
+    content: '';
+    @apply absolute top-0 inset-x-0 h-[1px];
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
+  }
+  .card-top-line-gold::before {
+    content: '';
+    @apply absolute top-0 inset-x-0 h-[1px];
+    background: linear-gradient(90deg, transparent, rgba(245,197,24,0.35), transparent);
+  }
+}
+
+@keyframes shimmerSlide {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Probability bar grow — used by MatchTable rows */
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.animate-bar-grow {
+  animation: barGrow 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: left;
+}
+
+/* Fade-up entrance — used by MatchTable rows */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fadeUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}

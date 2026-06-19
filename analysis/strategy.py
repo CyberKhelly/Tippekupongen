@@ -1,25 +1,22 @@
 """
 Phase 6C: Strategy configuration for coupon generation.
 
-Four modes control how the optimizer balances model confidence against
+Three modes control how the optimizer balances model confidence against
 pool value signals when deciding coverage depth, system shape, and
 halvdekk second picks.
 
 Safe:     pure model confidence — maximise P(12/12)
-Balanced: current-ish behaviour — tiny value_top tilt, mild contrarian allowed
-Value:    CDS-driven coverage — accepts slightly lower P(win), improves pool edge
+Balanced: VI-adjusted confidence — mild contrarian halvdekk allowed
 Jackpot:  strongest CDS influence — converts heldekk to halvdekk, maximises PVR
 
 Composite score formula (lower = receives deeper coverage):
   Safe:     confidence
-  Balanced: confidence + effective_conf_adj × clip(value_top/20, −1, +1)
-  Value:    confidence − 0.20 × (CDS/50)
+  Balanced: confidence × clip(VI_at_pick, 0.75, 1.25)
   Jackpot:  confidence − 0.35 × (CDS/50)
 
 Shape objective:
   Safe:     maximise P(12/12)
   Balanced: maximise P(12/12)^0.9 × PVR^0.1
-  Value:    maximise P(12/12)^0.6 × PVR^0.4
   Jackpot:  maximise PVR  (P(12/12) ≥ min_p_win_floor)
 
 Invariants all modes must preserve:
@@ -79,19 +76,6 @@ STRATEGIES: dict[str, StrategyConfig] = {
         min_prob_threshold=0.18,
         contrarian_pp_tolerance=0.04,   # allow within 4pp gap
         pick_vi_advantage=0.20,
-    ),
-    "value": StrategyConfig(
-        name="value",
-        display_name="Verdi",
-        cds_weight=0.200,               # CDS/50 × 0.20 — meaningful but not dominant
-        effective_conf_adj=0.000,
-        shape_p_win_exp=0.6,
-        shape_pvr_exp=0.4,
-        min_p_win_floor=0.001,
-        shape_min_utilization=0.50,
-        min_prob_threshold=0.15,
-        contrarian_pp_tolerance=0.10,   # allow within 10pp gap
-        pick_vi_advantage=0.12,
     ),
     "jackpot": StrategyConfig(
         name="jackpot",

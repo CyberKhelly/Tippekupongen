@@ -157,6 +157,7 @@ def upsert_coupon(
     confidence: str | None = None,
     content_hash: str | None = None,
     last_synced_at: str | None = None,
+    omsetning: float | None = None,
 ) -> None:
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
@@ -165,8 +166,8 @@ def upsert_coupon(
             """INSERT INTO coupons
                (coupon_id, label, deadline_utc, week, year,
                 nt_game_day_id, day_type, source, confidence,
-                content_hash, last_synced_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                content_hash, last_synced_at, updated_at, omsetning)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(coupon_id) DO UPDATE SET
                    label          = excluded.label,
                    deadline_utc   = excluded.deadline_utc,
@@ -176,10 +177,11 @@ def upsert_coupon(
                    confidence     = COALESCE(excluded.confidence,     confidence),
                    content_hash   = COALESCE(excluded.content_hash,   content_hash),
                    last_synced_at = COALESCE(excluded.last_synced_at, last_synced_at),
+                   omsetning      = COALESCE(excluded.omsetning,      omsetning),
                    updated_at     = excluded.updated_at""",
             (coupon_id, label, deadline_utc, week, year,
              nt_game_day_id, day_type, source, confidence,
-             content_hash, last_synced_at, now),
+             content_hash, last_synced_at, now, omsetning),
         )
 
 
@@ -210,6 +212,65 @@ def list_coupons(week: int | None = None, year: int | None = None) -> list[dict]
                 "SELECT * FROM coupons ORDER BY deadline_utc DESC LIMIT 20"
             ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _parse_deadline(s: str | None):
+    """Parse a deadline string to an aware datetime, or None on failure."""
+    from datetime import datetime, timezone
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
+def list_active_coupons() -> list[dict]:
+    """
+    Return non-expired coupons with fixture counts, deduplicated by nt_game_day_id.
+
+    Uses timezone-aware datetime comparison so that deadlines stored with +02:00
+    offsets are handled correctly (SQLite string comparison is not timezone-aware).
+
+    When two coupon records share the same nt_game_day_id (e.g. lordag-24-2026 and
+    lordag-25-2026 were both created for the same NT game day at a week boundary),
+    the one with the higher week number is kept as the canonical active entry.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT c.*,
+                      COUNT(cf.fixture_id) AS n_fixtures
+               FROM coupons c
+               LEFT JOIN coupon_fixtures cf ON cf.coupon_id = c.coupon_id
+               GROUP BY c.coupon_id
+               ORDER BY c.deadline_utc""",
+        ).fetchall()
+
+    # Filter to non-expired using proper tz-aware comparison.
+    active = [
+        dict(r) for r in rows
+        if (dl := _parse_deadline(r["deadline_utc"])) is not None and dl > now
+    ]
+
+    # Deduplicate by nt_game_day_id, keeping the entry with the highest week number.
+    seen_by_gd: dict[str, dict] = {}
+    no_gd: list[dict] = []
+    for r in active:
+        gd = r.get("nt_game_day_id")
+        if gd:
+            if gd not in seen_by_gd or r["week"] > seen_by_gd[gd]["week"]:
+                seen_by_gd[gd] = r
+        else:
+            no_gd.append(r)
+
+    result = list(seen_by_gd.values()) + no_gd
+    result.sort(key=lambda x: (_parse_deadline(x["deadline_utc"]) or x["deadline_utc"]))
+    return result
 
 
 def get_coupon_matches(coupon_id: str) -> list[dict]:

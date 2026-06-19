@@ -8,7 +8,7 @@ Two-stage process:
 
 Composite score (lower → receives deeper coverage):
   Safe:     confidence
-  Balanced: confidence + tiny value_top nudge (backward-compatible)
+  Balanced: confidence × clip(VI_at_pick, 0.75, 1.25)  — VI = model_prob / pub_prob
   Value:    confidence − 0.20 × (CDS/50)
   Jackpot:  confidence − 0.35 × (CDS/50)
 
@@ -36,6 +36,7 @@ Backward compatibility:
   - strategy="balanced" with default budget reproduces Phase-5 shape in most cases
 """
 from __future__ import annotations
+import math
 from models.match import Match
 from analysis.strategy import StrategyConfig, STRATEGIES
 from analysis.pool_value import compute_p_win, compute_pool_value_ratio
@@ -73,7 +74,7 @@ def _composite_score(m: Match, cfg: StrategyConfig) -> float:
     Lower score → match receives deeper coverage.
 
     Safe:     pure model confidence — ignores all crowd signals
-    Balanced: tiny directional nudge when public over/underplays model pick
+    Balanced: confidence × clip(VI_at_pick, 0.75, 1.25) — crowd-heavy picks penalised
     Value:    CDS-penalised confidence — high disagreement → promoted toward coverage
     Jackpot:  stronger CDS penalty — crowd disagreement is the primary coverage driver
     """
@@ -85,10 +86,12 @@ def _composite_score(m: Match, cfg: StrategyConfig) -> float:
     if cfg.name == "balanced":
         if not m.has_public_tips:
             return conf
-        vals      = {"H": m.value_h, "U": m.value_u, "B": m.value_b}
-        top_value = vals.get(m.recommendation) or 0.0
-        v_norm    = max(-1.0, min(1.0, top_value / 20.0))
-        return max(0.0, min(1.0, conf + cfg.effective_conf_adj * v_norm))
+        pub_map = {"H": m.pub_prob_h or 0.0, "U": m.pub_prob_u or 0.0, "B": m.pub_prob_b or 0.0}
+        pub_p   = pub_map.get(m.recommendation) or 0.0
+        if pub_p < 0.01:
+            return conf
+        vi = conf / pub_p
+        return conf * max(0.75, min(1.25, vi))
 
     # Value / Jackpot: CDS-based reduction
     cds      = m.crowd_disagreement_score or 0.0
@@ -130,12 +133,17 @@ def _pick_halvdekk(m: Match, cfg: StrategyConfig) -> list[str]:
 
     Safe: always top-2 by model probability.
 
-    Balanced/Value/Jackpot: may substitute #3 for #2 when ALL:
+    Balanced/Value: VI-substitution — may substitute #3 for #2 when ALL:
       (a) prob gap between #2 and #3 ≤ contrarian_pp_tolerance
       (b) #3 probability ≥ min_prob_threshold
       (c) value_index of #3 exceeds value_index of #2 by ≥ pick_vi_advantage
+      Top outcome always included.
 
-    The top pick (#1 by probability) is NEVER substituted.
+    Jackpot: tries all 3 pairs; picks highest log-PVR. Change A guard: when the
+      natural pair (top + sec) is already pool-positive (PVR ≥ 1.0), requires a
+      minimum gain of 0.08 log units (≈ 8% PVR factor) before switching to a
+      potentially excludes-top pair. Prevents over-aggressive deviations on
+      weakly-overcrowded matches (e.g. CDS=7.1pp, natural PVR=1.036, gain=0.057).
     """
     probs = sorted(
         [("H", m.prob_h), ("U", m.prob_u), ("B", m.prob_b)],
@@ -148,6 +156,41 @@ def _pick_halvdekk(m: Match, cfg: StrategyConfig) -> list[str]:
 
     if cfg.contrarian_pp_tolerance == 0.0 or not m.has_public_tips:
         return sorted([top_out, sec_out])
+
+    # ── Jackpot: try all 3 pairs; pick the one with highest PVR contribution.
+    # Allows halvdekk to exclude the top-probability outcome when the crowd
+    # over-indexes on it (e.g. H at 66% public vs 51% model → U+B has better PVR).
+    # Change A: requires minimum gain (0.08 log units ≈ 8% PVR factor) before
+    # switching when the natural pair is already pool-positive. Prevents over-
+    # aggressive excludes-top on weakly-overcrowded matches (e.g. Scotland:
+    # CDS=7.1pp, natural PVR=1.036, gain=+0.057 — below the threshold).
+    if cfg.name == "jackpot":
+        _pm = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+        _pp = {
+            "H": (m.pub_prob_h or m.prob_h),
+            "U": (m.pub_prob_u or m.prob_u),
+            "B": (m.pub_prob_b or m.prob_b),
+        }
+        best_pvr_pair: list[str] | None = None
+        best_log_pvr = -999.0
+        for a, b in (("H", "U"), ("H", "B"), ("U", "B")):
+            if _pm[a] < cfg.min_prob_threshold or _pm[b] < cfg.min_prob_threshold:
+                continue
+            pub_s = _pp[a] + _pp[b]
+            lv = math.log((_pm[a] + _pm[b]) / pub_s) if pub_s > 1e-9 else 0.0
+            if lv > best_log_pvr:
+                best_log_pvr = lv
+                best_pvr_pair = sorted([a, b])
+        if best_pvr_pair is not None:
+            nat_pub_s = _pp[top_out] + _pp[sec_out]
+            nat_log_pvr = (
+                math.log((_pm[top_out] + _pm[sec_out]) / nat_pub_s)
+                if nat_pub_s > 1e-9 else 0.0
+            )
+            if nat_log_pvr > 0.0 and (best_log_pvr - nat_log_pvr) < 0.08:
+                return sorted([top_out, sec_out])
+            return best_pvr_pair
+        # Fallthrough: all pairs failed the probability floor — use standard logic
 
     value_map = {"H": m.value_h, "U": m.value_u, "B": m.value_b}
 
@@ -204,6 +247,63 @@ def _build_coupon(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Jackpot tie-breaker: halvdekk PVR benefit
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _best_halvdekk_log_pvr(m: Match, cfg: StrategyConfig) -> float:
+    """
+    Best log(PVR factor) achievable by any valid halvdekk pair for this match.
+
+    Used as a secondary sort key in Jackpot coverage ranking: when two matches
+    have composite_scores within one bucket (0.01), the match where a halvdekk
+    would contribute more PVR gets coverage priority.
+
+    Returns 0.0 (neutral) when no valid pair exists or public data is absent.
+    Pairs where either outcome falls below cfg.min_prob_threshold are skipped —
+    matches the same floor enforced in _pick_halvdekk for Jackpot.
+    """
+    if not m.has_public_tips:
+        return 0.0
+    pm = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+    pp = {
+        "H": (m.pub_prob_h or m.prob_h),
+        "U": (m.pub_prob_u or m.prob_u),
+        "B": (m.pub_prob_b or m.prob_b),
+    }
+    best = 0.0
+    for a, b in (("H", "U"), ("H", "B"), ("U", "B")):
+        if pm[a] < cfg.min_prob_threshold or pm[b] < cfg.min_prob_threshold:
+            continue
+        pub_s = pp[a] + pp[b]
+        if pub_s < 1e-9:
+            continue
+        lv = math.log((pm[a] + pm[b]) / pub_s)
+        if lv > best:
+            best = lv
+    return best
+
+
+def _jackpot_coverage_key(m: Match, cfg: StrategyConfig) -> tuple[float, float]:
+    """
+    Two-level sort key for Jackpot coverage ranking.
+
+    Primary:   composite_score rounded to the nearest 0.01 bucket.
+               Preserves the CDS-driven ordering within each bucket.
+    Secondary: negative best halvdekk log-PVR.
+               Within a bucket, the match where a halvdekk contributes the most
+               PVR is promoted toward coverage (gets more negative secondary key
+               and therefore sorts earlier in ascending order).
+
+    Bucket size 0.01 means scores must differ by less than 0.005 from the same
+    0.01 midpoint to land in the same bucket — tight enough that only genuinely
+    near-tied matches share a bucket.
+    """
+    _BUCKET = 0.01
+    bucket = round(_composite_score(m, cfg) / _BUCKET) * _BUCKET
+    return bucket, -_best_halvdekk_log_pvr(m, cfg)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main optimizer entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -235,7 +335,12 @@ def optimize_coupon(
     n        = len(matches)
 
     # ── Step 1: sort matches by composite score (fixed per strategy) ──────────
-    ranked = sorted(matches, key=lambda m: _composite_score(m, cfg))
+    # Jackpot uses a two-level key: bucketed composite score (primary) + halvdekk
+    # PVR benefit as tie-breaker. All other strategies use composite score only.
+    if cfg.name == "jackpot":
+        ranked = sorted(matches, key=lambda m: _jackpot_coverage_key(m, cfg))
+    else:
+        ranked = sorted(matches, key=lambda m: _composite_score(m, cfg))
 
     # ── Step 2: enumerate candidate shapes ───────────────────────────────────
     candidates: list[tuple[int, int, int]] = []   # (rows, nf, nh)
@@ -310,7 +415,10 @@ def generate_anchor_coupon(
     """
     cfg    = STRATEGIES.get(strategy, STRATEGIES["balanced"])
     n      = len(matches)
-    ranked = sorted(matches, key=lambda m: _composite_score(m, cfg))
+    if cfg.name == "jackpot":
+        ranked = sorted(matches, key=lambda m: _jackpot_coverage_key(m, cfg))
+    else:
+        ranked = sorted(matches, key=lambda m: _composite_score(m, cfg))
 
     candidates: list[tuple[int, int, int]] = []
     for nf in range(n + 1):

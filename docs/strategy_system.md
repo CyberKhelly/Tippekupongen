@@ -1,6 +1,6 @@
 # Strategy System
 
-Four named strategies control coverage depth, system shape, and halvdekk second-pick selection. Configured in `analysis/strategy.py` (StrategyConfig dataclass + STRATEGIES dict). Selected via `--strategy` in `verify_model.py` and `optimize_coupon(strategy=…)` in `analysis/optimizer.py`.
+Three named strategies control coverage depth, system shape, and halvdekk second-pick selection. Configured in `analysis/strategy.py` (StrategyConfig dataclass + STRATEGIES dict). Selected via `--strategy` in `verify_model.py` and `optimize_coupon(strategy=…)` in `analysis/optimizer.py`.
 
 **Do not add new strategies or change strategy parameters without an explicit instruction.**
 
@@ -23,9 +23,12 @@ Thresholds in `analysis/classifier.py` control match classification and can be t
 | Strategy | Formula | Effect |
 |---|---|---|
 | Safe | `confidence` | Ignores all crowd signals |
-| Balanced | `confidence + 0.03 × clip(value_top / 20, −1, +1)` | Tiny directional nudge from public mismatch |
-| Value | `confidence − 0.20 × (CDS / 50)` | High CDS → lower score → more coverage |
+| Balanced | `confidence × clip(VI_at_pick, 0.75, 1.25)` | Crowd-heavy picks penalised; VI = model_prob / pub_prob of the recommended pick |
 | Jackpot | `confidence − 0.35 × (CDS / 50)` | CDS is the primary coverage driver |
+
+`VI_at_pick` is the Value Index of the recommended pick only. Clip bounds (0.75, 1.25) cap the multiplier so no single match can dominate the ranking. `effective_conf_adj` in `StrategyConfig` is now unused for Balanced — kept as a field for backward compatibility, ignore it.
+
+**Balanced coverage limit:** Under `P^0.9 × PVR^0.1` with a fixed 192-row shape (1H+6HD+5S), the break-even condition for a halvdekk swap requires PVR to gain nine log-units for every one log-unit P(win) drops. High-confidence singles (>55%, VI > 0.80) almost never satisfy this — the halvdekk second-pick covers a 20–25% outcome while the displaced halvdekk loses equivalent coverage. Do not add hard override rules (e.g. `crowd_trap_force_halvdekk`) to force these matches into halvdekk. Use Jackpot strategy if stronger PVR weighting is needed.
 
 ---
 
@@ -35,10 +38,9 @@ Thresholds in `analysis/classifier.py` control match classification and can be t
 |---|---|---|---|
 | Safe | `P(12/12)^1.0` | 50% of budget | No |
 | Balanced | `P(12/12)^0.9 × PVR^0.1` | 100% | Yes (always budget-filling) |
-| Value | `P(12/12)^0.6 × PVR^0.4` | 50% of budget | No |
 | Jackpot | `PVR^1.0` (floor: P(win) ≥ 0.3%) | 50% of budget | No |
 
-Jackpot eliminates heldekk when halvdekk on an uncertain match yields better PVR. Typical result at 192 NOK: Safe/Balanced/Value → 192 rows (1 HD, 6 H, 5 S); Jackpot → 128 rows (0 HD, 7 H, 5 S).
+Jackpot eliminates heldekk when halvdekk on an uncertain match yields better PVR. Typical result at 192 NOK: Safe/Balanced → 162/192 rows; Jackpot → 128 rows (0 HD, 7 H, 5 S).
 
 ---
 
@@ -56,12 +58,6 @@ Coverage ranking is based purely on model confidence — crowd signals ignored e
 
 Applies a small directional nudge from public tip percentages when ranking matches for coverage. Always uses the full budget (100% row-floor). Allows mild contrarian halvdekk substitution (within 4pp probability gap, only when the third outcome's Value Index exceeds the second's by ≥0.20). Slightly lower P(win) than Safe; better PVR and higher expected median payout.
 
-### Value
-
-**Objective:** Promote underplayed outcomes into deeper coverage using crowd disagreement.
-
-CDS-driven coverage; matches where the model strongly disagrees with the crowd receive more coverage regardless of raw model confidence (CDS weight 0.20). Allows contrarian halvdekk substitution within 10pp. Lower P(win) than Safe/Balanced; higher PVR than Safe. Best when the public tips look systematically wrong on several fixtures.
-
 ### Jackpot
 
 **Objective:** Maximise Pool Value Ratio (expected payout per winning row).
@@ -76,16 +72,15 @@ CDS weight is 0.35 — the strongest of all modes. Eliminates heldekk when halvd
 |---|---|---|---|---|
 | Safe | Highest | Lowest | Lowest | 162 rows, more singles |
 | Balanced | High | Good | Moderate | 192 rows, balanced |
-| Value | Moderate | Good | Moderate–High | 192 rows, CDS-weighted |
 | Jackpot | Lowest | Highest | Highest | 128 rows, no heldekk |
 
-Actual numbers vary per coupon. The Strategisammenligning panel in the app always shows current-coupon values for all four strategies side by side.
+Actual numbers vary per coupon. The Strategisammenligning panel in the app always shows current-coupon values for all three strategies side by side.
 
 ---
 
 ## Halvdekk Second-Pick Substitution
 
-Under Balanced/Value/Jackpot, the optimizer may substitute the third-ranked outcome (by model probability) for the second when all three conditions hold:
+Under Balanced/Jackpot, the optimizer may substitute the third-ranked outcome (by model probability) for the second when all three conditions hold:
 
 1. Probability gap between #2 and #3 ≤ `contrarian_pp_tolerance`
 2. Third outcome's probability ≥ `min_prob_threshold`

@@ -41,6 +41,14 @@ tippekupongen.db-wal
 data/tippekupongen.db
 data/tippekupongen.db-shm
 data/tippekupongen.db-wal
+data/*.db
+
+# Runtime sync state (generated — do not commit)
+data/sync_state.json
+
+# Next.js build artifacts
+frontend/.next/
+frontend/node_modules/
 
 # Debug / temp scripts (not production code) — moved to scripts/debug/
 scripts/debug/

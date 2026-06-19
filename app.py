@@ -47,23 +47,20 @@ BUDGET_LABELS = {32: "Minimal", 96: "Moderat", 192: "Anbefalt", 384: "Aggressiv"
 _iso        = _dt.now().isocalendar()
 _WEEK_LABEL = f"Uke {_iso.week}"
 
-_STRATEGY_KEYS = ["safe", "balanced", "value", "jackpot"]
+_STRATEGY_KEYS = ["safe", "balanced", "jackpot"]
 _STRATEGY_LABELS = {
     "safe":     "Safe",
     "balanced": "Balansert",
-    "value":    "Verdi",
     "jackpot":  "Jackpot",
 }
 _STRATEGY_DESC = {
     "safe":     "Maks P(12/12). Minst risiko.",
     "balanced": "Balanse sjanse og verdi.",
-    "value":    "Pool-edge via CDS-justering.",
     "jackpot":  "Maks PVR. Høy potensiell gevinst.",
 }
 _STRATEGY_NARRATIVES = {
     "safe":     "Safe ignorerer folkemening — maksimerer 12/12-sjansen.",
     "balanced": "Balansert bruker mild crowd-justering — god balanse mellom sjanse og poolunikhet.",
-    "value":    "Verdi lar crowd-avvik (CDS) styre halvdekk — noe lavere 12/12-sjanse, høyere forventet utdeling.",
     "jackpot":  "Jackpot maksimerer PVR — lavest 12/12-sjanse, men høyest forventet utdeling ved gevinst.",
 }
 
@@ -72,7 +69,7 @@ if "coupon_key" not in st.session_state:
     st.session_state.coupon_key = COUPON_KEYS[0]
 if "budget" not in st.session_state:
     st.session_state.budget = 192
-if "strategy" not in st.session_state:
+if "strategy" not in st.session_state or st.session_state.strategy not in _STRATEGY_KEYS:
     st.session_state.strategy = DEFAULT_STRATEGY
 if "omsetning" not in st.session_state:
     st.session_state.omsetning = None
@@ -303,7 +300,7 @@ iframe { border: none !important; }
 /* ── Strategy selector ───────────────────────────────────────────────────── */
 .strat-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
     margin-bottom: 1rem;
 }
@@ -918,8 +915,8 @@ for _b in BUDGET_OPTS:
 # ── Strategy selector ─────────────────────────────────────────────────────────
 st.markdown('<div class="t-overline" style="margin-bottom:14px;">Strategi</div>', unsafe_allow_html=True)
 
-sc1, sc2, sc3, sc4 = st.columns(4)
-for col, (_sk, _cpw, _cpvr, _cmed) in zip([sc1, sc2, sc3, sc4], _cmp_data):
+sc1, sc2, sc3 = st.columns(3)
+for col, (_sk, _cpw, _cpvr, _cmed) in zip([sc1, sc2, sc3], _cmp_data):
     with col:
         _active = strategy == _sk
         _tile_cls = "strat-tile active" if _active else "strat-tile"

@@ -228,15 +228,16 @@ if not _all_coupons:
     st.stop()
 
 # ── Strategy selector ─────────────────────────────────────────────────────────
+_stt_strat_options = ["safe", "balanced", "jackpot"]
+_stt_default = st.session_state.get("strategy", "balanced")
+if _stt_default not in _stt_strat_options:
+    _stt_default = "balanced"
 _stt_strategy = st.radio(
     "Strategi",
-    options=["safe", "balanced", "value", "jackpot"],
-    index=["safe", "balanced", "value", "jackpot"].index(
-        st.session_state.get("strategy", "balanced")
-    ),
+    options=_stt_strat_options,
+    index=_stt_strat_options.index(_stt_default),
     format_func=lambda s: {
-        "safe": "Safe", "balanced": "Balansert",
-        "value": "Verdi", "jackpot": "Jackpot",
+        "safe": "Safe", "balanced": "Balansert", "jackpot": "Jackpot",
     }[s],
     horizontal=True,
     label_visibility="collapsed",

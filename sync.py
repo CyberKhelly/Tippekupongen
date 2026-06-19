@@ -834,7 +834,7 @@ def cmd_refresh_coupons(week: int, year: int) -> None:
     after_coupons = list_coupons(week=week, year=year)
 
     print()
-    print(f"  ── Coupon refresh — week {week}/{year} " + "─" * 28)
+    print(f"  -- Coupon refresh -- week {week}/{year} " + "-" * 28)
     for c in after_coupons:
         matches = get_coupon_matches(c["coupon_id"])
         n_now   = len(matches)

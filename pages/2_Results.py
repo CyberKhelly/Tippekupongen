@@ -52,25 +52,25 @@ st.markdown("""
 init_db()
 all_coupons = list_coupons()  # all weeks
 
-if not all_coupons:
-    st.warning("Ingen kuponger i databasen. Kjør `python sync.py --seed-only` først.")
-    st.stop()
-
 # Filter to only coupons with saved predictions
 with_preds = [c for c in all_coupons if has_predictions(c["coupon_id"])]
+
+if not with_preds:
+    st.warning("Ingen lagrede kuponger. Gå til hovedsiden og klikk **Lagre kupong** først.")
+    st.stop()
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    weeks = sorted({c["week"] for c in all_coupons if c["week"]}, reverse=True)
+    weeks = sorted({c["week"] for c in with_preds if c["week"]}, reverse=True)
     sel_week = st.selectbox("Uke", weeks, index=0)
 with col2:
-    years = sorted({c["year"] for c in all_coupons if c["year"]}, reverse=True)
+    years = sorted({c["year"] for c in with_preds if c["year"]}, reverse=True)
     sel_year = st.selectbox("År", years, index=0)
 with col3:
     _key_labels = {"midtuke": "Midtuke", "lordag": "Lørdag", "sondag": "Søndag"}
     coupon_opts = [
-        c for c in all_coupons
+        c for c in with_preds
         if c["week"] == sel_week and c["year"] == sel_year
     ]
     if not coupon_opts:

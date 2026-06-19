@@ -423,7 +423,10 @@ def parse_live_info_response(data: dict) -> list[dict]:
             continue
 
         nt_game_day_id = str(game.get("gameEngineBetObjectId", ""))
-        deadline = game.get("sales", {}).get("fullTime", {}).get("saleStopDate", "")
+        ft_sales = game.get("sales", {}).get("fullTime", {})
+        deadline = ft_sales.get("saleStopDate", "")
+        omsetning_raw = ft_sales.get("saleAmount", {}).get("amount")
+        omsetning = float(omsetning_raw) if omsetning_raw else None
 
         tips_ft = game.get("tips", {}).get("fullTime", {})
         expert_tips  = tips_ft.get("expert",  [])
@@ -497,6 +500,7 @@ def parse_live_info_response(data: dict) -> list[dict]:
             "nt_game_day_id": nt_game_day_id,
             "label":          _DAY_TYPE_TO_LABEL.get(key, key.capitalize()),
             "deadline":       deadline,
+            "omsetning":      omsetning,
             "matches":        parsed_matches,
         })
 
@@ -828,6 +832,13 @@ def ingest_game_days(week: int, year: int, debug: bool = False,
             None,
         )
         if existing and existing.get("content_hash") == new_hash and not force_refresh:
+            # Fixture data unchanged — but always update omsetning (it changes continuously).
+            if gd.get("omsetning") is not None:
+                with get_conn() as conn:
+                    conn.execute(
+                        "UPDATE coupons SET omsetning=?, updated_at=datetime('now') WHERE coupon_id=?",
+                        (gd["omsetning"], coupon_id),
+                    )
             print(f"  nt: {coupon_id} unchanged — skipping write.")
             ingested += 1
             continue
@@ -836,9 +847,9 @@ def ingest_game_days(week: int, year: int, debug: bool = False,
             log_coupon_event(coupon_id, "fixture_changed",
                              {"old_hash": existing.get("content_hash"), "new_hash": new_hash})
 
-        # When refreshing, clear old coupon_fixtures so removed matches don't linger.
-        # Predictions (coupon_predictions) are intentionally left untouched.
-        if force_refresh and existing:
+        # Always clear old coupon_fixtures before writing new ones so that removed
+        # or replaced matches do not accumulate. Predictions are never touched.
+        if existing:
             with get_conn() as conn:
                 conn.execute(
                     "DELETE FROM coupon_fixtures WHERE coupon_id = ?",
@@ -857,6 +868,7 @@ def ingest_game_days(week: int, year: int, debug: bool = False,
             confidence="verified",
             content_hash=new_hash,
             last_synced_at=now_utc,
+            omsetning=gd.get("omsetning"),
         )
         if not existing:
             log_coupon_event(coupon_id, "created", {"source": "nt_api", "matches": len(matches)})
