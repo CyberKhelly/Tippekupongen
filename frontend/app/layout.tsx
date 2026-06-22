@@ -1,17 +1,11 @@
 import type { Metadata } from "next";
-import { Inter, Barlow_Condensed } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { NavRail } from "@/components/NavRail";
 
-const inter = Inter({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const barlowCondensed = Barlow_Condensed({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
   variable: "--font-display",
   display: "swap",
 });
@@ -31,9 +25,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="no" className={`${inter.variable} ${barlowCondensed.variable}`}>
+    <html lang="no" className={jakarta.variable}>
       <body className="font-sans antialiased">
-        <Providers>{children}</Providers>
+        <NavRail />
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

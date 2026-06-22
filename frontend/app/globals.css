@@ -2,57 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design tokens ── */
 :root {
-  --gold:               #F5C542;
-  --gold-dim:           rgba(245, 197, 66, 0.07);
-  --page-bg:            #050505;
-  --card-bg:            #101010;
-  --card-border:        #202020;
-  --card-border-subtle: #171717;
-  --text-primary:       #F5F5F5;
-  --text-secondary:     #9CA3AF;
-  --text-muted:         #3F3F46;
+  --bg-base:       #F5F3EF;
+  --bg-surface:    #FFFFFF;
+  --bg-elevated:   #FAF9F7;
+  --border:        #E4E1DA;
+  --border-subtle: #EDE9E2;
+
+  --text-1: #111110;
+  --text-2: #6B6862;
+  --text-3: #ADA9A2;
+
+  --gold:        #D4930A;
+  --gold-fill:   #F5C542;
+  --gold-bg:     #FEF7E6;
+  --gold-border: rgba(212, 147, 10, 0.22);
+
+  --green:  #15803D;
+  --red:    #C42B2B;
+  --blue:   #1D4ED8;
+
+  /* shadcn sidebar tokens — tuned to match warm off-white design system */
+  --sidebar-background:        0 0% 100%;      /* #FFFFFF */
+  --sidebar-foreground:        40 3% 6%;        /* #111110 */
+  --sidebar-primary:           38 91% 44%;      /* #D4930A gold */
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent:            40 18% 95%;      /* #F5F3EF hover */
+  --sidebar-accent-foreground: 40 3% 6%;        /* #111110 */
+  --sidebar-border:            40 14% 87%;      /* #E4E1DA */
+  --sidebar-ring:              38 91% 44%;      /* gold */
 }
 
-html {
-  scroll-behavior: smooth;
-}
+html { scroll-behavior: smooth; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .skeleton::after { animation: none; }
-  .animate-bar-grow { animation: none; transform: scaleX(1); }
-  .animate-fade-up { animation: none; opacity: 1; transform: none; }
-  .animate-expand-down { animation: none; opacity: 1; transform: none; }
-  * { transition-duration: 0ms !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+  .skeleton::after     { animation: none; }
+  .animate-bar-grow    { animation: none; transform: scaleX(1); }
+  .animate-fade-up     { animation: none; opacity: 1; transform: none; }
+  .animate-expand-down { animation: none; opacity: 1; }
+  * {
+    transition-duration: 0ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 body {
-  background: var(--page-bg);
-  color: var(--text-primary);
+  background-color: #F5F3EF;
+  color: #111110;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #333; }
+::-webkit-scrollbar-thumb { background: #D5D0C8; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #C0BAB0; }
 
 ::selection {
-  background: rgba(245, 197, 66, 0.15);
-  color: #fff;
+  background: rgba(212, 147, 10, 0.15);
+  color: #111110;
 }
 
 @layer components {
-  .glass {
-    background-color: var(--card-bg);
-    border: 1px solid var(--card-border);
-  }
-
   .skeleton {
     @apply relative overflow-hidden rounded;
-    background-color: #181818;
+    background-color: #EDE9E2;
   }
   .skeleton::after {
     content: '';
@@ -60,7 +77,7 @@ body {
     background: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(255,255,255,0.03) 50%,
+      rgba(255, 255, 255, 0.70) 50%,
       transparent 100%
     );
     background-size: 200% 100%;
@@ -70,7 +87,7 @@ body {
 
 @keyframes shimmerSlide {
   0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  100% { background-position:  200% 0; }
 }
 
 @keyframes barGrow {
@@ -95,5 +112,5 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-expand-down {
-  animation: expandDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: expandDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

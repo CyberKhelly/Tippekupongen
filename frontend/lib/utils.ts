@@ -70,6 +70,12 @@ export function isGroupStageTournament(leagueName: string | null | undefined): b
   return lc.includes("world cup") || lc.includes("champions league") || lc.includes("nations league");
 }
 
+/** Sort signs into canonical NT order: H → U → B. */
+const SIGN_ORDER: Record<string, number> = { H: 1, U: 2, B: 3 };
+export function sortSigns(signs: string[]): string[] {
+  return [...signs].sort((a, b) => (SIGN_ORDER[a] ?? 9) - (SIGN_ORDER[b] ?? 9));
+}
+
 /** Value (edge) for the recommended pick. */
 export function recValue(
   rec: string,
