@@ -10,9 +10,10 @@
 2. **Form adjustment** — AF stats (last 5 results for home/away separately) nudge probabilities by at most ±`_MAX_ADJ` (defined in `analysis/model.py`). Home and away form tracked independently.
 3. **Standings adjustment** — league position and goal difference contribute a small directional nudge. A large table gap amplifies the bookmaker signal slightly.
 4. **Goals adjustment** — recent goals scored/conceded per match provide a marginal signal on top of standings.
-5. **NT expert tips** — used only in the estimated_prior fallback (see below); not blended when bookmaker odds exist.
 
 The AF stats adjustments are additive and bounded: the combined adjustment never pushes the final probability more than `_MAX_ADJ` away from the bookmaker prior.
+
+NT public/expert percentages are **forbidden** in the probability layer — see `docs/probability_architecture.md`.
 
 ### Key invariants
 

@@ -144,16 +144,8 @@ def main() -> None:
             src = f.get("odds_source", "")
 
             if not (oh and ou and ob):
-                ex_h = f.get("expert_h"); ex_u = f.get("expert_u"); ex_b = f.get("expert_b")
-                if (ex_h and ex_u and ex_b
-                        and float(ex_h) > 0 and float(ex_u) > 0 and float(ex_b) > 0):
-                    oh  = round(100.0 / float(ex_h), 4)
-                    ou  = round(100.0 / float(ex_u), 4)
-                    ob  = round(100.0 / float(ex_b), 4)
-                    src = "nt_expert"
-                else:
-                    oh = ou = ob = 3.0
-                    src = "placeholder"
+                oh = ou = ob = 3.0
+                src = "placeholder"
 
             m = Match(
                 number=f["match_number"],
@@ -163,6 +155,17 @@ def main() -> None:
                 odds_source=src,
             )
             process_match(m)
+            if m.odds_source == "placeholder":
+                ep_h = f.get("estimated_h")
+                ep_u = f.get("estimated_u")
+                ep_b = f.get("estimated_b")
+                if ep_h is not None and ep_u is not None and ep_b is not None:
+                    total = float(ep_h) + float(ep_u) + float(ep_b)
+                    if total > 0:
+                        m.prob_h = float(ep_h) / total
+                        m.prob_u = float(ep_u) / total
+                        m.prob_b = float(ep_b) / total
+                        m.odds_source = "estimated_prior"
             run_model(m, f)
             classify_match(m)
             matches.append(m)

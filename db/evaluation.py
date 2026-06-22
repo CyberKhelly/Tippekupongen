@@ -214,8 +214,10 @@ def evaluate_coupon(coupon_id: str) -> dict:
     n_results   = len(has_result)
     n_total     = len(pick_evals)
 
-    correct_picks  = sum(pe["model_correct"] or 0 for pe in has_result)
-    system_covered = sum(pe["covered"]       or 0 for pe in has_result)
+    # correct_picks: a match is correct when the coupon covered the actual result
+    correct_picks  = sum(pe["covered"]       or 0 for pe in has_result)
+    # system_covered: primary model pick accuracy — internal diagnostic only
+    system_covered = sum(pe["model_correct"] or 0 for pe in has_result)
 
     nt_avail   = [pe for pe in has_result if pe["nt_correct"] is not None]
     n_nt_corr  = sum(pe["nt_correct"] for pe in nt_avail)
@@ -416,3 +418,85 @@ def get_pvr_payout_data() -> list[dict]:
                ORDER BY c.deadline_utc DESC""",
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── History API helpers ───────────────────────────────────────────────────────
+
+def list_history_coupons(limit: int = 100) -> list[dict]:
+    """
+    All coupons with saved predictions (evaluated or pending), newest first.
+    Includes save-snapshot metadata (strategy, budget, PVR, P(win)).
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT
+                   c.coupon_id, c.week, c.year, c.day_type, c.label, c.deadline_utc,
+                   COALESCE(e.strategy,    s.strategy)    AS strategy,
+                   COALESCE(e.budget_nok,  s.budget_nok)  AS budget_nok,
+                   COALESCE(e.total_rows,  s.total_rows, 0) AS total_rows,
+                   COALESCE(e.p_win_at_save, s.p_win)     AS p_win_at_save,
+                   COALESCE(e.pvr_at_save,   s.pvr)       AS pvr_at_save,
+                   e.correct_picks,
+                   COALESCE(e.total_fixtures, n_preds.cnt, 12) AS total_fixtures,
+                   e.system_covered,
+                   e.hit_rate, e.cover_rate,
+                   e.n_matches_evaluated,
+                   COALESCE(e.evaluation_status, 'pending') AS evaluation_status,
+                   e.actual_payout_nok,
+                   n_preds.cnt AS n_predictions
+               FROM coupons c
+               JOIN (SELECT coupon_id, COUNT(*) AS cnt
+                     FROM coupon_predictions GROUP BY coupon_id) n_preds
+                   ON n_preds.coupon_id = c.coupon_id
+               LEFT JOIN coupon_evaluations e   ON e.coupon_id = c.coupon_id
+               LEFT JOIN coupon_save_snapshot s ON s.coupon_id = c.coupon_id
+               ORDER BY c.deadline_utc DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_history_coupon_picks(coupon_id: str) -> list[dict]:
+    """
+    Per-match detail for one saved coupon: predictions + results + pick evaluations.
+    Returns empty list if the coupon has no saved predictions.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT
+                   p.match_number, p.fixture_id,
+                   COALESCE(th.name_local, th.name_canonical) AS home_name,
+                   COALESCE(ta.name_local, ta.name_canonical) AS away_name,
+                   p.recommended_pick, p.selected_outcomes, p.coverage_type,
+                   p.confidence,
+                   p.implied_prob_h, p.implied_prob_u, p.implied_prob_b,
+                   p.odds_h, p.odds_u, p.odds_b, p.odds_source,
+                   p.pub_prob_h, p.pub_prob_u, p.pub_prob_b,
+                   p.value_h, p.value_u, p.value_b,
+                   p.crowd_disagreement_score AS cds,
+                   r.result_1x2, r.home_score, r.away_score,
+                   pe.covered, pe.model_correct, pe.nt_correct,
+                   pe.cds_bucket, pe.value_rec, pe.vi_bucket,
+                   pe.edge_pp, pe.is_conviction
+               FROM coupon_predictions p
+               JOIN fixtures f  ON f.fixture_id  = p.fixture_id
+               JOIN teams th    ON th.team_id    = f.home_team_id
+               JOIN teams ta    ON ta.team_id    = f.away_team_id
+               LEFT JOIN match_results r
+                   ON r.fixture_id = p.fixture_id
+               LEFT JOIN pick_evaluations pe
+                   ON pe.coupon_id = p.coupon_id AND pe.fixture_id = p.fixture_id
+               WHERE p.coupon_id = ?
+               ORDER BY p.match_number""",
+            (coupon_id,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["selected_outcomes"] = json.loads(d["selected_outcomes"])
+        except Exception:
+            d["selected_outcomes"] = []
+        result.append(d)
+    return result

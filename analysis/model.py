@@ -6,8 +6,7 @@ Pipeline for each fixture:
                         always ≥ 87% of the final probability in any scenario)
   2. Stats adjustment — form + home/away record + standings + goals → home_edge
                         applied as a bounded ±_MAX_ADJ shift on H/B only
-  3. Expert blend     — NT expert tips at 5% weight (secondary signal)
-  4. Value detection  — model vs NT public tips → per-outcome value scores
+  3. Value detection  — model vs NT public tips → per-outcome value scores
                         + crowd_disagreement_score (TVD × 100)
 
 Entry point:  run_model(match, enrichment)
@@ -15,6 +14,10 @@ Entry point:  run_model(match, enrichment)
   run_model() then reads match.prob_h/u/b as the prior and overwrites them
   with the final model output. All intermediate values are stored on Match
   for full auditability.
+
+Architecture invariant:
+  NT public/expert percentages must NOT influence match.prob_h/u/b.
+  They are used only in Step 3 (value detection), never as model inputs.
 
 ─── Draw probability note ──────────────────────────────────────────────────
 The stats adjustment (home_edge) only redistributes probability between H
@@ -35,8 +38,7 @@ from __future__ import annotations
 import re
 from models.match import Match
 
-_MAX_ADJ  = 0.08   # maximum |stats adjustment| on H (opposite applied to B)
-_W_EXPERT = 0.05   # NT expert tips weight in the final probability blend
+_MAX_ADJ = 0.08   # maximum |stats adjustment| on H (opposite applied to B)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,13 +59,15 @@ def run_model(match: Match, enrichment: dict | None) -> None:
       match.stats_adj_pp         — signed pp applied to H (opposite on B)
       match.stats_signals        — list of signal names that contributed
       match.has_af_data          — True if any AF stats signal was used
-      match.expert_adj_h/u/b     — pp contribution of expert tips
-      match.has_expert_tips      — True if NT expert tips were blended
       match.pub_prob_h/u/b       — normalised public tip fractions
       match.value_h/u/b          — (model − public) in pp
       match.crowd_disagreement_score — TVD(model, public) × 100
       match.crowd_pressure_pick  — outcome most overplayed by public vs model
       match.has_public_tips      — True if crowd signals were computed
+
+    NT public/expert percentages do NOT affect model probability.
+    expert_adj_h/u/b and has_expert_tips are kept as zero/False for
+    backward compat with the fixture_model_output table schema.
     """
     # ── Step 1: snapshot bookmaker prior ─────────────────────────────────────
     bm_h, bm_u, bm_b = match.prob_h, match.prob_u, match.prob_b
@@ -92,30 +96,6 @@ def run_model(match: Match, enrichment: dict | None) -> None:
             t    = sa_h + sa_u + sa_b
             base_h, base_u, base_b = sa_h / t, sa_u / t, sa_b / t
             match.has_af_data = True
-
-    # ── Step 3: expert tips blend (5% weight) ────────────────────────────────
-    ex_h = _get_float(enrichment, "expert_h")
-    ex_u = _get_float(enrichment, "expert_u")
-    ex_b = _get_float(enrichment, "expert_b")
-
-    if ex_h is not None and ex_u is not None and ex_b is not None:
-        ex_sum = ex_h + ex_u + ex_b
-        if ex_sum > 0:
-            ex_h_n = ex_h / ex_sum
-            ex_u_n = ex_u / ex_sum
-            ex_b_n = ex_b / ex_sum
-
-            w = _W_EXPERT
-            model_h = (1.0 - w) * base_h + w * ex_h_n
-            model_u = (1.0 - w) * base_u + w * ex_u_n
-            model_b = (1.0 - w) * base_b + w * ex_b_n
-
-            # already sums to 1.0 — no renormalisation needed
-            match.expert_adj_h   = round((model_h - base_h) * 100, 2)
-            match.expert_adj_u   = round((model_u - base_u) * 100, 2)
-            match.expert_adj_b   = round((model_b - base_b) * 100, 2)
-            match.has_expert_tips = True
-            base_h, base_u, base_b = model_h, model_u, model_b
 
     # ── Final model output ────────────────────────────────────────────────────
     match.prob_h     = base_h

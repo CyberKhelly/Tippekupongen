@@ -136,6 +136,18 @@ export function SyncStatusPanel({ status, isLoading }: SyncStatusProps) {
                     label="Odds"
                     value={formatRelative(status?.last_odds_refresh_at)}
                   />
+                  <Row
+                    label="Fryst"
+                    value={
+                      status?.last_freeze_at
+                        ? `${formatRelative(status.last_freeze_at)}${
+                            status.last_freeze_count > 0
+                              ? ` (${status.last_freeze_count})`
+                              : ""
+                          }`
+                        : "—"
+                    }
+                  />
                   {status?.next_nt_refresh_at && (
                     <Row
                       label="Neste sjekk"

@@ -28,30 +28,16 @@ def _best_odds(r: dict) -> tuple[float, float, float, str]:
     Return (odds_h, odds_u, odds_b, source) for a match row.
 
     Priority:
-      1. Bookmaker odds from the odds table (pinnacle, betsson, etc.)
-      2. NT expert tip percentages as synthetic decimal odds (100 / pct)
-         — expert tips track Pinnacle within ~2–5% on verified fixtures.
-      3. Equal-probability placeholder 3.0/3.0/3.0 as last resort.
+      1. Bookmaker odds from the odds table (pinnacle, norsk_tipping, etc.)
+      2. Equal-probability placeholder 3.0/3.0/3.0 when no bookmaker odds.
 
-    The synthetic-odds approach feeds expert tip percentages through the
-    existing process_match() pipeline unchanged: since the tips already
-    sum to ~100%, 1/synthetic_odds reproduces the original percentages
-    after process_match()'s normalization step.
+    NT expert tips are NOT used as synthetic odds — they must not influence
+    model probability. Use build_matches()/load_matches() estimated_prior
+    override for a better no-odds base when AF enrichment is available.
     """
     if r.get("odds_h") is not None:
         src = r.get("source") or "bookmaker"
         return float(r["odds_h"]), float(r["odds_u"]), float(r["odds_b"]), src
-
-    eh = r.get("expert_h")
-    eu = r.get("expert_u")
-    eb = r.get("expert_b")
-    if eh and eu and eb and float(eh) > 0 and float(eu) > 0 and float(eb) > 0:
-        return (
-            round(100.0 / float(eh), 4),
-            round(100.0 / float(eu), 4),
-            round(100.0 / float(eb), 4),
-            "nt_expert",
-        )
 
     return 3.0, 3.0, 3.0, "placeholder"
 

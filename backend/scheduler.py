@@ -367,6 +367,81 @@ def _odds_check_job() -> None:
         pass
 
 
+def _freeze_check_job() -> None:
+    """
+    Runs every 5 min. Freezes active coupons that are within FREEZE_WINDOW_MINUTES
+    of their deadline so the historical baseline is captured before data changes.
+    """
+    try:
+        from backend.freeze import FREEZE_WINDOW_MINUTES, freeze_active_coupons
+        results = freeze_active_coupons(freeze_window_minutes=FREEZE_WINDOW_MINUTES, force=False)
+        n_new = sum(1 for r in results if r.get("action") in ("created", "upgraded"))
+        n_err = sum(1 for r in results if r.get("error"))
+        if n_new > 0:
+            frozen_ids = list({r["coupon_id"] for r in results
+                               if r.get("action") in ("created", "upgraded")})
+            logger.info("Auto-freeze: %d generation(s) frozen for %s", n_new, frozen_ids)
+            patch_state(
+                last_freeze_at=_iso(_now()),
+                last_freeze_count=n_new,
+                last_freeze_coupon_ids=frozen_ids,
+            )
+        if n_err > 0:
+            logger.warning("Auto-freeze: %d error(s) during freeze check", n_err)
+    except Exception as exc:
+        logger.exception("Freeze check job failed: %s", exc)
+
+
+def _run_startup_freeze() -> None:
+    """
+    Called once at scheduler startup in a daemon thread. Freezes:
+      1. All currently active coupons (force=True — ignores deadline proximity).
+      2. Any recently-expired coupons missed while the backend was down (lookback 24 h).
+
+    This is the safety net that prevents the week-24 scenario: if the backend
+    was not running during a coupon's 60-min freeze window, this catches it.
+    """
+    import threading
+
+    def _run() -> None:
+        try:
+            from backend.freeze import freeze_active_coupons, freeze_recently_expired
+
+            active_results  = freeze_active_coupons(force=True)
+            expired_results = freeze_recently_expired(lookback_hours=24)
+
+            all_results = active_results + expired_results
+            n_new = sum(1 for r in all_results if r.get("action") in ("created", "upgraded"))
+            n_err = sum(1 for r in all_results if r.get("error"))
+
+            if n_new > 0:
+                frozen_ids = list({r["coupon_id"] for r in all_results
+                                   if r.get("action") in ("created", "upgraded")})
+                n_active  = sum(1 for r in active_results
+                                if r.get("action") in ("created", "upgraded"))
+                n_expired = sum(1 for r in expired_results
+                                if r.get("action") in ("created", "upgraded"))
+                logger.info(
+                    "Startup freeze: %d new generation(s) — %d active, %d catch-up, coupons=%s",
+                    n_new, n_active, n_expired, frozen_ids,
+                )
+                patch_state(
+                    last_freeze_at=_iso(_now()),
+                    last_freeze_count=n_new,
+                    last_freeze_coupon_ids=frozen_ids,
+                )
+            else:
+                logger.info("Startup freeze: all coupons already frozen or none active")
+
+            if n_err > 0:
+                logger.warning("Startup freeze: %d error(s)", n_err)
+
+        except Exception as exc:
+            logger.exception("Startup freeze failed: %s", exc)
+
+    threading.Thread(target=_run, daemon=True, name="startup-freeze").start()
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 def start_scheduler() -> None:
@@ -381,10 +456,17 @@ def start_scheduler() -> None:
         job_defaults={"misfire_grace_time": 120, "coalesce": True},
         timezone="UTC",
     )
-    _scheduler.add_job(_nt_check_job, "interval", minutes=5, id="nt_check")
-    _scheduler.add_job(_odds_check_job, "interval", hours=3, id="odds_check")
+    _scheduler.add_job(_nt_check_job,     "interval", minutes=5, id="nt_check")
+    _scheduler.add_job(_odds_check_job,   "interval", hours=3,   id="odds_check")
+    _scheduler.add_job(_freeze_check_job, "interval", minutes=5, id="freeze_check")
     _scheduler.start()
-    logger.info("Scheduler started — NT check every 5 min (adaptive), odds every 3 h")
+    logger.info(
+        "Scheduler started — NT check every 5 min (adaptive), "
+        "odds every 3 h, freeze check every 5 min"
+    )
+
+    # Immediately catch any coupons that should have been frozen (startup safety net)
+    _run_startup_freeze()
 
 
 def stop_scheduler() -> None:

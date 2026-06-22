@@ -59,6 +59,17 @@ export function secsUntil(iso: string | null | undefined): number {
   return (new Date(iso).getTime() - Date.now()) / 1000;
 }
 
+/**
+ * Returns true if this league uses group-stage standings where a position
+ * number is not a reliable single-table rank (e.g. World Cup groups of 4).
+ * Position is hidden in the UI for these leagues to avoid misleading the user.
+ */
+export function isGroupStageTournament(leagueName: string | null | undefined): boolean {
+  if (!leagueName) return false;
+  const lc = leagueName.toLowerCase();
+  return lc.includes("world cup") || lc.includes("champions league") || lc.includes("nations league");
+}
+
 /** Value (edge) for the recommended pick. */
 export function recValue(
   rec: string,

@@ -40,6 +40,13 @@ LEAGUE_IDS = {
 # IMPORTANT: more specific patterns must come before general ones.
 # status: "ok" = covered | "not_covered" = league not in AF | "probe" = may exist, ID unknown
 _NT_COMPETITION_MAP: list[tuple[str, int | None, int | None, str]] = [
+    # Norwegian 2. Division (AF IDs verified 2026-06-20 via /leagues?country=Norway&season=2026)
+    # Group 1 = AF 473, Group 2 = AF 474. Only 2 groups are indexed by AF.
+    # NT arrangement_name is "NOR 2.divisjon avd. N" — specific avd must come before catch-all.
+    ("2.divisjon avd. 1",          473,  2026,  "ok"),
+    ("2.divisjon avd. 2",          474,  2026,  "ok"),
+    # Catch-all for 2. Divisjon groups 3–7 (not indexed by AF as of 2026)
+    ("2.divisjon",                 None, None,  "not_covered"),
     # Norwegian 3. Division (Norsk Tipping-ligaen avd1-6) — specific entries MUST come before catch-all
     ("Norsk Tipping-ligaen avd1",  774,  2026,  "ok"),
     ("Norsk Tipping-ligaen avd2",  775,  2026,  "ok"),
@@ -92,7 +99,7 @@ _NO_TO_EN: dict[str, str] = {
     "sverige": "sweden",
     "island": "iceland",
     "nord irland": "northern ireland",
-    "tsjekkia": "czech republic",
+    "tsjekkia": "czechia",           # AF uses "Czechia" (not "Czech Republic") as of 2026
     "sveits": "switzerland",
     "skottland": "scotland",
     "wales": "wales",
@@ -101,6 +108,7 @@ _NO_TO_EN: dict[str, str] = {
     "finland": "finland",
     "portugal": "portugal",
     "israel": "israel",
+    "irak": "iraq",              # Irak → sor irak after _norm() — AF uses "Iraq"
     "serbia": "serbia",
     "danmark": "denmark",
     "slovenia": "slovenia",
@@ -118,19 +126,35 @@ _NO_TO_EN: dict[str, str] = {
     "georgia": "georgia",
     "albania": "albania",
     "polen": "poland",            # missing — added
-    # Americas
-    "brasil": "brazil",
+    # Africa
+    "sor afrika": "south africa",    # Sør-Afrika → sor afrika after _norm()
     "marokko": "morocco",
     "elfenbenskysten": "ivory coast",
+    "dr kongo": "congo dr",          # NT "DR Kongo" — AF spells it "Congo DR" (reversed)
+    "senegal": "senegal",
+    "ghana": "ghana",
+    "algeria": "algeria",
+    # Americas
+    "brasil": "brazil",
+    "kapp verde": "cape verde islands",  # NT "Kapp Verde" — AF: "Cape Verde Islands"
     "curacao": "curacao",
     "haiti": "haiti",
     "ecuador": "ecuador",
     "usa": "usa",
-    # Asia / Oceania
+    "panama": "panama",
+    "colombia": "colombia",
+    "uruguay": "uruguay",
+    "paraguay": "paraguay",
+    "mexico": "mexico",
+    # Asia / Oceania / Middle East
     "australia": "australia",
     "japan": "japan",
     "sor korea": "south korea",    # Sør-Korea → sor korea after _norm()
     "saudi arabia": "saudi arabia",
+    "usbekistan": "uzbekistan",    # Usbekistan → usbekistan after _norm()
+    "jordan": "jordan",
+    "iran": "iran",
+    "new zealand": "new zealand",
     # Other
     "qatar": "qatar",
     "tunisia": "tunisia",
@@ -148,6 +172,83 @@ _NO_TO_EN: dict[str, str] = {
     "arna bjornar": "arna bjornar",        # Arna-Bjørnar → arna bjornar after _norm()
     "avaldsnes": "avaldsnes",
 }
+
+# AF name (as returned in fixture/team responses) → correct display name with Norwegian chars.
+# Used to normalize opponent_name in recent-match tooltip data.
+# Keys: lowercased AF name (may contain English ASCII, without Norwegian chars).
+AF_TO_DISPLAY: dict[str, str] = {
+    # Norwegian clubs — OBOS/Eliteserien/lower tiers
+    "stabaek":            "Stabæk",
+    "stabæk":             "Stabæk",
+    "stromsgodset":       "Strømsgodset",
+    "stroemsgodset":      "Strømsgodset",
+    "strommen":           "Strømmen",
+    "stroemmen":          "Strømmen",
+    "hodd":               "Hødd",
+    "aalesund":           "Ålesund",
+    "asane":              "Åsane",
+    "bodo/glimt":         "Bodø/Glimt",
+    "bodo glimt":         "Bodø/Glimt",
+    "valerenga":          "Vålerenga",
+    "odd ballklubb":      "Odd",
+    "odd":                "Odd",
+    "ham-kam":            "Ham-Kam",
+    "hamkam":             "Ham-Kam",
+    "brann":              "Brann",
+    "molde":              "Molde",
+    "rosenborg":          "Rosenborg",
+    "viking":             "Viking",
+    "haugesund":          "Haugesund",
+    "fredrikstad":        "Fredrikstad",
+    "lillestrøm":         "Lillestrøm",
+    "lillestrøm sk":      "Lillestrøm",
+    "lillestrøm sk":      "Lillestrøm",
+    "lillestrom":         "Lillestrøm",
+    "lillestrom sk":      "Lillestrøm",
+    "kongsvinger":        "Kongsvinger",
+    "moss":               "Moss",
+    "raufoss":            "Raufoss",
+    "bryne":              "Bryne",
+    "egersund":           "Egersund",
+    "sogndal":            "Sogndal",
+    "sandnes ulf":        "Sandnes Ulf",
+    "sandnes ulf":        "Sandnes Ulf",
+    "ranheim":            "Ranheim",
+    "lyn":                "Lyn",
+    "grorud":             "Grorud",
+    "junkeren":           "Junkeren",
+    "start":              "Start",
+    "tromsø":             "Tromsø",
+    "tromso":             "Tromsø",
+    "sarpsborg 08":       "Sarpsborg 08",
+    "sarpsborg08":        "Sarpsborg 08",
+    "hei":                "HEI",
+    "åsane":              "Åsane",
+    # Norwegian women's clubs
+    "valerenga w":        "Vålerenga Kvinner",
+    "brann w":            "Brann Kvinner",
+    "rosenborg w":        "Rosenborg Kvinner",
+    "stabaek w":          "Stabæk Kvinner",
+    "arna bjornar":       "Arna-Bjørnar",
+    "avaldsnes":          "Avaldsnes",
+    # Common AF casing/spelling fixes for non-Norwegian teams
+    "cape verde islands": "Kapp Verde",
+    "congo dr":           "DR Kongo",
+    "ivory coast":        "Elfenbenskysten",
+    "south korea":        "Sør-Korea",
+    "south africa":       "Sør-Afrika",
+}
+
+
+def normalize_opponent_name(name: str | None) -> str | None:
+    """
+    Normalize an API-Football opponent name to the correct display name with
+    Norwegian characters.  Returns the input unchanged if no mapping is found.
+    """
+    if not name:
+        return name
+    key = name.strip().lower()
+    return AF_TO_DISPLAY.get(key, name)
 
 
 def _norm(name: str) -> str:
@@ -273,10 +374,12 @@ def get_fixtures(
     date: str = None,
     team_id: int = None,
     fixture_id: int = None,
+    last: int = None,
 ) -> list[dict]:
     """
     Return fixtures. Supports filtering by league, season, date range, team, or fixture ID.
     Date format: YYYY-MM-DD.
+    Use last=5 with team_id to get the last N completed fixtures for a team.
     """
     params: dict = {}
     if fixture_id is not None:
@@ -293,7 +396,19 @@ def get_fixtures(
         params["to"] = to_date
     if team_id is not None:
         params["team"] = team_id
+    if last is not None:
+        params["last"] = last
     return _get("fixtures", params).get("response", [])
+
+
+def get_fixture_statistics(fixture_id: int) -> list[dict]:
+    """
+    Return per-team statistics for a completed fixture.
+    Returns a list of 2 dicts (one per team):
+      {'team': {'id': int, 'name': str}, 'statistics': [{'type': str, 'value': ...}]}
+    Returns [] when the fixture has no stats (some leagues not covered on Pro plan).
+    """
+    return _get("fixtures/statistics", {"fixture": fixture_id}).get("response", [])
 
 
 def get_predictions(fixture_id: int) -> dict | None:

@@ -130,6 +130,19 @@ def _all_coupons_with_predictions() -> list[str]:
     return [r["coupon_id"] for r in rows]
 
 
+def _all_coupon_ids_with_generations() -> list[str]:
+    """Coupon ids that have Phase 9 generation records (pending or partial evaluation)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT g.coupon_id
+               FROM coupon_generations g
+               LEFT JOIN generation_results r ON r.generation_id = g.generation_id
+               WHERE r.generation_id IS NULL
+                  OR r.evaluation_status IN ('pending', 'partial')"""
+        ).fetchall()
+    return [r["coupon_id"] for r in rows]
+
+
 def run_evaluation(coupon_ids: list[str], fetch: bool = False) -> None:
     if not coupon_ids:
         print("No coupons found.")
@@ -198,16 +211,85 @@ def show_status() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="TippeQpongen — coupon evaluation pipeline")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--week",   type=int, help="Week number to evaluate")
-    group.add_argument("--all",    action="store_true", help="Evaluate all coupons")
-    group.add_argument("--status", action="store_true", help="Show evaluation status")
-    parser.add_argument("--year",  type=int, default=None, help="Year (required with --week)")
+    group.add_argument("--week",          type=int,        help="Week number to evaluate")
+    group.add_argument("--all",           action="store_true", help="Evaluate all coupons")
+    group.add_argument("--status",        action="store_true", help="Show evaluation status")
+    group.add_argument("--freeze-active", action="store_true",
+                       help="Freeze all active coupons (all 12 strategy×budget combos) immediately")
+    parser.add_argument("--year",      type=int, default=None, help="Year (required with --week)")
+    parser.add_argument("--coupon-id", type=str, default=None,
+                        help="With --freeze-active: force-freeze a specific coupon_id "
+                             "(bypasses active-coupon filter — use for missed deadlines)")
     parser.add_argument("--fetch", action="store_true",
                         help="Fetch missing results from API-Football before evaluating")
 
     args = parser.parse_args()
 
     init_db()
+
+    if args.freeze_active:
+        from backend.freeze import freeze_active_coupons, freeze_recently_expired
+
+        if args.coupon_id:
+            # Retroactively freeze a specific expired coupon by coupon_id.
+            # Bypasses the active-coupon filter — use for missed deadlines.
+            from collections import Counter
+            from analysis.optimizer import optimize_coupon
+            from analysis.pool_value import compute_p_win, compute_pool_value_ratio
+            from backend.freeze import STRATEGIES, BUDGETS, _picks_data
+            from backend.pipeline import build_matches
+            from db.generation import freeze_coupon_combo
+            from db.schema import init_db as _init
+            _init()
+            coupon_id = args.coupon_id
+            print(f"Force-freezing {coupon_id} (all 12 strategy×budget combinations)…")
+            try:
+                matches = build_matches(coupon_id)
+            except Exception as exc:
+                print(f"ERROR: build_matches failed: {exc}", file=sys.stderr)
+                sys.exit(1)
+            results = []
+            for strategy in STRATEGIES:
+                for budget in BUDGETS:
+                    try:
+                        picks, total_rows = optimize_coupon(matches, budget, strategy=strategy)
+                        p_win = compute_p_win(matches, picks)
+                        pvr   = compute_pool_value_ratio(matches, picks)
+                        n_s   = sum(1 for m in matches if len(picks[m.number]) == 1)
+                        n_h   = sum(1 for m in matches if len(picks[m.number]) == 2)
+                        n_f   = sum(1 for m in matches if len(picks[m.number]) == 3)
+                        cov   = dict(Counter(len(m.stats_signals or []) for m in matches))
+                        res   = freeze_coupon_combo(
+                            coupon_id=coupon_id, strategy=strategy, budget=budget,
+                            row_count=total_rows, p_win=p_win, pvr=pvr,
+                            n_singles=n_s, n_halvdekk=n_h, n_heldekk=n_f,
+                            coverage_dist=cov, picks_data=_picks_data(matches, picks),
+                        )
+                        if res:
+                            results.append({"coupon_id": coupon_id, "strategy": strategy,
+                                            "budget": budget, **res})
+                    except Exception as exc:
+                        results.append({"coupon_id": coupon_id, "strategy": strategy,
+                                        "budget": budget, "error": str(exc)})
+        else:
+            print("Freezing all active coupons (all 12 strategy×budget combinations)…")
+            results = freeze_active_coupons(force=True)
+
+        n_created  = sum(1 for r in results if r.get("action") == "created")
+        n_upgraded = sum(1 for r in results if r.get("action") == "upgraded")
+        n_already  = sum(1 for r in results if r.get("action") == "already_frozen")
+        n_errors   = sum(1 for r in results if r.get("error"))
+        print(f"\nResult: {n_created + n_upgraded} frozen "
+              f"({n_created} created, {n_upgraded} upgraded from live), "
+              f"{n_already} already frozen, {n_errors} errors.")
+        for r in results:
+            if r.get("error"):
+                s = r.get("strategy", "?")
+                b = r.get("budget", "?")
+                print(f"  ERROR  {r['coupon_id']}  {s}  {b} NOK: {r['error']}")
+            elif r.get("action") in ("created", "upgraded"):
+                print(f"  FROZEN {r['coupon_id']}  {r['strategy']}  {r['budget']} NOK  [{r['action']}]")
+        sys.exit(0)
 
     if args.status:
         show_status()
@@ -224,7 +306,36 @@ def main() -> None:
         run_evaluation(coupon_ids, fetch=args.fetch)
     else:
         coupon_ids = _all_coupons_with_predictions()
-        run_evaluation(coupon_ids, fetch=args.fetch)
+
+        # Phase 9 — when --fetch is given, also include generation coupon_ids so
+        # fetch_results_for_coupons() can find the fixtures even when coupon_predictions
+        # is empty (cleared at Phase 8A baseline reset).
+        if args.fetch:
+            gen_coupon_ids = _all_coupon_ids_with_generations()
+            fetch_ids = list(set(coupon_ids) | set(gen_coupon_ids))
+            if fetch_ids:
+                print(f"Fetching results from API-Football for {len(fetch_ids)} coupon(s) "
+                      f"({len(coupon_ids)} Phase 8A + {len(gen_coupon_ids)} Phase 9)...")
+                new_results = fetch_results_for_coupons(fetch_ids)
+                print(f"  Fetched {len(new_results)} new result(s).")
+            else:
+                print("No coupons to fetch results for.")
+            # Run Phase 8A evaluation with original (possibly empty) list, no re-fetch
+            run_evaluation(coupon_ids, fetch=False)
+        else:
+            run_evaluation(coupon_ids, fetch=False)
+
+        # Phase 9 — sweep generation results
+        try:
+            from db.generation import sweep_pending_evaluations
+            gen_results = sweep_pending_evaluations()
+            n_complete = sum(1 for r in gen_results if r.get("evaluation_status") == "complete")
+            n_partial  = sum(1 for r in gen_results if r.get("evaluation_status") == "partial")
+            if gen_results:
+                print(f"\nPhase 9 generations swept: {len(gen_results)} total, "
+                      f"{n_complete} complete, {n_partial} partial.")
+        except Exception as exc:
+            print(f"Warning: generation sweep failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

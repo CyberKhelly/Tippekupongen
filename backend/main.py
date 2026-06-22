@@ -11,6 +11,7 @@ Both use the same analysis/, db/, data/, models/ modules — no duplication.
 """
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -26,14 +27,27 @@ from analysis.pool_value import (
 )
 from backend.pipeline import build_matches, parse_coupon_id
 from backend.schemas import (
+    CdsValidationBucket,
+    ConvictionStat,
     CouponDetail,
     CouponListItem,
     CouponMatchRaw,
     CouponShape,
+    GenerationAnalytics,
+    GenerationDetail,
+    GenerationPickResult,
+    GenerationSummary,
+    HistoryCouponDetail,
+    HistoryCouponItem,
+    HistoryPickItem,
+    MatchEnrichment,
     MatchResult,
+    NtComparison,
     OptimizeRequest,
     OptimizeResponse,
     PayoutSimulation,
+    RecentMatch,
+    StrategyPerformance,
     SyncAccepted,
     SyncStatus,
 )
@@ -149,6 +163,129 @@ def list_coupons(week: int | None = None, year: int | None = None):
             n_fixtures=len(data["matches"]),
         ))
     return result
+
+
+def _parse_json_field(raw: str | None) -> dict | None:
+    """Deserialise a JSON TEXT column → dict, or None on failure."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _parse_recent_matches(raw: str | None) -> list[RecentMatch] | None:
+    """Deserialise a JSON column and normalize opponent names to correct display form."""
+    if not raw:
+        return None
+    try:
+        from ingestion.api_football import normalize_opponent_name
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return None
+        normalized = [
+            {**m, "opponent_name": normalize_opponent_name(m.get("opponent_name"))}
+            for m in data
+        ]
+        return [RecentMatch(**m) for m in normalized]
+    except Exception:
+        return None
+
+
+@app.get("/v1/coupons/{coupon_id}/enrichment", response_model=list[MatchEnrichment])
+def get_coupon_enrichment_route(coupon_id: str):
+    """
+    Return raw API-Football enrichment stats for all fixtures in a coupon.
+
+    Read-only — queries fixture_stat_enrichment via the existing
+    get_coupon_enrichment() helper. Does not touch the optimizer or any
+    probability calculations.
+    """
+    try:
+        from db.enrichment import get_coupon_enrichment as _get_enrichment
+        rows = _get_enrichment(coupon_id)
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"Coupon '{coupon_id}' not found")
+        return [
+            MatchEnrichment(
+                match_number=r["match_number"],
+                fixture_id=r.get("fixture_id"),
+                home_team=r.get("home_name") or "",
+                away_team=r.get("away_name") or "",
+                league_name=r.get("league_name"),
+                has_api_football_data=bool(r.get("has_api_football_data")),
+                home_position=r.get("home_position"),
+                away_position=r.get("away_position"),
+                home_last_5=r.get("home_last_5"),
+                away_last_5=r.get("away_last_5"),
+                home_last_10=r.get("home_last_10"),
+                away_last_10=r.get("away_last_10"),
+                home_home_record=r.get("home_home_record"),
+                away_away_record=r.get("away_away_record"),
+                home_goals_for=r.get("home_goals_for"),
+                home_goals_against=r.get("home_goals_against"),
+                away_goals_for=r.get("away_goals_for"),
+                away_goals_against=r.get("away_goals_against"),
+                api_prediction_home=r.get("api_prediction_home"),
+                api_prediction_draw=r.get("api_prediction_draw"),
+                api_prediction_away=r.get("api_prediction_away"),
+                api_prediction_advice=r.get("api_prediction_advice"),
+                # Phase 10
+                home_points=r.get("home_points"),
+                away_points=r.get("away_points"),
+                home_played=r.get("home_played"),
+                away_played=r.get("away_played"),
+                home_wins=r.get("home_wins"),
+                home_draws=r.get("home_draws"),
+                home_losses=r.get("home_losses"),
+                away_wins=r.get("away_wins"),
+                away_draws=r.get("away_draws"),
+                away_losses=r.get("away_losses"),
+                home_logo_url=r.get("home_logo_url"),
+                away_logo_url=r.get("away_logo_url"),
+                home_avg_goals_for=r.get("home_avg_goals_for"),
+                away_avg_goals_for=r.get("away_avg_goals_for"),
+                home_avg_goals_against=r.get("home_avg_goals_against"),
+                away_avg_goals_against=r.get("away_avg_goals_against"),
+                home_clean_sheets=r.get("home_clean_sheets"),
+                away_clean_sheets=r.get("away_clean_sheets"),
+                home_streak_wins=r.get("home_streak_wins"),
+                away_streak_wins=r.get("away_streak_wins"),
+                home_streak_draws=r.get("home_streak_draws"),
+                away_streak_draws=r.get("away_streak_draws"),
+                home_streak_losses=r.get("home_streak_losses"),
+                away_streak_losses=r.get("away_streak_losses"),
+                api_comparison_att_home=r.get("api_comparison_att_home"),
+                api_comparison_att_away=r.get("api_comparison_att_away"),
+                api_comparison_def_home=r.get("api_comparison_def_home"),
+                api_comparison_def_away=r.get("api_comparison_def_away"),
+                api_comparison_form_home=r.get("api_comparison_form_home"),
+                api_comparison_form_away=r.get("api_comparison_form_away"),
+                api_comparison_total_home=r.get("api_comparison_total_home"),
+                api_comparison_total_away=r.get("api_comparison_total_away"),
+                # Phase 11
+                home_recent_matches=_parse_recent_matches(r.get("home_recent_matches")),
+                away_recent_matches=_parse_recent_matches(r.get("away_recent_matches")),
+                # Phase 12
+                home_recent_fixture_stats=_parse_json_field(r.get("home_recent_fixture_stats")),
+                away_recent_fixture_stats=_parse_json_field(r.get("away_recent_fixture_stats")),
+                # Phase 13
+                league_size=r.get("league_size"),
+                home_avg_goals_for_home=r.get("home_avg_goals_for_home"),
+                home_avg_goals_against_home=r.get("home_avg_goals_against_home"),
+                away_avg_goals_for_away=r.get("away_avg_goals_for_away"),
+                away_avg_goals_against_away=r.get("away_avg_goals_against_away"),
+                home_clean_sheets_home=r.get("home_clean_sheets_home"),
+                away_clean_sheets_away=r.get("away_clean_sheets_away"),
+            )
+            for r in rows
+        ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/v1/coupons/{coupon_id}", response_model=CouponDetail)
@@ -307,6 +444,7 @@ def optimize(req: OptimizeRequest):
             crowd_pressure_pick=m.crowd_pressure_pick,
             vi=vi,
             is_conviction=is_conviction,
+            data_coverage=len(m.stats_signals or []),
         ))
 
     payout: PayoutSimulation | None = None
@@ -317,6 +455,49 @@ def optimize(req: OptimizeRequest):
         )
         if sim.get("n_winning_sims", 0) > 0:
             payout = PayoutSimulation(**sim)
+
+    # Phase 9 — auto-save this generation (fire-and-forget, never fails the request)
+    try:
+        from collections import Counter
+        from db.generation import upsert_generation
+        cov_dist = dict(Counter(len(m.stats_signals or []) for m in matches))
+        upsert_generation(
+            coupon_id=req.coupon_id,
+            strategy=req.strategy,
+            budget=req.budget,
+            row_count=total_rows,
+            p_win=p_win,
+            pvr=pvr,
+            n_singles=n_singles,
+            n_halvdekk=n_halvdekk,
+            n_heldekk=n_heldekk,
+            coverage_dist=cov_dist,
+            picks_data=[
+                {
+                    "fixture_id": m.fixture_id,
+                    "match_number": m.number,
+                    "pick": m.recommendation or "",
+                    "coverage_type": _COVERAGE_TYPE[len(picks[m.number])],
+                    "selected_outcomes": picks[m.number],
+                    "confidence": m.confidence,
+                    "model_prob_h": m.prob_h,
+                    "model_prob_u": m.prob_u,
+                    "model_prob_b": m.prob_b,
+                    "pub_prob_h": m.pub_prob_h,
+                    "pub_prob_u": m.pub_prob_u,
+                    "pub_prob_b": m.pub_prob_b,
+                    "value_h": m.value_h,
+                    "value_u": m.value_u,
+                    "value_b": m.value_b,
+                    "crowd_disagreement_score": m.crowd_disagreement_score,
+                    "odds_source": m.odds_source,
+                    "has_af_data": m.has_af_data,
+                }
+                for m in matches
+            ],
+        )
+    except Exception:
+        pass
 
     return OptimizeResponse(
         coupon_id=req.coupon_id,
@@ -356,6 +537,9 @@ def sync_status():
         updated_coupon_ids=state.get("updated_coupon_ids") or [],
         n_public_pct_changes=state.get("n_public_pct_changes") or 0,
         turnover=state.get("turnover") or {},
+        last_freeze_at=state.get("last_freeze_at"),
+        last_freeze_count=state.get("last_freeze_count") or 0,
+        last_freeze_coupon_ids=state.get("last_freeze_coupon_ids") or [],
     )
 
 
@@ -379,6 +563,107 @@ def sync_daily(background_tasks: BackgroundTasks):
     from backend.scheduler import do_daily_sync
     background_tasks.add_task(do_daily_sync, force=True)
     return SyncAccepted(accepted=True, message="Daily sync started in background")
+
+
+# ── History ───────────────────────────────────────────────────────────────────
+
+@app.get("/v1/history", response_model=list[HistoryCouponItem])
+def list_history():
+    """All coupons with saved predictions (evaluated or pending), newest first."""
+    from db.evaluation import list_history_coupons
+    return [HistoryCouponItem(**r) for r in list_history_coupons()]
+
+
+@app.get("/v1/history/strategy-performance", response_model=list[StrategyPerformance])
+def history_strategy_performance():
+    """Aggregate performance metrics per strategy across all evaluated coupons."""
+    from db.evaluation import get_strategy_performance
+    return [StrategyPerformance(**r) for r in get_strategy_performance()]
+
+
+@app.get("/v1/history/cds-validation", response_model=list[CdsValidationBucket])
+def history_cds_validation():
+    """Model vs NT accuracy split by CDS bucket (Phase 8+ coupons only)."""
+    from db.evaluation import get_cds_validation
+    return [CdsValidationBucket(**r) for r in get_cds_validation()]
+
+
+@app.get("/v1/history/conviction-stats", response_model=list[ConvictionStat])
+def history_conviction_stats():
+    """Hit rate and cover rate by is_conviction flag and coverage type."""
+    from db.evaluation import get_conviction_stats
+    return [ConvictionStat(**r) for r in get_conviction_stats()]
+
+
+@app.get("/v1/history/nt-comparison", response_model=NtComparison | None)
+def history_nt_comparison():
+    """Overall model vs NT public accuracy (None when insufficient data)."""
+    from db.evaluation import get_nt_model_comparison
+    data = get_nt_model_comparison()
+    if not data or not data.get("n_total"):
+        return None
+    return NtComparison(**data)
+
+
+@app.get("/v1/history/{coupon_id}", response_model=HistoryCouponDetail)
+def get_history_coupon(coupon_id: str):
+    """Metadata + per-pick breakdown for one saved coupon."""
+    from db.evaluation import list_history_coupons, get_history_coupon_picks
+    rows = list_history_coupons()
+    meta = next((r for r in rows if r["coupon_id"] == coupon_id), None)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Coupon '{coupon_id}' not found in history")
+    picks = [HistoryPickItem(**p) for p in get_history_coupon_picks(coupon_id)]
+    return HistoryCouponDetail(**{**meta, "picks": picks})
+
+
+@app.get("/v1/analytics/strategy", response_model=list[GenerationAnalytics])
+def analytics_strategy():
+    """Per-strategy statistics over frozen/evaluated generations (Phase 9)."""
+    from db.generation import get_strategy_analytics
+    return [GenerationAnalytics(**r) for r in get_strategy_analytics()]
+
+
+@app.get("/v1/analytics/generations", response_model=list[GenerationSummary])
+def analytics_generations():
+    """All frozen/evaluated generations with coupon metadata and result summary."""
+    from db.generation import get_all_generations_summary
+    return [GenerationSummary(**r) for r in get_all_generations_summary()]
+
+
+@app.get("/v1/analytics/generations/{generation_id}", response_model=GenerationDetail)
+def analytics_generation_detail(generation_id: str):
+    """Full generation: metadata + all 12 picks with team names and actual results."""
+    from db.generation import get_generation_detail
+    data = get_generation_detail(generation_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Generation '{generation_id}' not found")
+    picks = [GenerationPickResult(**p) for p in data.pop("picks", [])]
+    return GenerationDetail(**data, picks=picks)
+
+
+@app.post("/v1/history/freeze-active")
+def freeze_active_coupons_endpoint():
+    """
+    Freeze all active coupons for all 12 strategy×budget combinations.
+
+    Idempotent — already-frozen records are left unchanged. Use for manual
+    testing or to force a freeze outside the automatic 120-min window.
+    """
+    from backend.freeze import freeze_active_coupons
+    results = freeze_active_coupons(force=True)
+    n_created  = sum(1 for r in results if r.get("action") == "created")
+    n_upgraded = sum(1 for r in results if r.get("action") == "upgraded")
+    n_already  = sum(1 for r in results if r.get("action") == "already_frozen")
+    n_errors   = sum(1 for r in results if r.get("error"))
+    return {
+        "n_frozen":         n_created + n_upgraded,
+        "n_created":        n_created,
+        "n_upgraded":       n_upgraded,
+        "n_already_frozen": n_already,
+        "n_errors":         n_errors,
+        "results":          results,
+    }
 
 
 @app.post("/v1/sync/full", response_model=SyncAccepted)

@@ -535,7 +535,19 @@ def load_matches(coupon_key: str) -> list[Match]:
         m = Match(number=i, home_team=home, away_team=away,
                   odds_h=oh, odds_u=ou, odds_b=ob, odds_source=src)
         process_match(m)
-        run_model(m, enrichment_map.get(i))
+        enr = enrichment_map.get(i)
+        if m.odds_source == "placeholder" and enr:
+            ep_h = enr.get("estimated_h")
+            ep_u = enr.get("estimated_u")
+            ep_b = enr.get("estimated_b")
+            if ep_h is not None and ep_u is not None and ep_b is not None:
+                total = float(ep_h) + float(ep_u) + float(ep_b)
+                if total > 0:
+                    m.prob_h = float(ep_h) / total
+                    m.prob_u = float(ep_u) / total
+                    m.prob_b = float(ep_b) / total
+                    m.odds_source = "estimated_prior"
+        run_model(m, enr)
         classify_match(m)
         matches.append(m)
     return matches

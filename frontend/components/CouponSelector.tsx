@@ -63,29 +63,24 @@ export function CouponSelector({
                 "relative px-4 py-2 text-[13px] font-semibold rounded-lg border transition-colors duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50",
                 isActive
-                  ? "border-amber-400/[0.35] text-amber-300"
-                  : "bg-white/[0.025] border-white/[0.07] text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] hover:border-white/[0.1]"
+                  ? "border-amber-400/[0.30] text-amber-300"
+                  : "bg-white/[0.02] border-[#202020] text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.03] hover:border-[#2c2c2c]"
               )}
             >
-              {/* animated active background */}
               {isActive && (
                 <motion.div
                   layoutId="coupon-tab-bg"
-                  className="absolute inset-0 rounded-lg bg-amber-400/[0.08]"
-                  style={{
-                    boxShadow: "0 0 16px rgba(245,197,24,0.07)",
-                  }}
+                  className="absolute inset-0 rounded-lg bg-amber-400/[0.07]"
                   transition={{ type: "spring", stiffness: 340, damping: 38 }}
                 />
               )}
 
               <span className="relative">{label}</span>
 
-              {/* animated bottom underline */}
               {isActive && (
                 <motion.span
                   layoutId="coupon-tab-line"
-                  className="absolute bottom-0 inset-x-3 h-[1px] bg-gradient-to-r from-transparent via-amber-400/50 to-transparent"
+                  className="absolute bottom-0 inset-x-3 h-[1px] bg-gradient-to-r from-transparent via-amber-400/45 to-transparent"
                   transition={{ type: "spring", stiffness: 340, damping: 38 }}
                 />
               )}

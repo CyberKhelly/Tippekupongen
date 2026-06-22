@@ -52,53 +52,99 @@ st.markdown("""
 .page-title .q { color: #f5c518; }
 .page-subtitle { font-size: 0.75rem; color: #3a5a78; margin-bottom: 1.5rem; }
 .section-head {
-    font-size: 0.65rem; font-weight: 700; color: #2e4a64;
-    text-transform: uppercase; letter-spacing: 1.8px;
-    margin-bottom: 0.5rem; margin-top: 1.4rem;
-    border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem;
+    font-size: 0.78rem; font-weight: 700; color: #4a8abc;
+    text-transform: uppercase; letter-spacing: 1.4px;
+    margin-bottom: 0.6rem; margin-top: 1.8rem;
+    border-left: 2px solid rgba(245,197,24,0.45);
+    padding-left: 0.65rem; padding-bottom: 0.25rem;
 }
 .hist-table { width:100%; border-collapse:collapse; font-family:'Segoe UI',system-ui,Arial,sans-serif; font-size:11.5px; }
 .hist-table th {
-    font-size:9px; font-weight:700; color:#2e4a64; text-transform:uppercase; letter-spacing:1.2px;
+    font-size:9px; font-weight:700; color:#5a7a9a; text-transform:uppercase; letter-spacing:1.2px;
     padding:6px 8px; background:rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.07);
     text-align:left; white-space:nowrap;
 }
 .hist-table td { padding:5px 8px; color:#c8ddf0; border-bottom:1px solid rgba(255,255,255,0.03); vertical-align:middle; }
-.hist-table tr:nth-child(even) td { background:rgba(255,255,255,0.02); }
+.hist-table tr:nth-child(even) td { background:rgba(255,255,255,0.04); }
 .hist-table .dim { color:#3a5a78; }
 .badge { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px; border-radius:4px; white-space:nowrap; }
 .b-complete  { background:#0c2a14; color:#3aaa78; }
 .b-partial   { background:#261c04; color:#c8960e; }
-.b-pending   { background:#0c1e34; color:#5a7a96; }
+.b-pending   { background:#0c1e34; color:#6d90aa; }
 .detail-table { width:100%; border-collapse:collapse; font-family:'Segoe UI',system-ui,Arial,sans-serif; font-size:11px; }
-.detail-table th { font-size:9px; font-weight:700; color:#2e4a64; text-transform:uppercase; letter-spacing:1.1px; padding:6px 8px; background:rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.07); white-space:nowrap; }
+.detail-table th { font-size:9px; font-weight:700; color:#5a7a9a; text-transform:uppercase; letter-spacing:1.1px; padding:6px 8px; background:rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.07); white-space:nowrap; }
 .detail-table td { padding:5px 8px; color:#c8ddf0; border-bottom:1px solid rgba(255,255,255,0.025); vertical-align:middle; }
-.detail-table tr:nth-child(even) td { background:rgba(255,255,255,0.015); }
+.detail-table tr:nth-child(even) td { background:rgba(255,255,255,0.04); }
 .tick  { color:#3aaa78; font-size:14px; }
 .cross { color:#e74c3c; font-size:14px; }
 .pick-covered { color:#3aaa78; font-weight:700; }
 .pick-miss    { color:#e74c3c; }
+details summary {
+    cursor:pointer; color:#3a5a78; font-size:9.5px;
+    letter-spacing:0.5px; user-select:none; list-style:none;
+    padding:2px 0;
+}
+details summary::-webkit-details-marker { display:none; }
+details[open] summary { color:#8aaec8; }
+.ap { padding:5px 2px 2px 2px; display:flex; flex-wrap:wrap; gap:6px 14px; }
+.ap-item { font-size:9.5px; }
+.ap-lbl { color:#5a7a9a; margin-right:3px; }
+.ap-val { color:#8aaec8; }
+.ap-val.pos { color:#3aaa78; }
+.ap-val.neg { color:#e74c3c; }
+.glossary { background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05);
+    border-radius:4px; padding:12px 16px; margin-bottom:1rem; }
+.glossary dt { font-size:10px; font-weight:700; color:#8aaec8; margin-top:6px; }
+.glossary dd { font-size:10px; color:#607888; margin:0 0 0 8px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="page-title">Tippe<span class="q">Q</span>pongen — Historikk</div>
-<div class="page-subtitle">Evaluering av lagrede kuponger. Bruker kun data fryst ved lagringstidspunkt.</div>
+<div class="page-subtitle">Evaluering av lagrede kuponger. Alle analyse-verdier er fryst ved lagringstidspunkt.</div>
 """, unsafe_allow_html=True)
 
 init_db()
 
+with st.expander("Ordliste — begrepsforklaringer"):
+    st.markdown("""
+<div class="glossary"><dl>
+<dt>CDS — Crowd Disagreement Score (Folkeavvik)</dt>
+<dd>Prosentpoengs differanse mellom modellens topptips-sannsynlighet og NT-folkets prosent for samme utfall. Høy CDS = stor uenighet mellom modell og folkemening. Lagret ved kupongtidspunkt.</dd>
+<dt>VI — Value Index (Verdiindeks)</dt>
+<dd>Forholdet mellom modellens sannsynlighet og folkemeningen for det anbefalte utfallet: VI = modell% ÷ folk%. Over 1.0 = modellen ser mer verdi enn folkemassen. Bucketer: strong (≥1.5), good (1.25–1.5), neutral (0.9–1.25), weak (&lt;0.9).</dd>
+<dt>Edge (pp)</dt>
+<dd>Modell% minus NT-folk% for det anbefalte utfallet i prosentpoeng. Positiv = modellen er mer overbevist enn folkemassen. Negativ = folkemassen er mer overbevist enn modellen.</dd>
+<dt>CLV — Closing Line Value</dt>
+<dd>Prosentvis differanse mellom oddsene på kupongtidspunktet og sluttoddsene (closing odds). Positiv CLV = du fikk bedre odds enn markedet endte på, noe som indikerer langvarig forventningsverdifull betting.</dd>
+<dt>PVR — Pool Value Ratio (Pottverdiforhold)</dt>
+<dd>PVR = modellens vinnersjanse ÷ folkemassens vinnersjanse for nøyaktig samme kombinasjon. PVR 9x betyr at kombinasjonen er 9x mer unik enn en tilfeldig offentlig kupong — ikke at du får 9x innsatsen tilbake. Høyere PVR gir høyere forventet utdeling ved gevinst.</dd>
+<dt>Treff% (Modell-treff)</dt>
+<dd>Andel kamper der modellens primæranbefaling stemte med det faktiske utfallet.</dd>
+<dt>Dekn% (Systemdekning)</dt>
+<dd>Andel kamper der kupongens valgte utfall (inkl. halvdekk/heldekk) dekket det faktiske utfallet.</dd>
+<dt>Halvdekk / Heldekk</dt>
+<dd>Halvdekk = to utfall valgt for én kamp (e.g. H+U). Heldekk = alle tre utfall valgt. Brukes strategisk for å øke kupongens dekning på usikre kamper.</dd>
+<dt>Conviction</dt>
+<dd>Singelvalg med konfidens ≥55%. Modellen er overbevist nok til å satse uten backup-utfall.</dd>
+<dt>NT-tips</dt>
+<dd>Norsk Tippings offentlige prosentandeler — aggregerte valg fra alle spillere på NT-plattformen. Brukes som referansepunkt; fryst ved kupongtidspunkt.</dd>
+</dl></div>
+""", unsafe_allow_html=True)
+
 _day_labels = {"MIDWEEK": "Midtuke", "SATURDAY": "Lørdag", "SUNDAY": "Søndag"}
-_status_badge = {
-    "complete": '<span class="badge b-complete">Fullstendig</span>',
-    "partial":  '<span class="badge b-partial">Delvis</span>',
-    "pending":  '<span class="badge b-pending">Venter</span>',
-}
+def _status_badge(status: str, n_evaluated: int | None = None, n_total: int = 12) -> str:
+    if status == "complete":
+        return '<span class="badge b-complete">Fullstendig</span>'
+    if status == "partial":
+        count = f" {n_evaluated}/{n_total}" if n_evaluated is not None else ""
+        return f'<span class="badge b-partial" title="Mangler resultater for {n_total - (n_evaluated or 0)} kamp(er). Skriv inn på Resultater-siden.">Delvis{count}</span>'
+    return '<span class="badge b-pending" title="Ingen resultater registrert ennå.">Venter</span>'
 _strategy_labels = {
     "safe": "Safe", "balanced": "Balansert",
     "value": "Verdi", "jackpot": "Jackpot",
 }
-_th = ("font-size:9px;font-weight:700;color:#2e4a64;text-transform:uppercase;"
+_th = ("font-size:9px;font-weight:700;color:#5a7a9a;text-transform:uppercase;"
        "letter-spacing:1.1px;padding:6px 8px;background:rgba(255,255,255,0.04);"
        "border-bottom:1px solid rgba(255,255,255,0.07);white-space:nowrap;")
 _td = "padding:5px 8px;color:#c8ddf0;border-bottom:1px solid rgba(255,255,255,0.03);"
@@ -113,8 +159,8 @@ if not evaluated:
     st.info(
         "Ingen evaluerte kuponger ennå.\n\n"
         "1. Lagre en kupong på hovedsiden (💾 Lagre kupong)\n"
-        "2. Skriv inn resultater på **Resultater**-siden\n"
-        "3. Kjør `python evaluate.py --week <uke> --year <år>`"
+        "2. Skriv inn kampresultater på **Resultater**-siden\n"
+        "3. Evaluering kjøres automatisk, eller manuelt med `python evaluate.py --week <uke> --year <år>`"
     )
 else:
     rows_html = ""
@@ -127,7 +173,11 @@ else:
             else ("✗" if e.get("evaluation_status") == "complete" else "—")
         )
         corr  = f"{e['correct_picks']}/{e['total_fixtures']}" if e.get("correct_picks") is not None else "—"
-        badge = _status_badge.get(e.get("evaluation_status", ""), "")
+        badge = _status_badge(
+            e.get("evaluation_status", ""),
+            n_evaluated=e.get("n_matches_evaluated"),
+            n_total=e.get("total_fixtures", 12),
+        )
         strat = _strategy_labels.get(e.get("strategy") or "", e.get("strategy") or "—")
         pvr   = f"{e['pvr_at_save']:.2f}×" if e.get("pvr_at_save") is not None else "—"
         rows_html += (
@@ -208,17 +258,17 @@ else:
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<p style="font-size:9px;color:#1e3448;margin-top:4px;">'
-        'NT-treff% = NT-folkets topptips-nøyaktighet for kuponger med lagret snapshotdata.</p>',
+        '<p style="font-size:10px;color:#1e3448;margin-top:4px;">'
+        'NT-treff% = Norsk Tippings folkemening (topptips) sin nøyaktighet, sammenlignet med modellens anbefalte valg.</p>',
         unsafe_allow_html=True,
     )
 
 # ── 3. CDS-validering ─────────────────────────────────────────────────────────
 
-st.markdown('<div class="section-head">CDS-validering — Folkeavvik (fryst snapshot)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-head">CDS-validering (Folkeavvik, fryst snapshot)</div>', unsafe_allow_html=True)
 st.markdown(
-    '<p style="font-size:11px;color:#3a5a78;margin-bottom:8px;">'
-    'Bruker kun CDS lagret ved kupongtidspunkt. Kuponger lagret før Phase 8 vises ikke her.</p>',
+    '<p style="font-size:10px;color:#3a5a78;margin-bottom:8px;">'
+    'CDS = Crowd Disagreement Score — fryst ved kupongtidspunkt. Kuponger lagret før Phase 8 vises ikke her.</p>',
     unsafe_allow_html=True,
 )
 
@@ -289,9 +339,8 @@ else:
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<p style="font-size:9px;color:#1e3448;margin-top:4px;">'
-        'CDS = crowd disagreement score fryst ved lagringstidspunkt. '
-        'Diff = modellfordel i pp. Positiv = modellen slår folkemeningen.</p>',
+        '<p style="font-size:10px;color:#1e3448;margin-top:4px;">'
+        'Diff = modellens fordel i prosentpoeng. Positiv = modellen slo folkemeningen.</p>',
         unsafe_allow_html=True,
     )
 
@@ -385,8 +434,8 @@ else:
     _m3.metric("NT-tips-treff", f"{_nhr2:.1f}%")
     _m4.metric("Modell-fordel", f"{_diff2:+.1f}pp")
     st.markdown(
-        f'<p style="font-size:9px;color:#1e3448;margin-top:2px;">'
-        f'Modell = anbefalt pick. NT-tips = folkenes høyeste prosentandel-pick (fryst ved lagring).</p>',
+        f'<p style="font-size:10px;color:#1e3448;margin-top:2px;">'
+        f'Modell = anbefalt pick. NT-tips = Norsk Tippings folkemening (høyeste prosentandel-pick, fryst ved lagring).</p>',
         unsafe_allow_html=True,
     )
 
@@ -398,10 +447,10 @@ _pvr_data = get_pvr_payout_data()
 
 if not _pvr_data:
     st.markdown(
-        '<p style="font-size:11px;color:#1e3448;">'
-        'Ingen faktiske utdelinger registrert ennå. '
-        'Oppdater <code>actual_payout_nok</code> i <code>coupon_evaluations</code> '
-        'etter at NT bekrefter utdeling.</p>',
+        '<p style="font-size:10px;color:#1e3448;">'
+        'Denne seksjonen vises når du registrerer en faktisk gevinst fra NT. '
+        'Etter gevinst: oppdater <code>actual_payout_nok</code> i <code>coupon_evaluations</code> '
+        'med beløpet NT utbetalte.</p>',
         unsafe_allow_html=True,
     )
 else:
@@ -447,9 +496,13 @@ if not all_with_preds:
         unsafe_allow_html=True,
     )
 else:
+    _strat_lookup = {e["coupon_id"]: e.get("strategy") for e in evaluated}
+
     def _coupon_label(c: dict) -> str:
         dl = _day_labels.get(c.get("day_type", ""), c.get("day_type", "?"))
-        return f"Uke {c['week']}/{c['year']} — {dl}  ({c['n_predictions']} tips, {c['n_results']} resultater)"
+        strat_key = _strat_lookup.get(c["coupon_id"])
+        strat_s = f" · {_strategy_labels.get(strat_key, strat_key)}" if strat_key else ""
+        return f"Uke {c['week']}/{c['year']} — {dl}{strat_s}  ({c['n_predictions']} tips, {c['n_results']} resultater)"
 
     options = [c["coupon_id"] for c in all_with_preds]
     sel = st.selectbox(
@@ -483,7 +536,7 @@ else:
             unsafe_allow_html=True,
         )
 
-    # Per-fixture table
+    # Per-fixture table — summary columns always visible; analytics in expandable <details>
     detail_rows = ""
     for r in rows:
         fid    = r.get("fixture_id", "")
@@ -505,80 +558,77 @@ else:
         if result and sel_outcomes:
             if result in sel_outcomes:
                 picks_cell = f'<span class="pick-covered">{picks_str}</span>'
-                check_cell = '<span class="tick">&#10003;</span>'
+                check_cell = '<span class="tick" aria-label="Dekket">&#10003;</span>'
             else:
                 picks_cell = f'<span class="pick-miss">{picks_str}</span>'
-                check_cell = '<span class="cross">&#10007;</span>'
+                check_cell = '<span class="cross" aria-label="Ikke dekket">&#10007;</span>'
         else:
             picks_cell = picks_str
             check_cell = "—"
 
         result_cell = result if result else '<span class="dim">—</span>'
 
+        # ── Analytics panel data ──────────────────────────────────────────────
         odds_h = r.get("odds_h"); odds_u = r.get("odds_u"); odds_b = r.get("odds_b")
-        odds_str = (
+        odds_str_ap = (
             f"{odds_h:.2f} / {odds_u:.2f} / {odds_b:.2f}"
             if all(x is not None for x in [odds_h, odds_u, odds_b])
-            else '<span class="dim">—</span>'
+            else "—"
         )
 
-        # CLV cell
         clv_data = clv_map.get(fid)
         if clv_data and clv_data.get("clv_selected") is not None:
             clv_val  = clv_data["clv_selected"]
-            co_h = clv_data.get("closing_odds_h")
-            co_u = clv_data.get("closing_odds_u")
-            co_b = clv_data.get("closing_odds_b")
-            closing_str = (
-                f"{co_h:.2f}/{co_u:.2f}/{co_b:.2f}"
-                if all(x is not None for x in [co_h, co_u, co_b]) else "—"
-            )
-            clv_color = "#3aaa78" if clv_val >= 0 else "#e74c3c"
-            clv_cell = (
-                f'<span style="color:{clv_color};font-weight:700">{clv_val*100:+.1f}%</span>'
-                f'<br><span style="font-size:9px;color:#3a5a78">{closing_str}</span>'
-            )
+            clv_cls  = "pos" if clv_val >= 0 else "neg"
+            clv_ap   = f'<span class="ap-val {clv_cls}">{clv_val*100:+.1f}%</span>'
         else:
-            clv_cell = '<span class="dim">—</span>'
+            clv_ap   = '<span class="ap-val">—</span>'
 
-        # CDS / VI / edge from frozen pick_evaluations (Phase 8+)
         pe = pe_map.get(fid)
         if pe:
             _cds_v  = f"{pe['cds']:.1f}pp" if pe.get("cds") is not None else "—"
             _vi_v   = pe.get("vi_bucket") or "—"
-            _edge_v = f"{pe['edge_pp']:+.1f}pp" if pe.get("edge_pp") is not None else "—"
-            _edge_c = "#3aaa78" if (pe.get("edge_pp") or 0) > 0 else ("#e74c3c" if (pe.get("edge_pp") or 0) < 0 else "#3a5a78")
+            _vi_cls = "pos" if _vi_v in ("strong", "good") else ("neg" if _vi_v == "weak" else "")
+            _ep     = pe.get("edge_pp")
+            _edge_v = f"{_ep:+.1f}pp" if _ep is not None else "—"
+            _edge_cls = "pos" if (_ep or 0) > 0 else ("neg" if (_ep or 0) < 0 else "")
         else:
-            _cds_v = _vi_v = "—"
-            _edge_v = "—"; _edge_c = "#3a5a78"
+            _cds_v = _vi_v = _edge_v = "—"
+            _vi_cls = _edge_cls = ""
+
+        analytics_panel = (
+            f'<div class="ap">'
+            f'<span class="ap-item"><span class="ap-lbl">Odds:</span><span class="ap-val">{odds_str_ap}</span></span>'
+            f'<span class="ap-item"><span class="ap-lbl">Konf.:</span><span class="ap-val">{conf_str}</span></span>'
+            f'<span class="ap-item"><span class="ap-lbl">CDS:</span><span class="ap-val">{_cds_v}</span></span>'
+            f'<span class="ap-item"><span class="ap-lbl">VI:</span><span class="ap-val {_vi_cls}">{_vi_v}</span></span>'
+            f'<span class="ap-item"><span class="ap-lbl">Edge:</span><span class="ap-val {_edge_cls}">{_edge_v}</span></span>'
+            f'<span class="ap-item"><span class="ap-lbl">CLV:</span>{clv_ap}</span>'
+            f'</div>'
+        )
 
         detail_rows += (
             f"<tr>"
             f"<td style='color:#3a5a78'>{r['match_number']}</td>"
             f"<td style='white-space:nowrap'>{r.get('home_name','?')} – {r.get('away_name','?')}</td>"
-            f"<td style='color:#5a7a96'>{odds_str}</td>"
-            f"<td style='color:#f5c518;font-weight:700'>{r.get('recommended_pick','—')}</td>"
-            f"<td style='color:#8ab4d8'>{conf_str}</td>"
+            f"<td style='color:#f5c518;font-weight:700;text-align:center'>{r.get('recommended_pick','—')}</td>"
             f"<td>{picks_cell}</td>"
             f"<td style='text-align:center;font-weight:700'>{result_cell}</td>"
-            f"<td style='text-align:center'>{score_str}</td>"
+            f"<td style='text-align:center;color:#8ab4d8'>{score_str}</td>"
             f"<td style='text-align:center'>{check_cell}</td>"
-            f"<td style='text-align:right;color:#4a6a88;font-size:10px'>{_cds_v}</td>"
-            f"<td style='text-align:center;color:#4a7a5a;font-size:10px'>{_vi_v}</td>"
-            f"<td style='text-align:right;font-size:10px;color:{_edge_c}'>{_edge_v}</td>"
-            f"<td style='text-align:center'>{clv_cell}</td>"
+            f"<td><details><summary>▾ Analyse</summary>{analytics_panel}</details></td>"
             f"</tr>"
         )
 
     st.markdown(
         '<table class="detail-table"><thead><tr>'
-        "<th>#</th><th>Kamp</th><th>Lagrede odds H/U/B</th>"
-        "<th>Tips</th><th>Konf.</th><th>Systemvalg</th>"
-        "<th>Resultat</th><th>Score</th><th>Dekket</th>"
-        "<th style='text-align:right'>CDS</th>"
-        "<th>VI-bkt</th>"
-        "<th style='text-align:right'>Edge</th>"
-        "<th>CLV</th>"
+        "<th>#</th><th>Kamp</th>"
+        "<th style='text-align:center'>Tips</th>"
+        "<th>Systemvalg</th>"
+        "<th style='text-align:center'>Resultat</th>"
+        "<th style='text-align:center'>Score</th>"
+        "<th style='text-align:center'>Dekket</th>"
+        "<th>Analyse</th>"
         f"</tr></thead><tbody>{detail_rows}</tbody></table>",
         unsafe_allow_html=True,
     )

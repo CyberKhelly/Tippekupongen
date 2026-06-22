@@ -1,4 +1,19 @@
-import type { CouponListItem, OptimizeResponse, Strategy, SyncStatus } from "./types";
+import type {
+  CdsValidationBucket,
+  ConvictionStat,
+  CouponListItem,
+  GenerationAnalytics,
+  GenerationDetail,
+  GenerationSummary,
+  HistoryCouponDetail,
+  HistoryCouponItem,
+  MatchEnrichment,
+  NtComparison,
+  OptimizeResponse,
+  StrategyPerformance,
+  Strategy,
+  SyncStatus,
+} from "./types";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -55,4 +70,50 @@ export async function triggerRefreshCoupons(): Promise<{ accepted: boolean; mess
 
 export async function triggerDailySync(): Promise<{ accepted: boolean; message: string }> {
   return apiFetch("/v1/sync/daily", { method: "POST" });
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+
+export async function getHistory(): Promise<HistoryCouponItem[]> {
+  return apiFetch<HistoryCouponItem[]>("/v1/history");
+}
+
+export async function getHistoryCoupon(couponId: string): Promise<HistoryCouponDetail> {
+  return apiFetch<HistoryCouponDetail>(`/v1/history/${couponId}`);
+}
+
+export async function getHistoryStrategyPerformance(): Promise<StrategyPerformance[]> {
+  return apiFetch<StrategyPerformance[]>("/v1/history/strategy-performance");
+}
+
+export async function getHistoryCdsValidation(): Promise<CdsValidationBucket[]> {
+  return apiFetch<CdsValidationBucket[]>("/v1/history/cds-validation");
+}
+
+export async function getHistoryConvictionStats(): Promise<ConvictionStat[]> {
+  return apiFetch<ConvictionStat[]>("/v1/history/conviction-stats");
+}
+
+export async function getHistoryNtComparison(): Promise<NtComparison | null> {
+  return apiFetch<NtComparison | null>("/v1/history/nt-comparison");
+}
+
+// ── Enrichment ────────────────────────────────────────────────────────────────
+
+export async function getEnrichment(couponId: string): Promise<MatchEnrichment[]> {
+  return apiFetch<MatchEnrichment[]>(`/v1/coupons/${couponId}/enrichment`);
+}
+
+// ── Phase 9 analytics ─────────────────────────────────────────────────────────
+
+export async function getStrategyAnalytics(): Promise<GenerationAnalytics[]> {
+  return apiFetch<GenerationAnalytics[]>("/v1/analytics/strategy");
+}
+
+export async function getGenerations(): Promise<GenerationSummary[]> {
+  return apiFetch<GenerationSummary[]>("/v1/analytics/generations");
+}
+
+export async function getGenerationDetail(generationId: string): Promise<GenerationDetail> {
+  return apiFetch<GenerationDetail>(`/v1/analytics/generations/${generationId}`);
 }

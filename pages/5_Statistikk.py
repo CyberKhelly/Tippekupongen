@@ -277,14 +277,6 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             _odds_src = _row.get("odds_source", "")
 
             _oh = _row.get("odds_h"); _ou = _row.get("odds_u"); _ob = _row.get("odds_b")
-            if not (_oh and _ou and _ob):
-                _ex_h = _row.get("expert_h"); _ex_u = _row.get("expert_u"); _ex_b = _row.get("expert_b")
-                if (_ex_h and _ex_u and _ex_b
-                        and float(_ex_h) > 0 and float(_ex_u) > 0 and float(_ex_b) > 0):
-                    _oh = round(100.0 / float(_ex_h), 4)
-                    _ou = round(100.0 / float(_ex_u), 4)
-                    _ob = round(100.0 / float(_ex_b), 4)
-                    _odds_src = "nt_expert"
 
             _odds_h = float(_oh or 3.0)
             _odds_u = float(_ou or 3.5)
@@ -315,7 +307,7 @@ for _tab, _coupon in zip(_tabs, _all_coupons):
             _m.bm_prob_u = _m.prob_u
             _m.bm_prob_b = _m.prob_b
 
-            if not (_row.get("odds_h") or _row.get("expert_h")):
+            if not _row.get("odds_h"):
                 _est_vals = _est_prior(_row)
                 if _est_vals:
                     _m.prob_h = _est_vals.get("estimated_h", _m.prob_h)

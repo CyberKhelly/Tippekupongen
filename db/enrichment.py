@@ -164,6 +164,36 @@ def get_coupon_enrichment(coupon_id: str) -> list[dict]:
                    e.away_goals_for,   e.away_goals_against,
                    e.api_prediction_home, e.api_prediction_draw,
                    e.api_prediction_away, e.api_prediction_advice,
+                   -- Phase 10 — standings
+                   e.home_points,  e.away_points,
+                   e.home_played,  e.away_played,
+                   e.home_wins,    e.home_draws,   e.home_losses,
+                   e.away_wins,    e.away_draws,   e.away_losses,
+                   e.home_logo_url, e.away_logo_url,
+                   -- Phase 10 — per-match averages and clean sheets
+                   e.home_avg_goals_for,     e.away_avg_goals_for,
+                   e.home_avg_goals_against, e.away_avg_goals_against,
+                   e.home_clean_sheets,      e.away_clean_sheets,
+                   -- Phase 10 — streaks
+                   e.home_streak_wins,   e.away_streak_wins,
+                   e.home_streak_draws,  e.away_streak_draws,
+                   e.home_streak_losses, e.away_streak_losses,
+                   -- Phase 10 — AF comparison ratings (0.0–1.0)
+                   e.api_comparison_att_home,   e.api_comparison_att_away,
+                   e.api_comparison_def_home,   e.api_comparison_def_away,
+                   e.api_comparison_form_home,  e.api_comparison_form_away,
+                   e.api_comparison_total_home, e.api_comparison_total_away,
+                   -- Phase 11 — recent form matches (JSON)
+                   e.home_recent_matches,
+                   e.away_recent_matches,
+                   -- Phase 12 — aggregated fixture stats (JSON)
+                   e.home_recent_fixture_stats,
+                   e.away_recent_fixture_stats,
+                   -- Phase 13 — real league size + venue-specific averages
+                   e.league_size,
+                   e.home_avg_goals_for_home,     e.home_avg_goals_against_home,
+                   e.away_avg_goals_for_away,     e.away_avg_goals_against_away,
+                   e.home_clean_sheets_home,      e.away_clean_sheets_away,
                    e.updated_at        AS enrichment_updated_at,
                    -- Link metadata
                    lnk.match_confidence,

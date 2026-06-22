@@ -11,8 +11,10 @@ interface MetricCardProps {
   value: string;
   sub?: string;
   accent?: "gold" | "blue" | "none";
+  prominent?: boolean;
   index?: number;
   isLoading?: boolean;
+  tooltip?: string;
 }
 
 function MetricCard({
@@ -20,84 +22,59 @@ function MetricCard({
   value,
   sub,
   accent = "none",
+  prominent = false,
   index = 0,
   isLoading,
+  tooltip,
 }: MetricCardProps) {
-  const glowColor =
-    accent === "gold"
-      ? "rgba(245,197,24,0.12)"
-      : accent === "blue"
-      ? "rgba(96,165,250,0.1)"
-      : "transparent";
-
-  const borderActive =
+  const borderColor =
     accent === "gold"
       ? "border-amber-400/25"
       : accent === "blue"
-      ? "border-blue-400/20"
-      : "border-white/[0.07]";
-
-  const topLineColor =
-    accent === "gold"
-      ? "from-transparent via-amber-400/50 to-transparent"
-      : accent === "blue"
-      ? "from-transparent via-blue-400/35 to-transparent"
-      : "from-transparent via-white/[0.09] to-transparent";
+      ? "border-sky-500/20"
+      : "border-[#202020]";
 
   const valueColor =
     accent === "gold"
-      ? "bg-gradient-to-br from-amber-300 to-amber-500 bg-clip-text text-transparent"
-      : "text-slate-100";
+      ? "text-amber-400"
+      : "text-zinc-100";
+
+  const valueSize = prominent ? "text-[30px]" : "text-[26px]";
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ ...SPRING, delay: index * 0.07 }}
-      whileHover={{ y: -2, transition: { duration: 0.18 } }}
+      transition={{ ...SPRING, delay: index * 0.06 }}
+      title={tooltip}
       className={cn(
-        "relative rounded-xl border overflow-hidden bg-white/[0.025] p-4 cursor-default",
-        "transition-colors duration-200",
-        borderActive
+        "relative rounded-xl border overflow-hidden p-4 cursor-default bg-[#101010]",
+        borderColor,
       )}
-      style={{ boxShadow: `0 0 24px ${glowColor}, inset 0 1px 0 rgba(255,255,255,0.04)` }}
     >
-      {/* top accent line */}
-      <div
-        className={cn(
-          "absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r",
-          topLineColor
-        )}
-      />
-
-      <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest mb-3">
+      <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-[1.4px] mb-2.5">
         {label}
       </p>
 
       {isLoading ? (
         <div className="space-y-2">
-          <div className="skeleton h-8 w-24 rounded-lg" />
-          <div className="skeleton h-3 w-16 rounded" />
+          <div className="skeleton h-8 w-20 rounded" />
+          <div className="skeleton h-2.5 w-14 rounded" />
         </div>
       ) : (
         <AnimatePresence mode="wait">
           <motion.div
             key={value}
-            initial={{ opacity: 0, scale: 0.92 }}
+            initial={{ opacity: 0, scale: 0.94 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
-            <p
-              className={cn(
-                "text-[28px] font-black tabular-nums leading-none tracking-tight",
-                valueColor
-              )}
-            >
+            <p className={cn("font-black tabular-nums leading-none tracking-tight", valueColor, valueSize)}>
               {value}
             </p>
             {sub && (
-              <p className="text-[11px] text-slate-600 mt-2 font-medium">{sub}</p>
+              <p className="text-[10px] text-zinc-700 mt-1.5 font-medium">{sub}</p>
             )}
           </motion.div>
         </AnimatePresence>
@@ -113,10 +90,10 @@ interface MetricsRowProps {
 
 export function MetricsRow({ result, isLoading }: MetricsRowProps) {
   const showSkeleton = isLoading && !result;
-  const pWinPct = result ? fmtPct(result.p_win, 2) : "—";
-  const pvr = result ? fmtPvr(result.pvr) : "—";
-  const rows = result ? String(result.total_rows) : "—";
-  const cost = result ? `${result.total_cost} kr` : "—";
+  const pWinPct  = result ? fmtPct(result.p_win, 2) : "—";
+  const pvr      = result ? fmtPvr(result.pvr) : "—";
+  const rows     = result ? String(result.total_rows) : "—";
+  const cost     = result ? `${result.total_cost} kr` : "—";
   const pvrPositive = (result?.pvr ?? 0) > 1.0;
 
   return (
@@ -126,16 +103,20 @@ export function MetricsRow({ result, isLoading }: MetricsRowProps) {
         value={pWinPct}
         sub="Vinnersannsynlighet"
         accent="blue"
+        prominent
         index={0}
         isLoading={showSkeleton}
+        tooltip="P(12/12) — sannsynligheten for at systemet dekker alle 12 riktige utfall. Avhenger av strategi og budsjett."
       />
       <MetricCard
         label="PVR"
         value={pvr}
-        sub={pvrPositive ? "Positiv pool-edge ↑" : "Under paritetsverdi"}
+        sub={pvrPositive ? "Positiv pool-edge" : "Under paritetsverdi"}
         accent={pvrPositive ? "gold" : "none"}
+        prominent
         index={1}
         isLoading={showSkeleton}
+        tooltip="PVR (Pool Value Ratio) — modellens vinnersjanse ÷ folkets vinnersjanse. Over 1,0 betyr at kupong er mer unik enn snittet i potten. Ikke en avkastningsfaktor."
       />
       <MetricCard
         label="Rader"
@@ -143,6 +124,7 @@ export function MetricsRow({ result, isLoading }: MetricsRowProps) {
         sub="Kupongens bredde"
         index={2}
         isLoading={showSkeleton}
+        tooltip="Antall rader i systemet — avhenger av heldekk- og halvdekk-valg."
       />
       <MetricCard
         label="Kostnad"
@@ -150,6 +132,7 @@ export function MetricsRow({ result, isLoading }: MetricsRowProps) {
         sub="Totalpris"
         index={3}
         isLoading={showSkeleton}
+        tooltip="Totalpris (antall rader × 4 kr per rad)."
       />
     </div>
   );

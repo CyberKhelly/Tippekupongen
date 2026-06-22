@@ -396,6 +396,206 @@ def _add_phase8_columns(conn) -> None:
             pass  # column already exists
 
 
+# Phase 9 — generation-based historical tracking (auto-saved on every optimize call)
+_DDL_PHASE9_TABLES = """
+CREATE TABLE IF NOT EXISTS coupon_generations (
+    generation_id    TEXT    PRIMARY KEY,
+    coupon_id        TEXT    NOT NULL REFERENCES coupons(coupon_id),
+    strategy         TEXT    NOT NULL CHECK(strategy IN ('safe','balanced','jackpot')),
+    budget           REAL    NOT NULL,
+    row_count        INTEGER NOT NULL,
+    p_win            REAL,
+    pvr              REAL,
+    n_singles        INTEGER,
+    n_halvdekk       INTEGER,
+    n_heldekk        INTEGER,
+    fixtures_4of4    INTEGER NOT NULL DEFAULT 0,
+    fixtures_3of4    INTEGER NOT NULL DEFAULT 0,
+    fixtures_2of4    INTEGER NOT NULL DEFAULT 0,
+    fixtures_1of4    INTEGER NOT NULL DEFAULT 0,
+    fixtures_0of4    INTEGER NOT NULL DEFAULT 0,
+    generated_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    status           TEXT    NOT NULL DEFAULT 'live'
+                     CHECK(status IN ('live','frozen','evaluated')),
+    frozen_at        TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gen_unique_day
+    ON coupon_generations(coupon_id, strategy, budget, date(generated_at));
+
+CREATE TABLE IF NOT EXISTS generation_picks (
+    pick_id                  TEXT    PRIMARY KEY,
+    generation_id            TEXT    NOT NULL REFERENCES coupon_generations(generation_id),
+    fixture_id               TEXT    NOT NULL REFERENCES fixtures(fixture_id),
+    match_number             INTEGER NOT NULL,
+    pick                     TEXT    NOT NULL CHECK(pick IN ('H','U','B')),
+    coverage_type            TEXT    NOT NULL CHECK(coverage_type IN ('single','half_cover','full_cover')),
+    selected_outcomes        TEXT    NOT NULL DEFAULT '[]',
+    confidence               REAL    NOT NULL,
+    model_prob_h             REAL,
+    model_prob_u             REAL,
+    model_prob_b             REAL,
+    pub_prob_h               REAL,
+    pub_prob_u               REAL,
+    pub_prob_b               REAL,
+    value_h                  REAL,
+    value_u                  REAL,
+    value_b                  REAL,
+    crowd_disagreement_score REAL,
+    odds_source              TEXT,
+    has_af_data              INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (generation_id, match_number)
+);
+
+CREATE TABLE IF NOT EXISTS generation_results (
+    generation_id     TEXT    PRIMARY KEY REFERENCES coupon_generations(generation_id),
+    correct_picks     INTEGER,
+    covered_picks     INTEGER,
+    all_correct       INTEGER NOT NULL DEFAULT 0,
+    evaluation_status TEXT    NOT NULL DEFAULT 'pending'
+                      CHECK(evaluation_status IN ('pending','partial','complete')),
+    actual_payout_nok REAL,
+    evaluated_at      TEXT    DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_gen_coupon   ON coupon_generations(coupon_id);
+CREATE INDEX IF NOT EXISTS idx_gen_strategy ON coupon_generations(strategy);
+CREATE INDEX IF NOT EXISTS idx_gp_gen       ON generation_picks(generation_id);
+CREATE INDEX IF NOT EXISTS idx_gp_fixture   ON generation_picks(fixture_id);
+CREATE INDEX IF NOT EXISTS idx_gr_status    ON generation_results(evaluation_status);
+"""
+
+
+# Phase 9 freeze migration — adds status/frozen_at to existing coupon_generations rows,
+# drops the old day-scoped unique index, and creates two partial indexes:
+#   1. live records: unique per (coupon, strategy, budget, day)
+#   2. frozen/evaluated: unique per (coupon, strategy, budget) — one snapshot per combo
+_PHASE9_FREEZE_COLUMNS: list[tuple[str, str]] = [
+    ("coupon_generations", "status    TEXT NOT NULL DEFAULT 'live' CHECK(status IN ('live','frozen','evaluated'))"),
+    ("coupon_generations", "frozen_at TEXT"),
+]
+
+_DDL_PHASE9_FREEZE_INDEXES = """
+DROP INDEX IF EXISTS idx_gen_unique_day;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gen_live_day
+    ON coupon_generations(coupon_id, strategy, budget, date(generated_at))
+    WHERE status = 'live';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gen_frozen_unique
+    ON coupon_generations(coupon_id, strategy, budget)
+    WHERE status IN ('frozen', 'evaluated');
+"""
+
+
+def _add_phase9_freeze_columns(conn) -> None:
+    for table, col_def in _PHASE9_FREEZE_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
+# Phase 10 — extended enrichment: logos, points, W/D/L, per-match averages,
+# clean sheets, streaks, and AF comparison ratings from /predictions.
+_PHASE10_COLUMNS: list[tuple[str, str]] = [
+    # From /standings — full table row per team
+    ("fixture_stat_enrichment", "home_points   INTEGER"),
+    ("fixture_stat_enrichment", "away_points   INTEGER"),
+    ("fixture_stat_enrichment", "home_played   INTEGER"),
+    ("fixture_stat_enrichment", "away_played   INTEGER"),
+    ("fixture_stat_enrichment", "home_wins     INTEGER"),
+    ("fixture_stat_enrichment", "home_draws    INTEGER"),
+    ("fixture_stat_enrichment", "home_losses   INTEGER"),
+    ("fixture_stat_enrichment", "away_wins     INTEGER"),
+    ("fixture_stat_enrichment", "away_draws    INTEGER"),
+    ("fixture_stat_enrichment", "away_losses   INTEGER"),
+    # Team logos — populated from /standings team.logo (fallback: /fixtures teams.logo)
+    ("fixture_stat_enrichment", "home_logo_url TEXT"),
+    ("fixture_stat_enrichment", "away_logo_url TEXT"),
+    # From /teams/statistics — per-match averages
+    ("fixture_stat_enrichment", "home_avg_goals_for     REAL"),
+    ("fixture_stat_enrichment", "away_avg_goals_for     REAL"),
+    ("fixture_stat_enrichment", "home_avg_goals_against REAL"),
+    ("fixture_stat_enrichment", "away_avg_goals_against REAL"),
+    # From /teams/statistics — clean sheets and streaks
+    ("fixture_stat_enrichment", "home_clean_sheets  INTEGER"),
+    ("fixture_stat_enrichment", "away_clean_sheets  INTEGER"),
+    ("fixture_stat_enrichment", "home_streak_wins   INTEGER"),
+    ("fixture_stat_enrichment", "away_streak_wins   INTEGER"),
+    ("fixture_stat_enrichment", "home_streak_draws  INTEGER"),
+    ("fixture_stat_enrichment", "away_streak_draws  INTEGER"),
+    ("fixture_stat_enrichment", "home_streak_losses INTEGER"),
+    ("fixture_stat_enrichment", "away_streak_losses INTEGER"),
+    # From /predictions comparison — AF pre-computed relative ratings (0.0–1.0)
+    ("fixture_stat_enrichment", "api_comparison_att_home   REAL"),
+    ("fixture_stat_enrichment", "api_comparison_att_away   REAL"),
+    ("fixture_stat_enrichment", "api_comparison_def_home   REAL"),
+    ("fixture_stat_enrichment", "api_comparison_def_away   REAL"),
+    ("fixture_stat_enrichment", "api_comparison_form_home  REAL"),
+    ("fixture_stat_enrichment", "api_comparison_form_away  REAL"),
+    ("fixture_stat_enrichment", "api_comparison_total_home REAL"),
+    ("fixture_stat_enrichment", "api_comparison_total_away REAL"),
+]
+
+
+def _add_phase10_columns(conn) -> None:
+    for table, col_def in _PHASE10_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
+# Phase 11 — recent form matches as JSON (for pip tooltips)
+_PHASE11_COLUMNS: list[tuple[str, str]] = [
+    ("fixture_stat_enrichment", "home_recent_matches TEXT"),
+    ("fixture_stat_enrichment", "away_recent_matches TEXT"),
+]
+
+
+def _add_phase11_columns(conn) -> None:
+    for table, col_def in _PHASE11_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
+# Phase 12 — recent fixture statistics aggregated from /fixtures/statistics
+# (possession, shots, corners, fouls, cards, pass accuracy, xG per team over last N matches)
+_PHASE12_COLUMNS: list[tuple[str, str]] = [
+    ("fixture_stat_enrichment", "home_recent_fixture_stats TEXT"),
+    ("fixture_stat_enrichment", "away_recent_fixture_stats TEXT"),
+]
+
+
+def _add_phase12_columns(conn) -> None:
+    for table, col_def in _PHASE12_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
+# Phase 13 — league size + venue-specific goal averages / clean sheets
+_PHASE13_COLUMNS: list[tuple[str, str]] = [
+    ("fixture_stat_enrichment", "league_size INTEGER"),
+    ("fixture_stat_enrichment", "home_avg_goals_for_home REAL"),
+    ("fixture_stat_enrichment", "home_avg_goals_against_home REAL"),
+    ("fixture_stat_enrichment", "away_avg_goals_for_away REAL"),
+    ("fixture_stat_enrichment", "away_avg_goals_against_away REAL"),
+    ("fixture_stat_enrichment", "home_clean_sheets_home INTEGER"),
+    ("fixture_stat_enrichment", "away_clean_sheets_away INTEGER"),
+]
+
+
+def _add_phase13_columns(conn) -> None:
+    for table, col_def in _PHASE13_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_DDL_BASE)
@@ -409,3 +609,10 @@ def init_db() -> None:
         conn.executescript(_DDL_ESTIMATED_PRIOR)
         conn.executescript(_DDL_PHASE8_TABLES)
         _add_phase8_columns(conn)
+        conn.executescript(_DDL_PHASE9_TABLES)
+        _add_phase9_freeze_columns(conn)
+        conn.executescript(_DDL_PHASE9_FREEZE_INDEXES)
+        _add_phase10_columns(conn)
+        _add_phase11_columns(conn)
+        _add_phase12_columns(conn)
+        _add_phase13_columns(conn)

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 48" fill="none" role="img" aria-label="TippeQpongen">
+  <!-- Full logo: mark + wordmark -->
+  <!-- Mark -->
+  <rect width="48" height="48" rx="10" fill="#111111"/>
+  <rect x="9"  y="28" width="8" height="12" rx="2" fill="#F5C542" fill-opacity="0.45"/>
+  <rect x="20" y="18" width="8" height="22" rx="2" fill="#F5C542" fill-opacity="0.70"/>
+  <rect x="31" y="10" width="8" height="30" rx="2" fill="#F5C542"/>
+  <!-- Wordmark -->
+  <text
+    x="58"
+    y="31"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Helvetica, Arial, sans-serif"
+    font-size="19"
+    font-weight="900"
+    letter-spacing="-0.04em"
+    fill="#F5F5F5"
+  >Tippe<tspan fill="#F5C542">Q</tspan>pongen</text>
+</svg>

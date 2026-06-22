@@ -3,15 +3,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { getCoupons, optimize, getSyncStatus } from "@/lib/api";
-import type { Strategy } from "@/lib/types";
+import Link from "next/link";
+import { getCoupons, optimize, getSyncStatus, getEnrichment } from "@/lib/api";
+import type { MatchEnrichment, Strategy } from "@/lib/types";
 import { CouponSelector } from "@/components/CouponSelector";
 import { StrategySelector } from "@/components/StrategySelector";
 import { BudgetSelector } from "@/components/BudgetSelector";
 import { MetricsRow } from "@/components/MetricsRow";
 import { MatchTable } from "@/components/MatchTable";
-import { SyncStatusPanel } from "@/components/SyncStatus";
 import { cn, secsUntil } from "@/lib/utils";
+import { LogoMark } from "@/components/LogoMark";
 
 const BUDGETS = [32, 96, 192, 384] as const;
 
@@ -40,22 +41,26 @@ function TopBar({
   weekLabel?: string;
 }) {
   return (
-    <header className="sticky top-0 z-20 border-b border-white/[0.05]">
-      <div className="absolute inset-0 bg-[#07101b]/85 backdrop-blur-md" />
-      <div className="absolute bottom-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-400/[0.18] to-transparent" />
+    <header className="sticky top-0 z-20 border-b border-[#202020]">
+      <div className="absolute inset-0 bg-[#050505]/95 backdrop-blur-md" />
 
-      <div className="relative max-w-screen-xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+      <div className="relative max-w-screen-xl mx-auto px-4 sm:px-6 flex items-center justify-between" style={{ height: 52 }}>
         <motion.div
           className="flex items-center gap-3"
           initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
         >
+          <div className="rounded-xl border border-[#282828] overflow-hidden shrink-0">
+            <LogoMark size={36} />
+          </div>
+
           <span className="text-[17px] font-black tracking-tight select-none">
-            <span className="text-slate-100">Tippe</span>
-            <span className="text-amber-400">Q</span>
-            <span className="text-slate-100">pongen</span>
+            <span className="text-zinc-100">Tippe</span>
+            <span className="text-[#F5C542]">Q</span>
+            <span className="text-zinc-100">pongen</span>
           </span>
+
           <AnimatePresence>
             {weekLabel && (
               <motion.span
@@ -63,12 +68,19 @@ function TopBar({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.88 }}
                 transition={{ duration: 0.25 }}
-                className="hidden sm:inline-flex items-center h-5 px-2 rounded-md border border-white/[0.07] bg-white/[0.04] text-[10px] font-semibold text-slate-500 tracking-wide"
+                className="hidden sm:inline-flex items-center h-5 px-2 rounded border border-[#202020] bg-[#111] text-[10px] font-semibold text-zinc-600 tracking-wide"
               >
                 {weekLabel}
               </motion.span>
             )}
           </AnimatePresence>
+
+          <Link
+            href="/history"
+            className="hidden sm:flex items-center h-7 px-3 rounded-md text-[11px] font-medium text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.04] transition-colors"
+          >
+            Historikk
+          </Link>
         </motion.div>
 
         <motion.div
@@ -91,8 +103,8 @@ function TopBar({
               )}
             />
           </span>
-          <span className="text-[11px] text-slate-600 font-medium hidden sm:block">
-            {isConnected ? "API tilkoblet" : "Frakoblet"}
+          <span className="text-[11px] text-zinc-700 font-medium hidden sm:block">
+            {isConnected ? "tilkoblet" : "frakoblet"}
           </span>
         </motion.div>
       </div>
@@ -113,9 +125,9 @@ function ShapePanel({
 }) {
   const total = n_singles + n_halvdekk + n_heldekk;
   const rows = [
-    { label: "Singler",  value: n_singles,  desc: "1 utfall", color: "bg-slate-500/70" },
-    { label: "Halvdekk", value: n_halvdekk, desc: "2 utfall", color: "bg-amber-600/60" },
-    { label: "Heldekk",  value: n_heldekk,  desc: "3 utfall", color: "bg-amber-400/80" },
+    { label: "Singler",  value: n_singles,  color: "bg-zinc-600/50" },
+    { label: "Halvdekk", value: n_halvdekk, color: "bg-zinc-500/40" },
+    { label: "Heldekk",  value: n_heldekk,  color: "bg-emerald-600/55" },
   ] as const;
 
   return (
@@ -123,31 +135,28 @@ function ShapePanel({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="relative glass rounded-xl p-4 overflow-hidden card-top-line"
+      className="rounded-xl border border-[#202020] bg-[#101010] p-4"
     >
-      <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest mb-4">
+      <p className="font-display text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">
         Kupongens form
       </p>
-      <div className="space-y-3">
-        {rows.map(({ label, value, desc, color }, i) => {
+      <div className="space-y-2.5">
+        {rows.map(({ label, value, color }, i) => {
           const pct = total > 0 ? (value / total) * 100 : 0;
           return (
             <div key={label}>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-slate-300">{label}</span>
-                  <span className="text-[10px] text-slate-600">{desc}</span>
-                </div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-medium text-zinc-400">{label}</span>
                 <motion.span
                   key={value}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="text-sm font-bold tabular-nums text-slate-200"
+                  className="text-[11px] font-bold tabular-nums text-zinc-200"
                 >
                   {value}
                 </motion.span>
               </div>
-              <div className="h-[2px] bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-[2px] bg-[#1a1a1a] rounded-full overflow-hidden">
                 <motion.div
                   className={cn("h-full rounded-full", color)}
                   initial={{ width: 0 }}
@@ -159,9 +168,9 @@ function ShapePanel({
           );
         })}
       </div>
-      <div className="mt-4 pt-3 border-t border-white/[0.05] flex items-center justify-between">
-        <span className="text-[10px] text-slate-600">Total kamper</span>
-        <span className="text-xs font-bold tabular-nums text-slate-500">{total}</span>
+      <div className="mt-3 pt-3 border-t border-[#1a1a1a] flex items-center justify-between">
+        <span className="text-[9px] text-zinc-700">Total</span>
+        <span className="text-[11px] font-bold tabular-nums text-zinc-600">{total}</span>
       </div>
     </motion.div>
   );
@@ -170,33 +179,31 @@ function ShapePanel({
 // ── Conviction legend ─────────────────────────────────────────────────────────
 
 function ConvictionLegend({ count }: { count: number }) {
-  if (count === 0) return null;
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="flex items-center gap-2.5 text-[11px] text-slate-500 px-1"
+      className="flex items-center gap-2 text-[11px] px-1"
     >
-      <span className="relative flex h-1.5 w-1.5 shrink-0">
-        <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-40" />
-        <span className="relative rounded-full h-1.5 w-1.5 bg-amber-400" />
-      </span>
-      <span>
-        <span className="text-amber-400 font-semibold">{count}</span>{" "}
-        overbevisning{count !== 1 ? "er" : ""} — modellen avviker ≥10pp fra folket
-      </span>
+      {count > 0 ? (
+        <>
+          <span className="relative flex h-1.5 w-1.5 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-40" />
+            <span className="relative rounded-full h-1.5 w-1.5 bg-amber-400" />
+          </span>
+          <span className="text-zinc-500">
+            <span className="text-amber-400 font-semibold">{count}</span>{" "}
+            overbevisning{count !== 1 ? "er" : ""} — modellen avviker ≥10pp fra folket
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-800 shrink-0" />
+          <span className="text-zinc-700">Ingen overbevisninger — modellen og folket er i stor grad enige</span>
+        </>
+      )}
     </motion.div>
-  );
-}
-
-// ── Section label ─────────────────────────────────────────────────────────────
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest mb-3">
-      {children}
-    </p>
   );
 }
 
@@ -209,11 +216,19 @@ export default function CouponPage() {
   const queryClient = useQueryClient();
   const prevNtRefreshRef = useRef<string | null>(null);
 
+  const [couponsRefetchMs, setCouponsRefetchMs] = useState<number | false>(false);
+
   const couponsQuery = useQuery({
     queryKey: ["coupons"],
     queryFn: () => getCoupons(),
     staleTime: 5 * 60_000,
+    retry: 1,
+    refetchInterval: couponsRefetchMs,
   });
+
+  useEffect(() => {
+    setCouponsRefetchMs(couponsQuery.isError ? 30_000 : false);
+  }, [couponsQuery.isError]);
 
   useEffect(() => {
     if (couponsQuery.data?.length && !selectedCouponId) {
@@ -223,25 +238,28 @@ export default function CouponPage() {
 
   const currentCoupon = couponsQuery.data?.find((c) => c.coupon_id === selectedCouponId);
   const deadlineSecs = secsUntil(currentCoupon?.deadline_utc);
+  const isApiOffline = couponsQuery.isError;
 
-  // State-driven refetch interval — avoids TQ v5 callback API ambiguity
   const [syncRefetchMs, setSyncRefetchMs] = useState<number | false>(120_000);
 
-  // Sync status — deadline-aware polling
   const syncQuery = useQuery({
     queryKey: ["sync-status"],
     queryFn: () => getSyncStatus(),
     staleTime: 0,
+    retry: 1,
     refetchInterval: syncRefetchMs,
   });
 
   useEffect(() => {
+    if (isApiOffline) {
+      setSyncRefetchMs(30_000);
+      return;
+    }
     const isRunning = syncQuery.data?.is_running ?? false;
     const secs = isFinite(deadlineSecs) ? deadlineSecs : Infinity;
     setSyncRefetchMs(syncRefetchInterval(isRunning, secs));
-  }, [syncQuery.data?.is_running, deadlineSecs]);
+  }, [isApiOffline, syncQuery.data?.is_running, deadlineSecs]);
 
-  // Invalidate optimize when a new NT refresh completes
   useEffect(() => {
     const latestNt = syncQuery.data?.last_nt_refresh_at ?? null;
     if (latestNt && latestNt !== prevNtRefreshRef.current) {
@@ -256,70 +274,66 @@ export default function CouponPage() {
     queryKey: ["optimize", selectedCouponId, strategy, budget],
     queryFn: () =>
       optimize({ coupon_id: selectedCouponId!, strategy, budget, cost_per_row: 1.0 }),
-    enabled: !!selectedCouponId,
+    enabled: !!selectedCouponId && !isApiOffline,
     staleTime: 60_000,
+    retry: 1,
     refetchInterval: isFinite(deadlineSecs)
       ? optimizeRefetchInterval(deadlineSecs)
       : false,
   });
 
+  const enrichmentQuery = useQuery({
+    queryKey: ["enrichment", selectedCouponId],
+    queryFn: () => getEnrichment(selectedCouponId!),
+    enabled: !!selectedCouponId && !isApiOffline,
+    staleTime: 10 * 60_000,
+    retry: 1,
+  });
+
+  const enrichmentMap = new Map<number, MatchEnrichment>(
+    (enrichmentQuery.data ?? []).map((e) => [e.match_number, e])
+  );
+
   const result = optimizeQuery.data;
   const isLoading = optimizeQuery.isLoading || optimizeQuery.isFetching;
   const convictionCount = result?.matches.filter((m) => m.is_conviction).length ?? 0;
-  const isConnected = !couponsQuery.isError && !optimizeQuery.isError;
+  const isConnected = !isApiOffline;
   const weekLabel = currentCoupon
     ? `Uke ${currentCoupon.week} · ${currentCoupon.year}`
     : undefined;
 
   return (
-    <div
-      className="min-h-screen"
-      style={{
-        background:
-          "radial-gradient(ellipse at 20% 0%, rgba(15,45,110,0.5) 0%, transparent 50%), radial-gradient(ellipse at 82% 90%, rgba(8,22,60,0.3) 0%, transparent 48%), #07101b",
-      }}
-    >
-      {/* Dot grid texture */}
-      <div
-        className="fixed inset-0 pointer-events-none z-[-1]"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 1px 1px, rgba(148,163,184,0.035) 1px, transparent 0)",
-          backgroundSize: "28px 28px",
-        }}
-      />
-
+    <div className="min-h-screen" style={{ background: "#050505" }}>
       <TopBar isConnected={isConnected} weekLabel={weekLabel} />
 
-      <main className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {/* Error state */}
+      <main className="max-w-screen-xl mx-auto px-4 sm:px-6 py-5 sm:py-7">
+        {/* Offline banner */}
         <AnimatePresence>
-          {(couponsQuery.isError || optimizeQuery.isError) && (
+          {isApiOffline && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-6 p-4 rounded-xl border border-red-500/20 bg-red-500/[0.04] text-sm text-red-400 flex items-start gap-3"
+              className="mb-5 p-3.5 rounded-xl border border-red-500/20 bg-red-500/[0.04] text-sm text-red-400 flex items-start gap-3"
             >
-              <span className="text-red-500 mt-0.5 shrink-0">⚠</span>
+              <span className="mt-0.5 shrink-0">⚠</span>
               <div>
-                Klarte ikke å nå API-et.{" "}
-                <span className="text-red-500/70">
-                  Sjekk at FastAPI kjører på port 8000.
-                </span>
+                Backend kjører ikke.{" "}
+                <code className="text-[11px] font-mono bg-red-950/40 px-1 rounded">
+                  .\start-dev.ps1
+                </code>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Coupon selector */}
+        {/* Coupon tabs */}
         <motion.div
-          className="mb-6 sm:mb-8"
+          className="mb-5 sm:mb-6"
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
         >
-          <SectionLabel>Kupong</SectionLabel>
           <CouponSelector
             coupons={couponsQuery.data ?? []}
             selected={selectedCouponId}
@@ -329,33 +343,34 @@ export default function CouponPage() {
         </motion.div>
 
         {/* Two-column layout */}
-        <div className="flex flex-col lg:grid lg:grid-cols-[1fr_272px] gap-5 lg:gap-6">
+        <div className="flex flex-col lg:grid lg:grid-cols-[1fr_264px] gap-5 lg:gap-6">
 
           {/* ── Main column ──────────────────────────────────────────────── */}
-          <div className="min-w-0 space-y-4 sm:space-y-5">
+          <div className="min-w-0 space-y-4">
             <MetricsRow result={result} isLoading={isLoading} />
             <AnimatePresence>
               {result && !isLoading && <ConvictionLegend count={convictionCount} />}
             </AnimatePresence>
             <MatchTable
               matches={result?.matches ?? []}
+              enrichmentMap={enrichmentMap}
               isLoading={isLoading || !selectedCouponId}
             />
           </div>
 
           {/* ── Sidebar ──────────────────────────────────────────────────── */}
           <motion.div
-            className="space-y-4 lg:sticky lg:top-[57px] lg:self-start"
-            initial={{ opacity: 0, x: 12 }}
+            className="space-y-4 lg:sticky lg:top-[52px] lg:self-start"
+            initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
           >
             <div>
-              <SectionLabel>Strategi</SectionLabel>
+              <p className="font-display text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-2">Strategi</p>
               <StrategySelector selected={strategy} onSelect={setStrategy} />
             </div>
             <div>
-              <SectionLabel>Budsjett</SectionLabel>
+              <p className="font-display text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-2">Budsjett</p>
               <BudgetSelector
                 budgets={[...BUDGETS]}
                 selected={budget}
@@ -372,12 +387,6 @@ export default function CouponPage() {
                 />
               )}
             </AnimatePresence>
-
-            {/* Sync status panel */}
-            <SyncStatusPanel
-              status={syncQuery.data}
-              isLoading={syncQuery.isLoading}
-            />
           </motion.div>
         </div>
       </main>

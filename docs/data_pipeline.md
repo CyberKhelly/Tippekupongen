@@ -61,7 +61,9 @@ Module: `ingestion/api_football_odds.py → ingest_af_odds_fallback()`. Run auto
 - **Never overwrites:** checks `SELECT 1 FROM odds WHERE fixture_id = ?` before every AF call. If any odds row exists for a fixture, AF odds are skipped entirely.
 - **Bookmaker priority:** Bet365 → William Hill → Marathonbet → 10Bet → first available.
 - **Rate limiting:** 2.1 s delay between actual API calls (AF limit: 30 req/min). Skipped fixtures do not count against the delay.
-- **Coverage:** all leagues in `ingestion/api_football.py → _NT_COMPETITION_MAP` with AF league IDs — Women's WC Qual UEFA (league 880), Eliteserien, OBOS, Toppserien, Champions League, Nations League, FIFA World Cup.
+- **Coverage:** all leagues in `ingestion/api_football.py → _NT_COMPETITION_MAP` with AF league IDs — 2. Divisjon Group 1 (473), 2. Divisjon Group 2 (474), Eliteserien (103), OBOS (104), Toppserien (725), NM Cup (105), Champions League (2), Nations League (5), FIFA WC 2026 (1), Women's WC Qual UEFA (880). IDs confirmed 2026-06-20 via `/leagues?country=Norway&season=2026`.
+- **2. Divisjon coverage limit:** AF only indexes Group 1 and Group 2. Groups 3–7 are mapped as `not_covered` and receive no enrichment or AF odds.
+- **WC form limitation:** WC games are played at neutral venues. AF's `teams/statistics` tracks home/away records, so `home_home_record` and `away_away_record` will always be 0 for WC teams. `data_coverage` for WC fixtures has a structural ceiling of 3 (form + standings + goals), never 4.
 
 ---
 

@@ -25,6 +25,9 @@ _DEFAULT: dict = {
     "updated_coupon_ids": [],
     "n_public_pct_changes": 0,
     "turnover": {},
+    "last_freeze_at": None,
+    "last_freeze_count": 0,
+    "last_freeze_coupon_ids": [],
 }
 
 

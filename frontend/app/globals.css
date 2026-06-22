@@ -3,18 +3,28 @@
 @tailwind utilities;
 
 :root {
-  --gold: #f5c518;
-  --gold-dim: rgba(245, 197, 24, 0.12);
-  --page-bg: #07101b;
-  --card-bg: rgba(255, 255, 255, 0.025);
-  --card-border: rgba(255, 255, 255, 0.07);
-  --text-primary: #e2eefc;
-  --text-secondary: #7a9bb8;
-  --text-muted: #2e4a60;
+  --gold:               #F5C542;
+  --gold-dim:           rgba(245, 197, 66, 0.07);
+  --page-bg:            #050505;
+  --card-bg:            #101010;
+  --card-border:        #202020;
+  --card-border-subtle: #171717;
+  --text-primary:       #F5F5F5;
+  --text-secondary:     #9CA3AF;
+  --text-muted:         #3F3F46;
 }
 
 html {
   scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .skeleton::after { animation: none; }
+  .animate-bar-grow { animation: none; transform: scaleX(1); }
+  .animate-fade-up { animation: none; opacity: 1; transform: none; }
+  .animate-expand-down { animation: none; opacity: 1; transform: none; }
+  * { transition-duration: 0ms !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
 
 body {
@@ -24,26 +34,25 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Slim custom scrollbar */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #333; }
 
 ::selection {
-  background: rgba(245, 197, 24, 0.18);
+  background: rgba(245, 197, 66, 0.15);
   color: #fff;
 }
 
 @layer components {
-  /* Base glass card */
   .glass {
-    @apply bg-white/[0.025] border border-white/[0.07] backdrop-blur-sm;
+    background-color: var(--card-bg);
+    border: 1px solid var(--card-border);
   }
 
-  /* Shimmer skeleton */
   .skeleton {
-    @apply relative overflow-hidden bg-white/[0.04] rounded;
+    @apply relative overflow-hidden rounded;
+    background-color: #181818;
   }
   .skeleton::after {
     content: '';
@@ -51,23 +60,11 @@ body {
     background: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(255,255,255,0.055) 50%,
+      rgba(255,255,255,0.03) 50%,
       transparent 100%
     );
     background-size: 200% 100%;
     animation: shimmerSlide 1.6s linear infinite;
-  }
-
-  /* Top accent gradient line */
-  .card-top-line::before {
-    content: '';
-    @apply absolute top-0 inset-x-0 h-[1px];
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent);
-  }
-  .card-top-line-gold::before {
-    content: '';
-    @apply absolute top-0 inset-x-0 h-[1px];
-    background: linear-gradient(90deg, transparent, rgba(245,197,24,0.35), transparent);
   }
 }
 
@@ -76,7 +73,6 @@ body {
   100% { background-position: 200% 0; }
 }
 
-/* Probability bar grow — used by MatchTable rows */
 @keyframes barGrow {
   from { transform: scaleX(0); }
   to   { transform: scaleX(1); }
@@ -86,11 +82,18 @@ body {
   transform-origin: left;
 }
 
-/* Fade-up entrance — used by MatchTable rows */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up {
   animation: fadeUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes expandDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-expand-down {
+  animation: expandDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
