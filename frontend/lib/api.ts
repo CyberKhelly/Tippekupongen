@@ -1,6 +1,7 @@
 import type {
   CdsValidationBucket,
   ConvictionStat,
+  CouponDetail,
   CouponListItem,
   GenerationAnalytics,
   GenerationDetail,
@@ -96,6 +97,12 @@ export async function getHistoryConvictionStats(): Promise<ConvictionStat[]> {
 
 export async function getHistoryNtComparison(): Promise<NtComparison | null> {
   return apiFetch<NtComparison | null>("/v1/history/nt-comparison");
+}
+
+// ── Coupon detail (raw fixtures + kickoff times) ──────────────────────────────
+
+export async function getCouponDetail(couponId: string): Promise<CouponDetail> {
+  return apiFetch<CouponDetail>(`/v1/coupons/${couponId}`);
 }
 
 // ── Enrichment ────────────────────────────────────────────────────────────────

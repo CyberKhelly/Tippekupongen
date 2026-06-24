@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, BarChart2, Activity, Info } from "lucide-react";
+import { LayoutGrid, BarChart2, Activity, Info, Layers2 } from "lucide-react";
 import type { LucideProps } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/LogoMark";
@@ -14,9 +14,10 @@ import {
 } from "@/components/ui/tooltip";
 
 const MAIN_NAV = [
-  { href: "/coupon",    icon: LayoutGrid, label: "Kupong"     },
-  { href: "/historikk", icon: BarChart2,  label: "Historikk"  },
-  { href: "/modellen",  icon: Activity,   label: "Modellen"   },
+  { href: "/coupon",     icon: LayoutGrid, label: "Kupong"     },
+  { href: "/strategien", icon: Layers2,    label: "Systemspill" },
+  { href: "/historikk",  icon: BarChart2,  label: "Historikk"  },
+  { href: "/modellen",   icon: Activity,   label: "Modellen"   },
 ] as const;
 
 function NavItem({
