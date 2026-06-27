@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { optimize, getEnrichment, getCouponDetail } from "@/lib/api";
 import type { MatchEnrichment, MatchResult } from "@/lib/types";
 import { CouponSelector } from "@/components/CouponSelector";
-import { LogoMark } from "@/components/LogoMark";
+import { Logo } from "@/components/brand/Logo";
 import { SystemMatchRow } from "@/components/SystemMatchRow";
 import type { Sign } from "@/components/SystemMatchRow";
 import { cn } from "@/lib/utils";
@@ -280,7 +280,7 @@ function buildSystemProposal(
 
 function PageHeader({ isConnected }: { isConnected: boolean }) {
   return (
-    <header className="sticky top-0 z-20 bg-white border-b border-[#E4E1DA]">
+    <header className="sticky top-0 z-20 bg-[#0D0D0D] border-b border-[rgba(255,255,255,0.07)]">
       <div
         className="max-w-screen-xl mx-auto px-4 sm:px-6 flex items-center justify-between"
         style={{ height: 52 }}
@@ -291,13 +291,8 @@ function PageHeader({ isConnected }: { isConnected: boolean }) {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
         >
-          <LogoMark size={32} />
-          <span className="text-[17px] font-black tracking-tight select-none">
-            <span className="text-[#111110]">Tippe</span>
-            <span className="text-[#D4930A]">Q</span>
-            <span className="text-[#111110]">pongen</span>
-          </span>
-          <span className="hidden sm:inline-flex items-center h-5 px-2 rounded border border-[#E4E1DA] bg-[#FAF9F7] text-[10px] font-semibold text-[#ADA9A2] tracking-wide">
+          <Logo size="sm" theme="dark" />
+          <span className="hidden sm:inline-flex items-center h-5 px-2 rounded border border-[rgba(255,255,255,0.1)] bg-[#141414] text-[10px] font-semibold text-[#4A4744] tracking-wide">
             Systemspill
           </span>
         </motion.div>
@@ -311,14 +306,14 @@ function PageHeader({ isConnected }: { isConnected: boolean }) {
           <span className="relative flex h-2 w-2">
             <span className={cn(
               "absolute inline-flex h-full w-full rounded-full opacity-60",
-              isConnected ? "bg-[#15803D] animate-ping" : "bg-[#C42B2B]",
+              isConnected ? "bg-[#22C55E] animate-ping" : "bg-[#F05252]",
             )} />
             <span className={cn(
               "relative inline-flex rounded-full h-2 w-2",
-              isConnected ? "bg-[#15803D]" : "bg-[#C42B2B]",
+              isConnected ? "bg-[#22C55E]" : "bg-[#F05252]",
             )} />
           </span>
-          <span className="text-[11px] text-[#ADA9A2] font-medium hidden sm:block">
+          <span className="text-[11px] text-[#4A4744] font-medium hidden sm:block">
             {isConnected ? "tilkoblet" : "frakoblet"}
           </span>
         </motion.div>
@@ -344,13 +339,13 @@ function SystemStrip({
   const activeSystem = SYSTEM_LIBRARY.find((s) => s.id === activeSystemId) ?? null;
 
   return (
-    <div className="sticky top-[52px] z-10 bg-[#FAF9F7] border-b border-[#E4E1DA]">
+    <div className="sticky top-[52px] z-10 bg-[#0D0D0D] border-b border-[rgba(255,255,255,0.07)]">
       <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-3">
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
 
           {/* System dropdown */}
           <div className="relative flex items-center gap-1.5">
-            <span className="text-[9px] font-semibold text-[#ADA9A2] uppercase tracking-widest shrink-0 mr-0.5 hidden sm:block">
+            <span className="text-[9px] font-semibold text-[#4A4744] uppercase tracking-widest shrink-0 mr-0.5 hidden sm:block">
               System
             </span>
 
@@ -359,12 +354,12 @@ function SystemStrip({
               disabled={disabled}
               className={cn(
                 "h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition-all duration-150",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4930A]/40",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C030]/30",
                 "disabled:pointer-events-none disabled:opacity-40",
                 "flex items-center gap-1.5",
                 activeSystem
-                  ? "bg-[#111110] text-white border-[#111110]"
-                  : "bg-white text-[#6B6862] border-[#D5D0C8] hover:border-[#ADA9A2] hover:text-[#111110]",
+                  ? "bg-[#E8E4DD] text-[#0D0D0D] border-[#E8E4DD]"
+                  : "bg-[#1C1C1C] text-[#7A7673] border-[rgba(255,255,255,0.07)] hover:border-[rgba(255,255,255,0.15)] hover:text-[#E8E4DD]",
               )}
             >
               <span>
@@ -375,11 +370,11 @@ function SystemStrip({
                   : "Velg system"}
               </span>
               {activeSystem && (
-                <span className="text-[9px] tabular-nums text-[#6B6862]">
+                <span className="text-[9px] tabular-nums text-[#4A4744]">
                   {activeSystem.rows.toLocaleString("nb-NO")}
                 </span>
               )}
-              <span className={cn("text-[8px]", activeSystem ? "text-[#6B6862]" : "text-[#C8C4BC]")}>
+              <span className={cn("text-[8px]", activeSystem ? "text-[#4A4744]" : "text-[#4A4744]")}>
                 {open ? "▲" : "▼"}
               </span>
             </button>
@@ -391,14 +386,14 @@ function SystemStrip({
 
             {/* Dropdown panel */}
             {open && (
-              <div className="absolute top-full left-0 mt-1.5 z-50 min-w-[360px] bg-white border border-[#E4E1DA] rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.08)] overflow-hidden">
+              <div className="absolute top-full left-0 mt-1.5 z-50 min-w-[360px] bg-[#141414] border border-[rgba(255,255,255,0.1)] rounded-xl shadow-[0_4px_24px_rgba(0,0,0,0.5)] overflow-hidden">
                 {/* Column headers */}
-                <div className="flex items-center px-3 pt-2.5 pb-1.5 border-b border-[#F0EDE8]">
-                  <span className="flex-1 min-w-[96px] text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">System</span>
-                  <span className="w-[62px] text-right text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Utganger</span>
-                  <span className="w-[62px] text-right text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Reserver</span>
-                  <span className="w-14 text-right text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Rekker</span>
-                  <span className="w-[72px] text-right text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest pr-0.5">Kostnad</span>
+                <div className="flex items-center px-3 pt-2.5 pb-1.5 border-b border-[rgba(255,255,255,0.06)]">
+                  <span className="flex-1 min-w-[96px] text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">System</span>
+                  <span className="w-[62px] text-right text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Utganger</span>
+                  <span className="w-[62px] text-right text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Reserver</span>
+                  <span className="w-14 text-right text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Rekker</span>
+                  <span className="w-[72px] text-right text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest pr-0.5">Kostnad</span>
                 </div>
 
                 {/* System rows */}
@@ -421,23 +416,23 @@ function SystemStrip({
                       className={cn(
                         "w-full flex items-center px-3 py-2 text-left",
                         isDisabled
-                          ? "cursor-not-allowed opacity-45"
-                          : cn("cursor-pointer transition-colors duration-100", isActive ? "bg-[#F5F3EF]" : "hover:bg-[#FAFAF8]"),
+                          ? "cursor-not-allowed opacity-40"
+                          : cn("cursor-pointer transition-colors duration-100", isActive ? "bg-[#1C1C1C]" : "hover:bg-[rgba(255,255,255,0.04)]"),
                       )}
                     >
                       <div className="flex-1 flex items-center gap-1.5 min-w-[96px] shrink-0">
                         <span className={cn(
                           "text-[11px] font-semibold whitespace-nowrap",
-                          isDisabled ? "text-[#C8C4BC]" : isActive ? "text-[#111110]" : "text-[#6B6862]",
+                          isDisabled ? "text-[#3A3735]" : isActive ? "text-[#E8E4DD]" : "text-[#7A7673]",
                         )}>
                           {system.name}
                         </span>
                         {isActive && !isDisabled && (
-                          <span className="text-[9px] text-[#D4930A] leading-none">✓</span>
+                          <span className="text-[9px] text-[#F5C030] leading-none">✓</span>
                         )}
                         {isDisabled && (
                           <span
-                            className="text-[8px] text-[#C8C4BC] italic"
+                            className="text-[8px] text-[#3A3735] italic"
                             title="Krever offisiell reduksjonsmatrise fra NT"
                           >
                             (B)
@@ -446,21 +441,21 @@ function SystemStrip({
                       </div>
                       <span className={cn(
                         "w-[62px] text-right text-[11px] tabular-nums",
-                        isDisabled ? "text-[#D5D0C8]" : "text-[#6B6862]",
+                        isDisabled ? "text-[#2A2724]" : "text-[#4A4744]",
                       )}>{system.utganger}</span>
                       <span className={cn(
                         "w-[62px] text-right text-[11px] tabular-nums",
-                        isDisabled ? "text-[#D5D0C8]" : "text-[#6B6862]",
+                        isDisabled ? "text-[#2A2724]" : "text-[#4A4744]",
                       )}>{system.reserver}</span>
                       <span className={cn(
                         "w-14 text-right text-[11px] tabular-nums font-semibold",
-                        isDisabled ? "text-[#D5D0C8]" : isActive ? "text-[#111110]" : "text-[#6B6862]",
+                        isDisabled ? "text-[#2A2724]" : isActive ? "text-[#E8E4DD]" : "text-[#4A4744]",
                       )}>
                         {system.rows.toLocaleString("nb-NO")}
                       </span>
                       <span className={cn(
                         "w-[72px] text-right text-[11px] tabular-nums pr-0.5",
-                        isDisabled ? "text-[#D5D0C8]" : "text-[#ADA9A2]",
+                        isDisabled ? "text-[#2A2724]" : "text-[#4A4744]",
                       )}>
                         {system.cost.toLocaleString("nb-NO")} kr
                       </span>
@@ -475,25 +470,25 @@ function SystemStrip({
           {/* Live metrics */}
           <div className="flex items-center gap-4 sm:ml-auto text-[12px]">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[9px] text-[#ADA9A2] uppercase tracking-widest font-semibold">Rader</span>
-              <span className="font-bold tabular-nums text-[#111110]">
+              <span className="text-[9px] text-[#4A4744] uppercase tracking-widest font-semibold">Rader</span>
+              <span className="font-bold tabular-nums text-[#E8E4DD]">
                 {rows > 0 ? rows.toLocaleString("nb-NO") : "—"}
               </span>
             </div>
-            <span className="text-[#D5D0C8]">·</span>
+            <span className="text-[rgba(255,255,255,0.1)]">·</span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-[9px] text-[#ADA9A2] uppercase tracking-widest font-semibold">Kostnad</span>
-              <span className="font-bold tabular-nums text-[#111110]">
+              <span className="text-[9px] text-[#4A4744] uppercase tracking-widest font-semibold">Kostnad</span>
+              <span className="font-bold tabular-nums text-[#E8E4DD]">
                 {cost > 0 ? `${cost.toLocaleString("nb-NO")} kr` : "—"}
               </span>
             </div>
-            <span className="text-[#D5D0C8]">·</span>
+            <span className="text-[rgba(255,255,255,0.1)]">·</span>
             <button
               onClick={onToggleDebug}
               title="Vis debug-info per tegn"
               className={cn(
                 "text-[9px] font-semibold uppercase tracking-widest transition-colors",
-                debugMode ? "text-[#D4930A]" : "text-[#C8C4BC] hover:text-[#ADA9A2]",
+                debugMode ? "text-[#F5C030]" : "text-[#4A4744] hover:text-[#7A7673]",
               )}
             >
               Debug
@@ -508,11 +503,11 @@ function SystemStrip({
 
 // ── Table header row ───────────────────────────────────────────────────────────
 
-const TH = "text-[9px] font-semibold text-[#ADA9A2] uppercase tracking-[1.2px] whitespace-nowrap";
+const TH = "text-[9px] font-semibold text-[#4A4744] uppercase tracking-[1.2px] whitespace-nowrap";
 
 function TableHeader() {
   return (
-    <div className="flex items-start gap-3 px-4 pt-2.5 pb-2 border-b border-[#E4E1DA] bg-[#FAF9F7]">
+    <div className="flex items-start gap-3 px-4 pt-2.5 pb-2 border-b border-[rgba(255,255,255,0.07)] bg-[#0D0D0D]">
       <span className="w-5 shrink-0" />
       <span className={cn(TH, "flex-1 pt-[1px]")}>Kamp</span>
       <div className="flex gap-2 shrink-0">
@@ -526,7 +521,7 @@ function TableHeader() {
                   style={{
                     fontSize: 7,
                     fontWeight: 500,
-                    color: "#D5D0C8",
+                    color: "#3A3735",
                     lineHeight: 1.5,
                     letterSpacing: "0.04em",
                   }}
@@ -547,21 +542,21 @@ function TableHeader() {
 function SkeletonRow({ delay }: { delay: number }) {
   return (
     <div
-      className="flex items-center gap-3 px-4 border-b border-[#F0EDE8]"
+      className="flex items-center gap-3 px-4 border-b border-[rgba(255,255,255,0.06)]"
       style={{ paddingTop: 10, paddingBottom: 10, animationDelay: `${delay}ms` }}
     >
-      <div className="w-5 h-3 bg-[#EDEAE3] rounded animate-pulse shrink-0" />
+      <div className="w-5 h-3 bg-[#1C1C1C] rounded animate-pulse shrink-0" />
       <div className="flex-1 space-y-1.5">
-        <div className="h-3 w-28 bg-[#EDEAE3] rounded animate-pulse" />
-        <div className="h-2.5 w-20 bg-[#EDEAE3] rounded animate-pulse" />
+        <div className="h-3 w-28 bg-[#1C1C1C] rounded animate-pulse" />
+        <div className="h-2.5 w-20 bg-[#1C1C1C] rounded animate-pulse" />
       </div>
       <div className="flex gap-2 shrink-0">
         {[0, 1, 2].map((j) => (
           <div key={j} className="flex flex-col items-center gap-1.5" style={{ width: 52 }}>
-            <div className="w-7 h-7 bg-[#EDEAE3] rounded animate-pulse" />
-            <div className="w-8 h-2 bg-[#EDEAE3] rounded animate-pulse" />
-            <div className="w-6 h-2 bg-[#EDEAE3] rounded animate-pulse" />
-            <div className="w-7 h-2 bg-[#EDEAE3] rounded animate-pulse" />
+            <div className="w-7 h-7 bg-[#1C1C1C] rounded animate-pulse" />
+            <div className="w-8 h-2 bg-[#1C1C1C] rounded animate-pulse" />
+            <div className="w-6 h-2 bg-[#1C1C1C] rounded animate-pulse" />
+            <div className="w-7 h-2 bg-[#1C1C1C] rounded animate-pulse" />
           </div>
         ))}
       </div>
@@ -730,7 +725,7 @@ export default function StrategienPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative min-h-screen bg-[#F5F3EF]">
+    <div className="relative min-h-screen bg-[#0D0D0D]">
       <PageHeader isConnected={isConnected} />
 
       <SystemStrip
@@ -751,12 +746,12 @@ export default function StrategienPage() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-5 p-3.5 rounded-xl border border-[#C42B2B]/20 bg-[#C42B2B]/[0.04] text-sm text-[#C42B2B] flex items-start gap-3"
+              className="mb-5 p-3.5 rounded-xl border border-[#F05252]/20 bg-[#F05252]/[0.06] text-sm text-[#F05252] flex items-start gap-3"
             >
               <span className="mt-0.5 shrink-0">⚠</span>
               <div>
                 Backend kjører ikke.{" "}
-                <code className="text-[11px] font-mono bg-[#C42B2B]/[0.08] px-1 rounded">
+                <code className="text-[11px] font-mono bg-[#F05252]/[0.1] px-1 rounded">
                   .\start-dev.ps1
                 </code>
               </div>
@@ -787,7 +782,7 @@ export default function StrategienPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="mb-4 text-[12px] text-[#ADA9A2]"
+              className="mb-4 text-[12px] text-[#4A4744]"
             >
               Velg et system ovenfor, eller klikk H / U / B for å bygge din egen kupong.
             </motion.p>
@@ -800,7 +795,7 @@ export default function StrategienPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="mb-4 text-[12px] text-[#ADA9A2]"
+              className="mb-4 text-[12px] text-[#4A4744]"
             >
               {activeSystem?.category === "A"
                 ? `${activeSystem.name} — ${activeSystem.rows.toLocaleString("nb-NO")} rekker, fullt implementert. Klikk Debug for å se rekker.`
@@ -818,22 +813,22 @@ export default function StrategienPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 4 }}
               transition={{ duration: 0.25 }}
-              className="mb-4 rounded-xl border border-[#E4E1DA] bg-white overflow-hidden"
+              className="mb-4 rounded-xl border border-[rgba(255,255,255,0.07)] bg-[#141414] overflow-hidden"
             >
               {/* Header */}
-              <div className="flex items-center gap-2 px-4 py-2 bg-[#FAF9F7] border-b border-[#E4E1DA]">
-                <span className="text-[9px] font-semibold text-[#D4930A] uppercase tracking-widest">
+              <div className="flex items-center gap-2 px-4 py-2 bg-[#0D0D0D] border-b border-[rgba(255,255,255,0.07)]">
+                <span className="text-[9px] font-semibold text-[#F5C030] uppercase tracking-widest">
                   Explain
                 </span>
-                <span className="text-[9px] text-[#ADA9A2] font-medium">
+                <span className="text-[9px] text-[#4A4744] font-medium">
                   · {activeSystem?.name}
                 </span>
                 {activeSystem?.category === "A" ? (
-                  <span className="ml-auto text-[9px] text-[#C8C4BC]">
+                  <span className="ml-auto text-[9px] text-[#3A3735]">
                     Kategori A · rangbasert · hover for begrunnelse · konsoll for fullt sett
                   </span>
                 ) : (
-                  <span className="ml-auto text-[9px] text-[#C8C4BC] tabular-nums">
+                  <span className="ml-auto text-[9px] text-[#3A3735] tabular-nums">
                     terskel {explainData[0]?.threshold.toFixed(3)} · hover for begrunnelse · konsoll for fullt sett
                   </span>
                 )}
@@ -841,16 +836,16 @@ export default function StrategienPage() {
 
               {/* Column headers */}
               <div
-                className="grid px-4 py-1.5 border-b border-[#F0EDE8] bg-[#FAF9F7]"
+                className="grid px-4 py-1.5 border-b border-[rgba(255,255,255,0.06)] bg-[#0D0D0D]"
                 style={{ gridTemplateColumns: "20px 1fr 56px 44px 88px 80px 56px" }}
               >
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">#</span>
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Kamp</span>
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest text-right">Score</span>
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest text-right">Rank</span>
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Pop.</span>
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Type</span>
-                <span className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-widest">Tegn</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">#</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Kamp</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest text-right">Score</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest text-right">Rank</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Pop.</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Type</span>
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-widest">Tegn</span>
               </div>
 
               {/* Data rows sorted by coverage rank */}
@@ -864,7 +859,7 @@ export default function StrategienPage() {
                   return (
                     <div
                       key={ex.matchNumber}
-                      className="grid items-center px-4 border-b border-[#F0EDE8] last:border-0 cursor-default"
+                      className="grid items-center px-4 border-b border-[rgba(255,255,255,0.06)] last:border-0 cursor-default"
                       style={{
                         gridTemplateColumns: "20px 1fr 56px 44px 88px 80px 56px",
                         paddingTop: 5,
@@ -873,29 +868,29 @@ export default function StrategienPage() {
                       }}
                       title={ex.reason}
                     >
-                      <span className="text-[10px] tabular-nums text-[#C8C4BC]">{ex.matchNumber}</span>
-                      <span className="text-[11px] text-[#111110] truncate pr-2">
+                      <span className="text-[10px] tabular-nums text-[#3A3735]">{ex.matchNumber}</span>
+                      <span className="text-[11px] text-[#E8E4DD] truncate pr-2">
                         {m.home_team} – {m.away_team}
                       </span>
-                      <span className="text-[10px] tabular-nums text-[#ADA9A2] text-right">{ex.coverageScore.toFixed(3)}</span>
-                      <span className="text-[10px] tabular-nums text-[#ADA9A2] text-right">{ex.coverageRank}/{matches.length}</span>
+                      <span className="text-[10px] tabular-nums text-[#4A4744] text-right">{ex.coverageScore.toFixed(3)}</span>
+                      <span className="text-[10px] tabular-nums text-[#4A4744] text-right">{ex.coverageRank}/{matches.length}</span>
                       <span className={cn(
                         "text-[9px] font-semibold",
-                        isAnchorOnly ? "text-[#C8C4BC]" : "text-[#15803D]",
+                        isAnchorOnly ? "text-[#3A3735]" : "text-[#22C55E]",
                       )}>
                         {isAnchorOnly ? "Anchor-only" : "Eligible"}
                       </span>
                       <span className={cn(
                         "text-[9px] font-medium",
-                        ex.coverageType === "key"     ? "text-[#15803D]" :
-                        ex.coverageType === "reserve" ? "text-[#D4930A]" :
-                        "text-[#ADA9A2]",
+                        ex.coverageType === "key"     ? "text-[#22C55E]" :
+                        ex.coverageType === "reserve" ? "text-[#F5C030]" :
+                        "text-[#4A4744]",
                       )}>
                         {ex.coverageType === "key"     ? "Helgardering" :
                          ex.coverageType === "reserve" ? "Halvgardering" :
                          "Singel"}
                       </span>
-                      <span className="text-[11px] font-semibold tabular-nums text-[#111110]">
+                      <span className="text-[11px] font-semibold tabular-nums text-[#E8E4DD]">
                         {signs || "—"}
                       </span>
                     </div>
@@ -907,31 +902,31 @@ export default function StrategienPage() {
                 const ok = rowMatrix.length === activeSystem.rows;
                 const previewN = Math.min(5, rowMatrix.length);
                 return (
-                  <div className="px-4 py-3 bg-[#FAF9F7] border-t border-[#E4E1DA]">
+                  <div className="px-4 py-3 bg-[#0D0D0D] border-t border-[rgba(255,255,255,0.07)]">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[9px] font-semibold text-[#ADA9A2] uppercase tracking-widest">
+                      <span className="text-[9px] font-semibold text-[#4A4744] uppercase tracking-widest">
                         Genererte rader
                       </span>
                       <span className={cn(
                         "text-[11px] font-bold tabular-nums",
-                        ok ? "text-[#15803D]" : "text-[#C42B2B]",
+                        ok ? "text-[#22C55E]" : "text-[#F05252]",
                       )}>
                         {rowMatrix.length.toLocaleString("nb-NO")} / {activeSystem.rows.toLocaleString("nb-NO")} {ok ? "✓" : "✗"}
                       </span>
-                      <span className="text-[9px] text-[#C8C4BC] ml-1">
+                      <span className="text-[9px] text-[#3A3735] ml-1">
                         (3<sup>{activeSystem.n_full}</sup> × 2<sup>{activeSystem.n_half}</sup>)
                       </span>
                     </div>
                     <div className="font-mono space-y-0.5">
                       {rowMatrix.slice(0, previewN).map((row, i) => (
                         <div key={i} className="flex items-center gap-0.5">
-                          <span className="text-[8px] text-[#D5D0C8] w-4 text-right shrink-0 mr-1">{i + 1}.</span>
+                          <span className="text-[8px] text-[#3A3735] w-4 text-right shrink-0 mr-1">{i + 1}.</span>
                           {row.map((sign, j) => (
                             <span
                               key={j}
                               className="text-[8px] w-4 text-center leading-none"
                               style={{
-                                color: sign === "H" ? "#111110" : sign === "U" ? "#D4930A" : "#0284C7",
+                                color: sign === "H" ? "#E8E4DD" : sign === "U" ? "#F5C030" : "#6098F2",
                                 fontWeight: sign === "U" ? 700 : 600,
                               }}
                             >
@@ -941,7 +936,7 @@ export default function StrategienPage() {
                         </div>
                       ))}
                       {rowMatrix.length > previewN && (
-                        <div className="text-[8px] text-[#C8C4BC] pl-5 mt-1">
+                        <div className="text-[8px] text-[#4A4744] pl-5 mt-1">
                           … og {(rowMatrix.length - previewN).toLocaleString("nb-NO")} rader til
                         </div>
                       )}
@@ -955,7 +950,7 @@ export default function StrategienPage() {
 
         {/* Match table */}
         <motion.div
-          className="rounded-xl border border-[#E4E1DA] bg-white overflow-hidden"
+          className="rounded-xl border border-[rgba(255,255,255,0.07)] bg-[#141414] overflow-hidden"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
@@ -967,7 +962,7 @@ export default function StrategienPage() {
               <SkeletonRow key={i} delay={i * 40} />
             ))
           ) : matches.length === 0 ? (
-            <div className="py-16 text-center text-[13px] text-[#ADA9A2]">
+            <div className="py-16 text-center text-[13px] text-[#4A4744]">
               Ingen kampdata tilgjengelig
             </div>
           ) : (
@@ -991,7 +986,7 @@ export default function StrategienPage() {
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="mt-4 text-[11px] text-[#ADA9A2]"
+            className="mt-4 text-[11px] text-[#4A4744]"
           >
             {activeSystem?.category === "A"
               ? `${activeSystem.name}: ${activeSystem.rows.toLocaleString("nb-NO")} eksakte rekker generert som kartesisk produkt (3²ⁿ × 2ⁿ). Ingen reduksjonsmatrise nødvendig.`

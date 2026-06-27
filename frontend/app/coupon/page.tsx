@@ -10,8 +10,8 @@ import { StrategySelector } from "@/components/StrategySelector";
 import { BudgetSelector } from "@/components/BudgetSelector";
 import { MetricsRow } from "@/components/MetricsRow";
 import { MatchTable } from "@/components/MatchTable";
-import { LogoMark } from "@/components/LogoMark";
 import { cn, secsUntil } from "@/lib/utils";
+import { Logo } from "@/components/brand/Logo";
 
 const BUDGETS = [32, 96, 192, 384] as const;
 
@@ -34,20 +34,25 @@ function optimizeRefetchInterval(deadlineSecs: number): number {
 
 function TopBar({ isConnected, weekLabel }: { isConnected: boolean; weekLabel?: string }) {
   return (
-    <header className="sticky top-0 z-20 bg-white border-b border-[#E4E1DA]">
-      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 flex items-center justify-between" style={{ height: 52 }}>
+    <header
+      className="sticky top-0 z-20"
+      style={{
+        background: "#070709",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        height: 52,
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 w-full flex items-center justify-between">
+        {/* Wordmark */}
         <motion.div
-          className="flex items-center gap-3"
+          className="flex items-center gap-2.5"
           initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
         >
-          <LogoMark size={32} />
-          <span className="text-[17px] font-black tracking-tight select-none">
-            <span className="text-[#111110]">Tippe</span>
-            <span className="text-[#D4930A]">Q</span>
-            <span className="text-[#111110]">pongen</span>
-          </span>
+          <Logo size="sm" theme="dark" />
           <AnimatePresence>
             {weekLabel && (
               <motion.span
@@ -55,7 +60,20 @@ function TopBar({ isConnected, weekLabel }: { isConnected: boolean; weekLabel?: 
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.88 }}
                 transition={{ duration: 0.25 }}
-                className="hidden sm:inline-flex items-center h-5 px-2 rounded border border-[#E4E1DA] bg-[#FAF9F7] text-[10px] font-semibold text-[#ADA9A2] tracking-wide"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  height: 20,
+                  padding: "0 8px",
+                  borderRadius: 4,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.03)",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "#4A4744",
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "0.04em",
+                }}
               >
                 {weekLabel}
               </motion.span>
@@ -63,23 +81,34 @@ function TopBar({ isConnected, weekLabel }: { isConnected: boolean; weekLabel?: 
           </AnimatePresence>
         </motion.div>
 
+        {/* Connection status */}
         <motion.div
           className="flex items-center gap-2"
           initial={{ opacity: 0, x: 8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
         >
-          <span className="relative flex h-2 w-2">
-            <span className={cn(
-              "absolute inline-flex h-full w-full rounded-full opacity-60",
-              isConnected ? "bg-[#15803D] animate-ping" : "bg-[#C42B2B]",
-            )} />
-            <span className={cn(
-              "relative inline-flex rounded-full h-2 w-2",
-              isConnected ? "bg-[#15803D]" : "bg-[#C42B2B]",
-            )} />
+          <span className="relative flex h-1.5 w-1.5 shrink-0">
+            {isConnected && (
+              <span
+                className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
+                style={{ background: "#22C55E" }}
+              />
+            )}
+            <span
+              className="relative inline-flex rounded-full h-1.5 w-1.5"
+              style={{ background: isConnected ? "#22C55E" : "#F05252" }}
+            />
           </span>
-          <span className="text-[11px] text-[#ADA9A2] font-medium hidden sm:block">
+          <span
+            className="hidden sm:block"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              fontWeight: 500,
+              color: "#3A3735",
+            }}
+          >
             {isConnected ? "tilkoblet" : "frakoblet"}
           </span>
         </motion.div>
@@ -97,19 +126,46 @@ function ControlsStrip({
   budget: number;    onBudget:   (b: number) => void;
 }) {
   return (
-    <div className="sticky top-[52px] z-10 bg-[#FAF9F7] border-b border-[#E4E1DA]">
-      <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-3">
-        <div className="flex flex-col sm:flex-row gap-2.5 sm:items-center sm:gap-8">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <span className="text-[9px] font-semibold text-[#ADA9A2] uppercase tracking-widest shrink-0 hidden sm:block">
+    <div
+      className="sticky top-[52px] z-10"
+      style={{ background: "#070709", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+    >
+      <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
+        <div className="flex items-center h-11 gap-0">
+          {/* Strategy */}
+          <div
+            className="flex items-center gap-4 pr-5 h-full"
+            style={{ borderRight: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <span
+              className="hidden sm:block shrink-0"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 9,
+                fontWeight: 600,
+                color: "#2E2C2A",
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+              }}
+            >
               Strategi
             </span>
-            <div className="flex-1 min-w-0">
-              <StrategySelector variant="horizontal" selected={strategy} onSelect={onStrategy} />
-            </div>
+            <StrategySelector variant="horizontal" selected={strategy} onSelect={onStrategy} />
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <span className="text-[9px] font-semibold text-[#ADA9A2] uppercase tracking-widest shrink-0 hidden sm:block">
+
+          {/* Budget */}
+          <div className="flex items-center gap-4 pl-5 h-full">
+            <span
+              className="hidden sm:block shrink-0"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 9,
+                fontWeight: 600,
+                color: "#2E2C2A",
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+              }}
+            >
               Budsjett
             </span>
             <BudgetSelector variant="horizontal" budgets={[...BUDGETS]} selected={budget} onSelect={onBudget} />
@@ -126,13 +182,68 @@ function ShapeStrip({ n_singles, n_halvdekk, n_heldekk }: {
   n_singles: number; n_halvdekk: number; n_heldekk: number;
 }) {
   return (
-    <div className="px-4 py-2.5 text-[11px] text-[#6B6862]">
-      <span className="text-[9px] text-[#ADA9A2] uppercase tracking-widest font-semibold mr-3">Form</span>
-      <span className="font-semibold text-[#111110]">{n_singles}</span> Singel
-      <span className="text-[#C8C4BC] mx-2">·</span>
-      <span className={cn("font-semibold", n_halvdekk > 0 ? "text-[#6B6862]" : "text-[#ADA9A2]")}>{n_halvdekk}</span> Halvdekk
-      <span className="text-[#C8C4BC] mx-2">·</span>
-      <span className={cn("font-semibold", n_heldekk > 0 ? "text-[#15803D]" : "text-[#ADA9A2]")}>{n_heldekk}</span> Heldekk
+    <div
+      className="px-5 py-2.5 flex items-center gap-5"
+      style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 9,
+          fontWeight: 600,
+          color: "#2E2C2A",
+          textTransform: "uppercase",
+          letterSpacing: "0.12em",
+        }}
+      >
+        Form
+      </span>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1.5">
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#E8E4DD",
+              lineHeight: 1,
+            }}
+          >
+            {n_singles}
+          </span>
+          <span style={{ fontSize: 10, color: "#4A4744" }}>singel</span>
+        </div>
+        <span style={{ color: "rgba(255,255,255,0.07)", fontSize: 12 }}>·</span>
+        <div className="flex items-center gap-1.5">
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              color: n_halvdekk > 0 ? "#7A7673" : "#2E2C2A",
+              lineHeight: 1,
+            }}
+          >
+            {n_halvdekk}
+          </span>
+          <span style={{ fontSize: 10, color: n_halvdekk > 0 ? "#4A4744" : "#2E2C2A" }}>halvdekk</span>
+        </div>
+        <span style={{ color: "rgba(255,255,255,0.07)", fontSize: 12 }}>·</span>
+        <div className="flex items-center gap-1.5">
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              color: n_heldekk > 0 ? "#22C55E" : "#2E2C2A",
+              lineHeight: 1,
+            }}
+          >
+            {n_heldekk}
+          </span>
+          <span style={{ fontSize: 10, color: n_heldekk > 0 ? "#4A4744" : "#2E2C2A" }}>heldekk</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -224,11 +335,11 @@ export default function CouponPage() {
     : undefined;
 
   return (
-    <div className="relative min-h-screen bg-[#F5F3EF]">
+    <div className="pl-12 min-h-screen" style={{ background: "#070709" }}>
       <TopBar isConnected={isConnected} weekLabel={weekLabel} />
       <ControlsStrip strategy={strategy} onStrategy={setStrategy} budget={budget} onBudget={setBudget} />
 
-      <main className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="max-w-screen-xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
         {/* Offline banner */}
         <AnimatePresence>
           {isApiOffline && (
@@ -236,12 +347,12 @@ export default function CouponPage() {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              className="mb-5 p-3.5 rounded-xl border border-[#C42B2B]/20 bg-[#C42B2B]/[0.04] text-sm text-[#C42B2B] flex items-start gap-3"
+              className="mb-5 p-3.5 rounded-xl border border-[#F05252]/20 bg-[#F05252]/[0.06] text-sm text-[#F05252] flex items-start gap-3"
             >
               <span className="mt-0.5 shrink-0">⚠</span>
               <div>
                 Backend kjører ikke.{" "}
-                <code className="text-[11px] font-mono bg-[#C42B2B]/[0.08] px-1 rounded">
+                <code className="text-[11px] font-mono bg-[#F05252]/[0.1] px-1 rounded">
                   .\start-dev.ps1
                 </code>
               </div>
@@ -251,7 +362,7 @@ export default function CouponPage() {
 
         {/* Coupon tabs */}
         <motion.div
-          className="mb-6 sm:mb-8"
+          className="mb-5"
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
@@ -264,7 +375,7 @@ export default function CouponPage() {
           />
         </motion.div>
 
-        {/* Metrics */}
+        {/* Metrics strip */}
         <div className="mb-4">
           <MetricsRow result={result} isLoading={isLoading} />
         </div>
