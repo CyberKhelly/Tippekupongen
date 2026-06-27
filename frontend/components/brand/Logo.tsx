@@ -4,14 +4,13 @@ import { cn } from "@/lib/utils";
 
 // ─── Source: TippeQPongen_assets/08-dashboard.svg
 //
-// No modifications to colors, shapes, or the icon bars.
-// Changes vs. the source card asset:
-//   • "AI FOOTBALL ANALYTICS" subtitle removed from all renders.
-//   • Outer card rect removed on light theme (bars + wordmark only).
-//   • Wordmark repositioned from x=196 → x=148 for tight premium spacing.
-//   • viewBox reframed to the live content ("62 65 258 53") for light theme.
-//   • Card retained on dark theme because the bar/text fill (#0F0F10) is
-//     invisible against dark surfaces — a proper dark SVG variant is needed.
+// Typography refinements:
+//   • Gap closed: wordmark x=148 → x=138 (≈6 px closer at sm, ≈9 px at lg)
+//   • Weight unified: fontWeight 600 throughout (was 500/700 split)
+//   • Gold reserved for icon only: wordmark is #0F0F10 throughout (Option A)
+//   • Optical center: text y=102 → y=110 so both mark and wordmark share
+//     visual center y≈93 (icon y=72–114, text cap y≈77–110)
+//   • viewBox updated to "62 66 258 60" to match repositioned text
 
 const FONT = "Geist, Inter, 'Helvetica Neue', Arial, sans-serif";
 
@@ -31,36 +30,45 @@ function Bars() {
   );
 }
 
-// ── Light / stripped: no card, no subtitle ────────────────────────────────────
+// ── Light / stripped ──────────────────────────────────────────────────────────
 //
-// viewBox "62 65 258 53":
-//   x  62–320  →  4 px left of leftmost bar, ~21 px right of text end
-//   y  65–118  →  4 px above cap-height, 4 px below icon baseline
+// Geometry:
+//   Icon bars:  x=66–126, y=72–114 (floor line at 114), visual center y≈93
+//   Wordmark:   baseline y=110, cap-top ≈y=77, visual center y≈93.5
+//   → Icon and wordmark share the same optical vertical center. ✓
 //
-// Wordmark at x=148: 22.5 unit gap after rightmost bar edge (x≈125.5),
-// scales to ≈10 px at sm and ≈24 px at lg — Vercel / Linear territory.
+//   Gap (icon right ≈x=125.5 → text x=138) = 12.5 viewBox units
+//   → ~7 px at sm (28 px), ~8 px at md (40 px), ~12 px at lg (56 px)
+//
+// viewBox "62 66 258 60"
+//   y 66–126: 6 px margin above icon (72), 6 px below text descenders (~120)
 
 function FullLight({ width, height }: { width: number; height: number }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg"
-         viewBox="62 65 258 53"
+         viewBox="62 66 258 60"
          width={width} height={height}
          style={{ display: "block", flexShrink: 0 }}
          role="img" aria-label="TippeIQ">
       <Bars />
-      <text x="148" y="102"
-            fontFamily={FONT} fontSize="46" letterSpacing="-1.5" fill="#0F0F10">
-        <tspan fontWeight="500">Tippe</tspan><tspan fontWeight="700">IQ</tspan>
+      <text
+        x="138" y="110"
+        fontFamily={FONT}
+        fontSize="46"
+        fontWeight="600"
+        letterSpacing="-1.5"
+        fill="#0F0F10"
+      >
+        TippeIQ
       </text>
     </svg>
   );
 }
 
-// ── Dark / card: card retained for contrast, subtitle removed ─────────────────
+// ── Dark / card ───────────────────────────────────────────────────────────────
 //
-// The SVG elements use #0F0F10, which is invisible on dark surfaces.
-// Until a dark-variant SVG is produced, the source card (fill #F8F6F1)
-// provides necessary contrast.  Text kept at original x=196, y=92.
+// Source card dimensions preserved (viewBox "0 0 600 180"). Subtitle removed.
+// Weight updated to 600 for consistency with light variant.
 
 function FullDark({ width, height }: { width: number; height: number }) {
   return (
@@ -72,18 +80,23 @@ function FullDark({ width, height }: { width: number; height: number }) {
       <rect x="0.5" y="0.5" width="599" height="179" rx="26" fill="#F8F6F1" stroke="#E7E3D9" />
       <rect x="40"  y="34"  width="112" height="112" rx="26" fill="#F8F6F1" stroke="#E7E3D9" />
       <Bars />
-      <text x="196" y="92"
-            fontFamily={FONT} fontSize="46" letterSpacing="-1.5" fill="#0F0F10">
-        <tspan fontWeight="500">Tippe</tspan><tspan fontWeight="700">IQ</tspan>
+      <text
+        x="196" y="92"
+        fontFamily={FONT}
+        fontSize="46"
+        fontWeight="600"
+        letterSpacing="-1.5"
+        fill="#0F0F10"
+      >
+        TippeIQ
       </text>
     </svg>
   );
 }
 
-// ── Icon only: bars cropped, no card ─────────────────────────────────────────
+// ── Icon only: bars, no card ──────────────────────────────────────────────────
 //
-// viewBox "62 66 68 52":  x 62–130, y 66–118  (bars + baseline with 4 px margin)
-// Natural aspect ratio 68:52 ≈ 1.31:1 — not forced square, matching the art.
+// Natural aspect ratio 68:52 ≈ 1.31:1 (matches the art, not forced square)
 
 function IconLight({ height }: { height: number }) {
   const width = Math.round(height * (68 / 52));
@@ -98,7 +111,6 @@ function IconLight({ height }: { height: number }) {
   );
 }
 
-// Icon for dark surfaces: keep the rounded card so bars are visible
 function IconDark({ size }: { size: number }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg"
@@ -114,10 +126,10 @@ function IconDark({ size }: { size: number }) {
 
 // ── Size tokens ───────────────────────────────────────────────────────────────
 //
-// Full light — height drives width via viewBox 258:53 ratio (≈ 4.87:1)
-//   sm  28 px → 136 px wide    md  40 px → 195 px    lg  56 px → 273 px
+// Full light — viewBox 258:60 → aspect ratio 4.3:1
+//   sm  28 px → 121 px wide    md  40 px → 172 px    lg  56 px → 241 px
 //
-// Full dark — height drives width via source 600:180 ratio (≈ 3.33:1)
+// Full dark — viewBox 600:180 → aspect ratio 3.33:1
 //   sm  32 px → 107 px wide    md  52 px → 173 px    lg  88 px → 293 px
 //
 // Icon — natural 68:52 ratio; size = height
@@ -159,7 +171,7 @@ export function Logo({ variant = "full", size = "md", theme = "light", className
   }
 
   const h = FULL_LIGHT_H[size];
-  const w = Math.round((h * 258) / 53);
+  const w = Math.round((h * 258) / 60);
   return (
     <div className={cn("inline-flex flex-shrink-0 select-none", className)}>
       <FullLight width={w} height={h} />
@@ -167,7 +179,6 @@ export function Logo({ variant = "full", size = "md", theme = "light", className
   );
 }
 
-// Named export for NavRail (exact pixel height, always dark-surface variant)
 export function LogoIcon({ height = 28, theme = "light" as "light" | "dark" } = {}) {
   return theme === "dark"
     ? <IconDark size={height} />
