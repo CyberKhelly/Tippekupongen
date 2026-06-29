@@ -123,6 +123,8 @@ class CouponShape(BaseModel):
 class PayoutSimulation(BaseModel):
     n_winning_sims: int
     p_win_simulated: float
+    p_11: float | None = None
+    p_10: float | None = None
     min: int
     p10: int
     median: int
@@ -422,3 +424,207 @@ class GenerationDetail(GenerationSummary):
     picks: list[GenerationPickResult] = []
     n_total: int = 0
     n_evaluated: int = 0
+
+
+# ── /v1/signals ───────────────────────────────────────────────────────────────
+
+class MatchSignal(BaseModel):
+    match_number: int
+    home_team: str
+    away_team: str
+    fixture_id: str | None = None
+    league_name: str | None = None
+    kickoff_utc: str | None = None
+    recommended_pick: str           # H, U, or B
+    model_prob: float               # model probability of recommended pick (0–100)
+    pub_prob: float | None = None   # public probability of recommended pick (0–100)
+    edge_pp: float | None = None    # model_prob − pub_prob in pp
+    crowd_disagreement_score: float | None = None
+    value_index: float | None = None
+    signal_strength: float = 0.0   # composite ranking score
+    has_public_tips: bool = False
+    prob_h: float = 0.0
+    prob_u: float = 0.0
+    prob_b: float = 0.0
+    pub_prob_h: float | None = None
+    pub_prob_u: float | None = None
+    pub_prob_b: float | None = None
+    stats_signals: list[str] = []
+    classification: str = ""
+    home_logo_url: str | None = None
+    away_logo_url: str | None = None
+
+
+class SignalBoardResponse(BaseModel):
+    coupon_id: str
+    coupon_label: str
+    deadline_utc: str
+    week: int
+    year: int
+    signals: list[MatchSignal]
+
+
+# ── /v1/insights ──────────────────────────────────────────────────────────────
+
+class OddsMovement(BaseModel):
+    open_h: float
+    open_u: float
+    open_b: float
+    current_h: float
+    current_u: float
+    current_b: float
+    n_snapshots: int
+    direction: str    # "steaming" | "drifting" | "stable"
+    bookmaker: str    # e.g. "Pinnacle"
+
+
+class InsightSignal(BaseModel):
+    match_number: int
+    home_team: str
+    away_team: str
+    fixture_id: str | None = None
+    league_name: str | None = None
+    kickoff_utc: str | None = None
+    recommended_pick: str         # H, U, or B — model's argmax
+    prob_h: float                 # model probabilities (0–100)
+    prob_u: float
+    prob_b: float
+    model_prob: float             # model prob of recommended pick (0–100)
+
+    # NT public percentages — coupon product only, never used for betting value
+    pub_prob_h: float | None = None
+    pub_prob_u: float | None = None
+    pub_prob_b: float | None = None
+    pub_prob: float | None = None
+    has_public_tips: bool = False
+    edge_pp: float | None = None               # model − pub in pp (coupon layer only)
+    crowd_disagreement_score: float | None = None
+    value_index: float | None = None
+
+    # 1X2 bookmaker odds and market edge
+    odds_h: float | None = None
+    odds_u: float | None = None
+    odds_b: float | None = None
+    odds_source: str | None = None
+    implied_prob: float | None = None          # de-vigged bookmaker implied prob of rec pick (0–100)
+    market_edge_pp: float | None = None        # model_prob − implied_prob in pp (betting value)
+
+    # Odds movement (Pinnacle snapshots)
+    odds_movement: OddsMovement | None = None
+
+    # Poisson model: BTTS
+    btts_model_prob: float | None = None       # P(BTTS=yes) from Poisson, 0–100
+    btts_yes_odds: float | None = None
+    btts_no_odds: float | None = None
+    btts_bookmaker: str | None = None
+    btts_implied_yes: float | None = None      # de-vigged, 0–100
+    btts_market_edge_pp: float | None = None   # btts_model_prob − btts_implied_yes
+
+    # Poisson model: Over/Under 2.5
+    over_model_prob: float | None = None       # P(over 2.5) from Poisson, 0–100
+    under_model_prob: float | None = None
+    over_25_odds: float | None = None
+    under_25_odds: float | None = None
+    ou_bookmaker: str | None = None
+    over_implied: float | None = None          # de-vigged, 0–100
+    over_market_edge_pp: float | None = None   # over_model_prob − over_implied
+
+    # Poisson inputs (for transparency)
+    xg_home: float | None = None
+    xg_away: float | None = None
+
+    # API-Football prediction signals
+    # winner/direction
+    af_winner_name:     str | None = None   # e.g. "Spain"
+    af_winner_pick:     str | None = None   # "H", "U", or "B" (derived from team IDs)
+    af_winner_agrees:   bool | None = None  # does AF pick match our model pick?
+    af_win_or_draw:     bool | None = None  # double chance flag
+    af_under_over:      float | None = None # positive=Over, negative=Under, None=no signal
+    af_advice:          str | None = None   # text e.g. "Double chance : Spain or draw"
+    # comparison data
+    af_poisson_home:    float | None = None # comparison.poisson_distribution.home (%)
+    af_poisson_away:    float | None = None # comparison.poisson_distribution.away (%)
+    af_goals_home:      float | None = None # comparison.goals.home (%)
+    af_goals_away:      float | None = None # comparison.goals.away (%)
+    # O/U alignment
+    af_ou_agrees:       bool | None = None  # AF under_over direction matches our Poisson O/U call
+
+    # Composite confidence score (0–100)
+    confidence_score:   float | None = None
+
+
+class InsightsResponse(BaseModel):
+    coupon_id: str
+    coupon_label: str
+    deadline_utc: str
+    week: int
+    year: int
+    signals: list[InsightSignal]
+
+
+# ── /v1/bets/* ────────────────────────────────────────────────────────────────
+
+class PaperBet(BaseModel):
+    id: str
+    coupon_id: str | None = None
+    fixture_id: str
+    match_name: str
+    league: str | None = None
+    kickoff_utc: str | None = None
+    market: str
+    outcome: str
+    bookmaker: str
+    ref_odds: float
+    implied_prob: float
+    model_prob: float
+    edge_pp: float
+    stake_nok: float
+    expected_value: float
+    insight_type: str | None = None
+    risk_level: str
+    reason: str | None = None
+    model_quality: str | None = None
+    status: str
+    result_outcome: str | None = None
+    closing_odds: float | None = None
+    clv: float | None = None
+    profit_nok: float | None = None
+    created_at: str
+    settled_at: str | None = None
+
+
+class BankrollPoint(BaseModel):
+    bet_index: int
+    bankroll_after: float
+    label: str
+    market: str | None = None
+    outcome: str | None = None
+    profit_nok: float | None = None
+    odds: float | None = None
+    settled_at: str | None = None
+
+
+class BetSummary(BaseModel):
+    starting_bankroll: float
+    current_bankroll: float
+    total_staked: float
+    total_profit: float
+    roi: float | None = None
+    n_won: int
+    n_lost: int
+    n_pending: int
+    hit_rate: float | None = None
+    avg_clv: float | None = None
+    by_market: dict
+
+
+class GenerateBetsResponse(BaseModel):
+    created: int
+    skipped: int
+    bets: list[PaperBet]
+
+
+class ScanResponse(BaseModel):
+    scan: dict
+    candidates: dict
+    duration_s: float

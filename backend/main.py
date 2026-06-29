@@ -27,12 +27,15 @@ from analysis.pool_value import (
 )
 from backend.pipeline import build_matches, parse_coupon_id
 from backend.schemas import (
+    BankrollPoint,
+    BetSummary,
     CdsValidationBucket,
     ConvictionStat,
     CouponDetail,
     CouponListItem,
     CouponMatchRaw,
     CouponShape,
+    GenerateBetsResponse,
     GenerationAnalytics,
     GenerationDetail,
     GenerationPickResult,
@@ -40,13 +43,20 @@ from backend.schemas import (
     HistoryCouponDetail,
     HistoryCouponItem,
     HistoryPickItem,
+    InsightSignal,
+    InsightsResponse,
     MatchEnrichment,
     MatchResult,
+    MatchSignal,
     NtComparison,
+    OddsMovement,
     OptimizeRequest,
     OptimizeResponse,
+    PaperBet,
     PayoutSimulation,
     RecentMatch,
+    SignalBoardResponse,
+    ScanResponse,
     StrategyPerformance,
     SyncAccepted,
     SyncStatus,
@@ -675,3 +685,1131 @@ def sync_full(background_tasks: BackgroundTasks):
     from backend.scheduler import do_daily_sync
     background_tasks.add_task(do_daily_sync, force=True)
     return SyncAccepted(accepted=True, message="Full sync started in background")
+
+
+# ── Signal board ──────────────────────────────────────────────────────────────
+
+@app.get("/v1/signals", response_model=SignalBoardResponse)
+def get_signal_board(coupon_id: str | None = None):
+    """
+    All matches for the active coupon, ranked by signal strength.
+
+    Signal strength = max(0, edge_pp) × (1 + CDS/100).
+    Runs the model pipeline only — no optimizer.
+    """
+    from db.coupon import list_active_coupons, get_coupon_matches
+
+    # Resolve coupon + metadata
+    resolved_id = coupon_id
+    coupon_label = ""
+    deadline_utc = ""
+    week = 0
+    year = 0
+
+    if resolved_id is None:
+        try:
+            active = list_active_coupons()
+            if active:
+                c = active[0]
+                resolved_id   = c["coupon_id"]
+                coupon_label  = c.get("label", "")
+                deadline_utc  = c.get("deadline_utc", "")
+                week          = c.get("week", 0)
+                year          = c.get("year", 0)
+        except Exception:
+            pass
+
+    if resolved_id is None:
+        raise HTTPException(status_code=404, detail="No active coupon found")
+
+    if not coupon_label:
+        _key, week, year = parse_coupon_id(resolved_id)
+        try:
+            from db.coupon import list_coupons as _db_list
+            for c in _db_list(week=week, year=year):
+                if c["coupon_id"] == resolved_id:
+                    coupon_label = c.get("label", resolved_id)
+                    deadline_utc = c.get("deadline_utc", "")
+                    break
+        except Exception:
+            coupon_label = resolved_id
+
+    # Kickoff times from DB
+    kickoff_map: dict[int, str | None] = {}
+    try:
+        for r in get_coupon_matches(resolved_id):
+            kickoff_map[r["match_number"]] = r.get("kickoff_utc")
+    except Exception:
+        pass
+
+    # League names + logos from enrichment
+    league_map: dict[int, str | None] = {}
+    logo_map: dict[int, dict] = {}
+    try:
+        from db.enrichment import get_coupon_enrichment as _get_enr
+        for r in _get_enr(resolved_id):
+            league_map[r["match_number"]] = r.get("league_name")
+            logo_map[r["match_number"]] = {
+                "home": r.get("home_logo_url"),
+                "away": r.get("away_logo_url"),
+            }
+    except Exception:
+        pass
+
+    # Model pipeline (no optimizer)
+    try:
+        matches = build_matches(resolved_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Coupon '{resolved_id}' not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    signals: list[MatchSignal] = []
+    for m in matches:
+        probs = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+        rec = max(probs, key=lambda k: probs[k])  # argmax
+        model_prob = probs[rec]
+
+        pub_prob_map = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}
+        pub_prob = pub_prob_map[rec]
+
+        edge_pp = round((model_prob - pub_prob) * 100, 1) if pub_prob is not None else None
+
+        values = {"H": m.value_h, "U": m.value_u, "B": m.value_b}
+        value_index = values[rec]
+
+        # Ranking: positive edge boosted by CDS; matches without public data rank last
+        if edge_pp is not None:
+            cds_boost = 1.0 + (m.crowd_disagreement_score or 0.0) / 100.0
+            strength = max(0.0, edge_pp) * cds_boost
+        elif m.crowd_disagreement_score is not None:
+            strength = m.crowd_disagreement_score * 0.1
+        else:
+            strength = 0.0
+
+        signals.append(MatchSignal(
+            match_number=m.number,
+            home_team=m.home_team,
+            away_team=m.away_team,
+            fixture_id=m.fixture_id,
+            league_name=league_map.get(m.number),
+            kickoff_utc=kickoff_map.get(m.number),
+            recommended_pick=rec,
+            model_prob=round(model_prob * 100, 1),
+            pub_prob=round(pub_prob * 100, 1) if pub_prob is not None else None,
+            edge_pp=edge_pp,
+            crowd_disagreement_score=m.crowd_disagreement_score,
+            value_index=round(value_index, 3) if value_index is not None else None,
+            signal_strength=round(strength, 3),
+            has_public_tips=m.has_public_tips,
+            prob_h=round(m.prob_h * 100, 1),
+            prob_u=round(m.prob_u * 100, 1),
+            prob_b=round(m.prob_b * 100, 1),
+            pub_prob_h=round(m.pub_prob_h * 100, 1) if m.pub_prob_h is not None else None,
+            pub_prob_u=round(m.pub_prob_u * 100, 1) if m.pub_prob_u is not None else None,
+            pub_prob_b=round(m.pub_prob_b * 100, 1) if m.pub_prob_b is not None else None,
+            stats_signals=m.stats_signals,
+            classification=m.classification,
+            home_logo_url=logo_map.get(m.number, {}).get("home"),
+            away_logo_url=logo_map.get(m.number, {}).get("away"),
+        ))
+
+    signals.sort(key=lambda s: s.signal_strength, reverse=True)
+
+    return SignalBoardResponse(
+        coupon_id=resolved_id,
+        coupon_label=coupon_label,
+        deadline_utc=deadline_utc,
+        week=week,
+        year=year,
+        signals=signals,
+    )
+
+
+@app.get("/v1/insights", response_model=InsightsResponse)
+def get_insights(coupon_id: str | None = None):
+    """
+    Active coupon matches enriched with bookmaker odds and Pinnacle snapshot
+    data. The frontend derives insight types (value bet, crowd trap, etc.)
+    from this payload via deriveOddstips().
+    """
+    from db.coupon import list_active_coupons, get_coupon_matches
+    from db.odds_movement import _devig, get_opening_snapshot, get_latest_snapshot, get_snapshots_for_fixture
+    from db.connection import get_conn
+
+    # ── Resolve coupon ────────────────────────────────────────────────────────
+    resolved_id = coupon_id
+    coupon_label = ""
+    deadline_utc = ""
+    week = 0
+    year = 0
+
+    if resolved_id is None:
+        try:
+            active = list_active_coupons()
+            if active:
+                c = active[0]
+                resolved_id  = c["coupon_id"]
+                coupon_label = c.get("label", "")
+                deadline_utc = c.get("deadline_utc", "")
+                week         = c.get("week", 0)
+                year         = c.get("year", 0)
+        except Exception:
+            pass
+
+    if resolved_id is None:
+        raise HTTPException(status_code=404, detail="No active coupon found")
+
+    if not coupon_label:
+        _key, week, year = parse_coupon_id(resolved_id)
+        try:
+            from db.coupon import list_coupons as _db_list
+            for c in _db_list(week=week, year=year):
+                if c["coupon_id"] == resolved_id:
+                    coupon_label = c.get("label", resolved_id)
+                    deadline_utc = c.get("deadline_utc", "")
+                    break
+        except Exception:
+            coupon_label = resolved_id
+
+    # ── Ancillary maps ────────────────────────────────────────────────────────
+    kickoff_map: dict[int, str | None] = {}
+    fixture_id_map: dict[int, str | None] = {}
+    try:
+        for r in get_coupon_matches(resolved_id):
+            kickoff_map[r["match_number"]] = r.get("kickoff_utc")
+            fixture_id_map[r["match_number"]] = r.get("fixture_id")
+    except Exception:
+        pass
+
+    league_map: dict[int, str | None] = {}
+    enrichment_map: dict[int, dict] = {}
+    try:
+        from db.enrichment import get_coupon_enrichment as _get_enr
+        for r in _get_enr(resolved_id):
+            league_map[r["match_number"]] = r.get("league_name")
+            enrichment_map[r["match_number"]] = dict(r)
+    except Exception:
+        pass
+
+    # ── Multi-market odds (BTTS, O/U) from odds_markets table ────────────────
+    # New row-per-selection schema: one row per (fixture_id, market_key, selection).
+    # mkt_odds_map: fixture_id → market_key → {selection: odds, "bookmaker": str}
+    mkt_odds_map: dict[str, dict[str, dict]] = {}
+    try:
+        with get_conn() as conn:
+            mkt_rows = conn.execute(
+                """SELECT om.fixture_id, om.market_key, om.selection, om.odds, om.bookmaker
+                   FROM odds_markets om
+                   JOIN coupon_fixtures cf ON cf.fixture_id = om.fixture_id
+                   WHERE cf.coupon_id = ?
+                   ORDER BY om.updated_at DESC""",
+                (resolved_id,),
+            ).fetchall()
+        for r in mkt_rows:
+            fid = r["fixture_id"]
+            mk  = r["market_key"]
+            sel = r["selection"]
+            if fid not in mkt_odds_map:
+                mkt_odds_map[fid] = {}
+            if mk not in mkt_odds_map[fid]:
+                mkt_odds_map[fid][mk] = {"bookmaker": r["bookmaker"]}
+            mkt_odds_map[fid][mk][sel] = r["odds"]
+    except Exception:
+        pass
+
+    # ── Odds per fixture (latest row, prefer pinnacle > api_football) ─────────
+    odds_map: dict[str, dict] = {}
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                """SELECT o.fixture_id, o.odds_h, o.odds_u, o.odds_b, o.source
+                   FROM odds o
+                   JOIN coupon_fixtures cf ON cf.fixture_id = o.fixture_id
+                   WHERE cf.coupon_id = ?
+                   ORDER BY
+                     CASE o.source
+                       WHEN 'pinnacle' THEN 1
+                       WHEN 'betsson'  THEN 2
+                       ELSE 3
+                     END,
+                     o.fetched_at DESC""",
+                (resolved_id,),
+            ).fetchall()
+        for r in rows:
+            fid = r["fixture_id"]
+            if fid not in odds_map:
+                odds_map[fid] = dict(r)
+    except Exception:
+        pass
+
+    # ── Odds movement (Pinnacle snapshots, ≥2 required) ──────────────────────
+    movement_map: dict[str, OddsMovement] = {}
+    try:
+        with get_conn() as conn:
+            snap_fids = [
+                r[0] for r in conn.execute(
+                    """SELECT DISTINCT s.fixture_id
+                       FROM odds_snapshots s
+                       JOIN coupon_fixtures cf ON cf.fixture_id = s.fixture_id
+                       WHERE cf.coupon_id = ? AND s.bookmaker = 'pinnacle'""",
+                    (resolved_id,),
+                ).fetchall()
+            ]
+        for fid in snap_fids:
+            opening = get_opening_snapshot(fid)
+            latest  = get_latest_snapshot(fid)
+            n       = len(get_snapshots_for_fixture(fid))
+            if opening and latest and n >= 2:
+                diff_h = latest["odds_h"] - opening["odds_h"]
+                if abs(diff_h) < 0.05:
+                    direction = "stable"
+                elif diff_h < 0:
+                    direction = "steaming"
+                else:
+                    direction = "drifting"
+                movement_map[fid] = OddsMovement(
+                    open_h=opening["odds_h"],
+                    open_u=opening["odds_u"],
+                    open_b=opening["odds_b"],
+                    current_h=latest["odds_h"],
+                    current_u=latest["odds_u"],
+                    current_b=latest["odds_b"],
+                    n_snapshots=n,
+                    direction=direction,
+                    bookmaker="Pinnacle",
+                )
+    except Exception:
+        pass
+
+    # ── AF predictions + fixture links ────────────────────────────────────────
+    # pred_map:  fixture_id → prediction row dict
+    # link_map:  fixture_id → {af_home_team_id, af_away_team_id}
+    pred_map: dict[str, dict] = {}
+    link_map: dict[str, dict] = {}
+    try:
+        with get_conn() as conn:
+            pred_rows = conn.execute(
+                """SELECT p.fixture_id, p.af_fixture_id,
+                          p.prediction_winner_id, p.prediction_winner_name,
+                          p.prediction_winner_comment, p.prediction_win_or_draw,
+                          p.prediction_under_over, p.prediction_goals_home,
+                          p.prediction_goals_away, p.advice,
+                          p.comparison_json,
+                          lnk.api_football_home_team_id, lnk.api_football_away_team_id
+                   FROM api_football_predictions p
+                   JOIN coupon_fixtures cf ON cf.fixture_id = p.fixture_id
+                   LEFT JOIN api_football_fixture_links lnk ON lnk.fixture_id = p.fixture_id
+                   WHERE cf.coupon_id = ?""",
+                (resolved_id,),
+            ).fetchall()
+        for r in pred_rows:
+            fid = r["fixture_id"]
+            pred_map[fid] = dict(r)
+            link_map[fid] = {
+                "af_home_team_id": r["api_football_home_team_id"],
+                "af_away_team_id": r["api_football_away_team_id"],
+            }
+    except Exception:
+        pass
+
+    # ── Model pipeline ────────────────────────────────────────────────────────
+    try:
+        matches = build_matches(resolved_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Coupon '{resolved_id}' not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    from analysis.market_models import market_probs_from_enrichment
+    from ingestion.api_football_predictions import compute_confidence_score
+
+    insight_signals: list[InsightSignal] = []
+    for m in matches:
+        probs = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+        rec   = max(probs, key=lambda k: probs[k])
+        model_prob = probs[rec]
+
+        pub_prob_map = {"H": m.pub_prob_h, "U": m.pub_prob_u, "B": m.pub_prob_b}
+        pub_prob = pub_prob_map[rec]
+        edge_pp  = round((model_prob - pub_prob) * 100, 1) if pub_prob is not None else None
+
+        values      = {"H": m.value_h, "U": m.value_u, "B": m.value_b}
+        value_index = values[rec]
+
+        fid      = m.fixture_id
+        odds_row = odds_map.get(fid, {}) if fid else {}
+        odds_h   = odds_row.get("odds_h")
+        odds_u   = odds_row.get("odds_u")
+        odds_b   = odds_row.get("odds_b")
+        odds_src = odds_row.get("source")
+
+        ih_val = iu_val = ib_val = None
+        implied_prob = None
+        market_edge_pp = None
+        if odds_h and odds_u and odds_b:
+            try:
+                ih_val, iu_val, ib_val = _devig(odds_h, odds_u, odds_b)
+                implied_map = {"H": ih_val, "U": iu_val, "B": ib_val}
+                implied_prob = round(implied_map[rec] * 100, 1)
+                market_edge_pp = round(model_prob * 100 - implied_prob, 1)
+            except Exception:
+                pass
+
+        movement = movement_map.get(fid) if fid else None
+
+        # ── Poisson BTTS / O/U probabilities ─────────────────────────────────
+        enr = enrichment_map.get(m.number, {})
+        poisson = market_probs_from_enrichment(enr)
+
+        # BTTS bookmaker odds from odds_markets (row-per-selection schema)
+        btts_yes_odds = btts_no_odds = btts_bkm = btts_implied_yes = btts_mep = None
+        if fid and fid in mkt_odds_map:
+            btts_mkt = mkt_odds_map[fid].get("BTTS", {})
+            _ba = btts_mkt.get("YES")
+            _bb = btts_mkt.get("NO")
+            if _ba and _bb and _ba > 1 and _bb > 1:
+                btts_yes_odds = _ba
+                btts_no_odds  = _bb
+                btts_bkm      = btts_mkt.get("bookmaker")
+                try:
+                    total = 1 / _ba + 1 / _bb
+                    btts_implied_yes = round((1 / _ba / total) * 100, 1)
+                    btts_mep = round(poisson["btts_yes"] * 100 - btts_implied_yes, 1)
+                except Exception:
+                    pass
+
+        # O/U bookmaker odds from odds_markets (row-per-selection schema)
+        over_25_odds = under_25_odds = ou_bkm = over_implied = over_mep = None
+        if fid and fid in mkt_odds_map:
+            ou_mkt = mkt_odds_map[fid].get("OVER_UNDER", {})
+            _oa = ou_mkt.get("OVER")
+            _ob = ou_mkt.get("UNDER")
+            if _oa and _ob and _oa > 1 and _ob > 1:
+                over_25_odds  = _oa
+                under_25_odds = _ob
+                ou_bkm        = ou_mkt.get("bookmaker")
+                try:
+                    total = 1 / _oa + 1 / _ob
+                    over_implied = round((1 / _oa / total) * 100, 1)
+                    over_mep = round(poisson["over_2_5"] * 100 - over_implied, 1)
+                except Exception:
+                    pass
+
+        # ── AF prediction signals ─────────────────────────────────────────────
+        af_pred = pred_map.get(fid) if fid else None
+        af_link = link_map.get(fid) if fid else None
+
+        af_winner_name = af_winner_pick = af_winner_agrees = af_win_or_draw = None
+        af_under_over  = af_advice = af_poisson_home = af_poisson_away = None
+        af_goals_home  = af_goals_away = af_ou_agrees = None
+
+        if af_pred:
+            af_winner_name    = af_pred.get("prediction_winner_name")
+            af_win_or_draw    = bool(af_pred.get("prediction_win_or_draw"))
+            af_advice         = af_pred.get("advice")
+            af_winner_id      = af_pred.get("prediction_winner_id")
+
+            # Parse under_over
+            uo_raw = af_pred.get("prediction_under_over")
+            if uo_raw is not None:
+                try:
+                    af_under_over = float(str(uo_raw))
+                except (ValueError, TypeError):
+                    pass
+
+            # Parse comparison.poisson_distribution and comparison.goals
+            try:
+                comp = json.loads(af_pred.get("comparison_json") or "{}")
+                pois = comp.get("poisson_distribution", {})
+                if pois.get("home") is not None:
+                    try:
+                        af_poisson_home = float(str(pois["home"]).rstrip("%"))
+                    except (ValueError, TypeError):
+                        pass
+                if pois.get("away") is not None:
+                    try:
+                        af_poisson_away = float(str(pois["away"]).rstrip("%"))
+                    except (ValueError, TypeError):
+                        pass
+                goals_comp = comp.get("goals", {})
+                if goals_comp.get("home") is not None:
+                    try:
+                        af_goals_home = float(str(goals_comp["home"]).rstrip("%"))
+                    except (ValueError, TypeError):
+                        pass
+                if goals_comp.get("away") is not None:
+                    try:
+                        af_goals_away = float(str(goals_comp["away"]).rstrip("%"))
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+
+            # Determine AF winner pick (H/U/B) from team IDs
+            if af_link and af_winner_id is not None:
+                if af_winner_id == af_link.get("af_home_team_id"):
+                    af_winner_pick = "H"
+                elif af_winner_id == af_link.get("af_away_team_id"):
+                    af_winner_pick = "B"
+            if af_winner_id is None and af_winner_name is None:
+                af_winner_pick = "U"   # draw
+
+            # Determine agreement with our model
+            if af_winner_pick is not None:
+                if af_win_or_draw:
+                    af_winner_agrees = rec in (af_winner_pick, "U")
+                else:
+                    af_winner_agrees = rec == af_winner_pick
+
+            # O/U alignment with our Poisson model
+            if af_under_over is not None and poisson["has_data"]:
+                our_over_model = poisson["over_2_5"]   # probability 0–1
+                af_says_over = af_under_over > 0
+                we_say_over  = our_over_model > 0.5
+                af_ou_agrees = af_says_over == we_say_over
+
+        # ── Confidence score ──────────────────────────────────────────────────
+        confidence_score = compute_confidence_score(
+            market_edge_pp=market_edge_pp,
+            af_agrees=af_winner_agrees,
+            af_has_data=af_pred is not None,
+            odds_movement_direction=movement.direction if movement else None,
+            has_bookmaker_odds=bool(odds_h),
+            has_odds_movement=movement is not None,
+            af_poisson_home_pct=af_poisson_home,
+            is_home_pick=rec == "H",
+        )
+
+        insight_signals.append(InsightSignal(
+            match_number=m.number,
+            home_team=m.home_team,
+            away_team=m.away_team,
+            fixture_id=fid,
+            league_name=league_map.get(m.number),
+            kickoff_utc=kickoff_map.get(m.number),
+            recommended_pick=rec,
+            prob_h=round(m.prob_h * 100, 1),
+            prob_u=round(m.prob_u * 100, 1),
+            prob_b=round(m.prob_b * 100, 1),
+            model_prob=round(model_prob * 100, 1),
+            pub_prob_h=round(m.pub_prob_h * 100, 1) if m.pub_prob_h is not None else None,
+            pub_prob_u=round(m.pub_prob_u * 100, 1) if m.pub_prob_u is not None else None,
+            pub_prob_b=round(m.pub_prob_b * 100, 1) if m.pub_prob_b is not None else None,
+            pub_prob=round(pub_prob * 100, 1) if pub_prob is not None else None,
+            has_public_tips=m.has_public_tips,
+            edge_pp=edge_pp,
+            crowd_disagreement_score=m.crowd_disagreement_score,
+            value_index=round(value_index, 3) if value_index is not None else None,
+            odds_h=odds_h,
+            odds_u=odds_u,
+            odds_b=odds_b,
+            odds_source=odds_src,
+            implied_prob=implied_prob,
+            market_edge_pp=market_edge_pp,
+            odds_movement=movement,
+            # Poisson
+            btts_model_prob=round(poisson["btts_yes"] * 100, 1) if poisson["has_data"] else None,
+            over_model_prob=round(poisson["over_2_5"] * 100, 1) if poisson["has_data"] else None,
+            under_model_prob=round(poisson["under_2_5"] * 100, 1) if poisson["has_data"] else None,
+            xg_home=poisson["xg_home"] if poisson["has_data"] else None,
+            xg_away=poisson["xg_away"] if poisson["has_data"] else None,
+            btts_yes_odds=btts_yes_odds,
+            btts_no_odds=btts_no_odds,
+            btts_bookmaker=btts_bkm,
+            btts_implied_yes=btts_implied_yes,
+            btts_market_edge_pp=btts_mep,
+            over_25_odds=over_25_odds,
+            under_25_odds=under_25_odds,
+            ou_bookmaker=ou_bkm,
+            over_implied=over_implied,
+            over_market_edge_pp=over_mep,
+            # AF predictions
+            af_winner_name=af_winner_name,
+            af_winner_pick=af_winner_pick,
+            af_winner_agrees=af_winner_agrees,
+            af_win_or_draw=af_win_or_draw,
+            af_under_over=af_under_over,
+            af_advice=af_advice,
+            af_poisson_home=af_poisson_home,
+            af_poisson_away=af_poisson_away,
+            af_goals_home=af_goals_home,
+            af_goals_away=af_goals_away,
+            af_ou_agrees=af_ou_agrees,
+            confidence_score=confidence_score,
+        ))
+
+    return InsightsResponse(
+        coupon_id=resolved_id,
+        coupon_label=coupon_label,
+        deadline_utc=deadline_utc,
+        week=week,
+        year=year,
+        signals=insight_signals,
+    )
+
+
+# ── /v1/bets/* — Modellspill (paper bets) ─────────────────────────────────────
+
+def _bet_to_schema(b: dict) -> PaperBet:
+    return PaperBet(
+        id=b["id"],
+        coupon_id=b.get("coupon_id"),
+        fixture_id=b["fixture_id"],
+        match_name=b["match_name"],
+        league=b.get("league"),
+        kickoff_utc=b.get("kickoff_utc"),
+        market=b["market"],
+        outcome=b["outcome"],
+        bookmaker=b["bookmaker"],
+        ref_odds=b["ref_odds"],
+        implied_prob=b["implied_prob"],
+        model_prob=b["model_prob"],
+        edge_pp=b["edge_pp"],
+        stake_nok=b["stake_nok"],
+        expected_value=b["expected_value"],
+        insight_type=b.get("insight_type"),
+        risk_level=b["risk_level"],
+        reason=b.get("reason"),
+        status=b["status"],
+        result_outcome=b.get("result_outcome"),
+        closing_odds=b.get("closing_odds"),
+        clv=b.get("clv"),
+        profit_nok=b.get("profit_nok"),
+        created_at=b["created_at"],
+        settled_at=b.get("settled_at"),
+    )
+
+
+@app.get("/v1/bets", response_model=list[PaperBet])
+def list_bets(status: str | None = None, market: str | None = None, limit: int = 200):
+    """Return paper bets, optionally filtered by status/market."""
+    from db.paper_bets import list_bets as _list
+    return [_bet_to_schema(b) for b in _list(status=status, market=market, limit=limit)]
+
+
+@app.get("/v1/bets/summary", response_model=BetSummary)
+def get_bet_summary():
+    """Aggregate performance metrics across all settled paper bets."""
+    from db.paper_bets import get_summary
+    return BetSummary(**get_summary())
+
+
+@app.get("/v1/bets/bankroll", response_model=list[BankrollPoint])
+def get_bankroll():
+    """Chronological bankroll series for the equity chart."""
+    from db.paper_bets import get_bankroll_history
+    return [BankrollPoint(**p) for p in get_bankroll_history()]
+
+
+@app.post("/v1/bets/generate", response_model=GenerateBetsResponse)
+def generate_bets(coupon_id: str | None = None):
+    """
+    Generate paper bets for the active coupon based on model edge vs market.
+
+    Rules:
+    - 1X2: market_edge_pp (model_prob − implied_prob) ≥ 5pp
+    - BTTS: btts_market_edge_pp ≥ 5pp  (only when odds_markets has BTTS odds)
+    - Over 2.5: over_market_edge_pp ≥ 5pp  (only when odds_markets has O/U odds)
+    - Bets are idempotent per (fixture_id, market, outcome, coupon_id)
+    """
+    from db.paper_bets import create_bet, bet_exists
+
+    # Re-use the insights endpoint logic to get a fully enriched signal list
+    # (calling the function directly avoids code duplication)
+    insights_resp = get_insights(coupon_id=coupon_id)
+    resolved_coupon_id = insights_resp.coupon_id
+
+    created_bets: list[PaperBet] = []
+    n_skipped = 0
+    MIN_EDGE_PP = 5.0
+
+    for s in insights_resp.signals:
+        fid = s.fixture_id
+        if fid is None:
+            n_skipped += 1
+            continue
+
+        match_name = f"{s.home_team} vs {s.away_team}"
+
+        # ── 1X2 ──────────────────────────────────────────────────────────────
+        if (
+            s.implied_prob is not None
+            and s.market_edge_pp is not None
+            and s.market_edge_pp >= MIN_EDGE_PP
+            and s.odds_h and s.odds_u and s.odds_b
+        ):
+            pick = s.recommended_pick
+            ref_odds_map = {"H": s.odds_h, "U": s.odds_u, "B": s.odds_b}
+            ref_odds = ref_odds_map.get(pick)
+            implied = s.implied_prob / 100 if s.implied_prob else None
+
+            if ref_odds and implied and not bet_exists(fid, "1x2", pick, resolved_coupon_id):
+                insight_type = "longshot" if s.model_prob <= 35 else "value_bet"
+                reason = (
+                    f"Modell {s.model_prob}% vs marked {s.implied_prob}% "
+                    f"(+{s.market_edge_pp:.1f}pp). "
+                    f"Odds: {ref_odds:.2f} ({s.odds_source or 'ukjent'})."
+                )
+                bet_id = create_bet(
+                    fixture_id=fid,
+                    match_name=match_name,
+                    market="1x2",
+                    outcome=pick,
+                    bookmaker=s.odds_source or "ukjent",
+                    ref_odds=ref_odds,
+                    implied_prob=implied,
+                    model_prob=s.model_prob / 100,
+                    edge_pp=s.market_edge_pp,
+                    insight_type=insight_type,
+                    reason=reason,
+                    league=s.league_name,
+                    kickoff_utc=s.kickoff_utc,
+                    coupon_id=resolved_coupon_id,
+                )
+                from db.paper_bets import list_bets as _lb
+                for b in _lb(limit=1):
+                    if b["id"] == bet_id:
+                        created_bets.append(_bet_to_schema(b))
+                        break
+            else:
+                n_skipped += 1
+
+        # ── BTTS ─────────────────────────────────────────────────────────────
+        if (
+            s.btts_model_prob is not None
+            and s.btts_implied_yes is not None
+            and s.btts_market_edge_pp is not None
+            and s.btts_market_edge_pp >= MIN_EDGE_PP
+            and s.btts_yes_odds
+        ):
+            if not bet_exists(fid, "btts", "yes", resolved_coupon_id):
+                reason = (
+                    f"Poisson BTTS {s.btts_model_prob}% vs marked {s.btts_implied_yes}% "
+                    f"(+{s.btts_market_edge_pp:.1f}pp). xG: {s.xg_home}–{s.xg_away}."
+                )
+                bet_id = create_bet(
+                    fixture_id=fid,
+                    match_name=match_name,
+                    market="btts",
+                    outcome="yes",
+                    bookmaker=s.btts_bookmaker or "ukjent",
+                    ref_odds=s.btts_yes_odds,
+                    implied_prob=s.btts_implied_yes / 100,
+                    model_prob=s.btts_model_prob / 100,
+                    edge_pp=s.btts_market_edge_pp,
+                    insight_type="value_bet",
+                    reason=reason,
+                    league=s.league_name,
+                    kickoff_utc=s.kickoff_utc,
+                    coupon_id=resolved_coupon_id,
+                )
+                from db.paper_bets import list_bets as _lb2
+                for b in _lb2(limit=1):
+                    if b["id"] == bet_id:
+                        created_bets.append(_bet_to_schema(b))
+                        break
+            else:
+                n_skipped += 1
+
+        # ── Over 2.5 ─────────────────────────────────────────────────────────
+        if (
+            s.over_model_prob is not None
+            and s.over_implied is not None
+            and s.over_market_edge_pp is not None
+            and s.over_market_edge_pp >= MIN_EDGE_PP
+            and s.over_25_odds
+        ):
+            if not bet_exists(fid, "over_2.5", "over", resolved_coupon_id):
+                reason = (
+                    f"Poisson Over2.5 {s.over_model_prob}% vs marked {s.over_implied}% "
+                    f"(+{s.over_market_edge_pp:.1f}pp). xG: {s.xg_home}–{s.xg_away}."
+                )
+                bet_id = create_bet(
+                    fixture_id=fid,
+                    match_name=match_name,
+                    market="over_2.5",
+                    outcome="over",
+                    bookmaker=s.ou_bookmaker or "ukjent",
+                    ref_odds=s.over_25_odds,
+                    implied_prob=s.over_implied / 100,
+                    model_prob=s.over_model_prob / 100,
+                    edge_pp=s.over_market_edge_pp,
+                    insight_type="value_bet",
+                    reason=reason,
+                    league=s.league_name,
+                    kickoff_utc=s.kickoff_utc,
+                    coupon_id=resolved_coupon_id,
+                )
+                from db.paper_bets import list_bets as _lb3
+                for b in _lb3(limit=1):
+                    if b["id"] == bet_id:
+                        created_bets.append(_bet_to_schema(b))
+                        break
+            else:
+                n_skipped += 1
+
+    return GenerateBetsResponse(
+        created=len(created_bets),
+        skipped=n_skipped,
+        bets=created_bets,
+    )
+
+
+@app.post("/v1/bets/settle/{fixture_id}")
+def settle_bets(fixture_id: str):
+    """Settle pending paper bets for a fixture using match_results."""
+    from db.paper_bets import settle_pending_bets
+    n = settle_pending_bets(fixture_id)
+    return {"settled": n, "fixture_id": fixture_id}
+
+
+def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
+    """
+    Evaluate ALL upcoming fixtures with 1X2 odds.
+
+    Model quality hierarchy:
+      full_model    — enrichment with real goal data → Poisson from seasonal stats
+      af_supported  — no enrichment (or no goal data), but AF Predictions last_5 available
+      generic_prior — no enrichment, no AF predictions → European-average Poisson
+
+    Tier system (edge_pp stored in insight_type):
+      tier_a — edge ≥ 8pp | tier_b — 5–8pp | tier_c — 3–5pp
+
+    Markets: 1X2 · BTTS-yes/no · Over/Under 2.5
+    Coupon ID is NULL for all global candidates.
+    Idempotent via bet_exists().
+    """
+    import json as _json
+    from db.connection import get_conn
+    from db.paper_bets import create_bet, bet_exists
+    from db.odds_movement import _devig
+    from models.match import Match
+    from analysis.probability import process_match
+    from analysis.model import run_model
+    from analysis.market_models import (
+        market_probs_from_enrichment, btts_probability, over_under_probability,
+        win_draw_loss_probability,
+    )
+    from datetime import datetime, timezone
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # European-average Poisson prior (Level 4 — last resort)
+    _EU_HOME_XG = 1.40
+    _EU_AWAY_XG = 1.10
+    _eu_btts_yes = btts_probability(_EU_HOME_XG, _EU_AWAY_XG)
+    _eu_over_25, _eu_under_25 = over_under_probability(_EU_HOME_XG, _EU_AWAY_XG)
+
+    conn = get_conn()
+
+    rows = conn.execute(
+        """SELECT DISTINCT o.fixture_id, o.odds_h, o.odds_u, o.odds_b, o.source,
+                  f.kickoff_utc,
+                  COALESCE(ht.name_local, ht2.name_local, f.home_name) AS home_name,
+                  COALESCE(at.name_local, at2.name_local, f.away_name) AS away_name,
+                  lnk.api_football_fixture_id AS af_id
+           FROM odds o
+           JOIN fixtures f ON f.fixture_id = o.fixture_id
+           LEFT JOIN teams ht  ON ht.team_id   = f.home_team_id
+           LEFT JOIN teams at  ON at.team_id   = f.away_team_id
+           LEFT JOIN api_football_fixture_links lnk ON lnk.fixture_id = o.fixture_id
+           LEFT JOIN teams ht2 ON ht2.external_id = lnk.api_football_home_team_id
+           LEFT JOIN teams at2 ON at2.external_id = lnk.api_football_away_team_id
+           WHERE f.kickoff_utc > ?
+           ORDER BY o.fixture_id, o.fetched_at DESC""",
+        (now_iso,),
+    ).fetchall()
+
+    seen_fids: set[str] = set()
+    fixtures_to_eval: list[dict] = []
+    for r in rows:
+        fid = r["fixture_id"]
+        if fid not in seen_fids:
+            seen_fids.add(fid)
+            fixtures_to_eval.append(dict(r))
+
+    fid_list = [f["fixture_id"] for f in fixtures_to_eval]
+
+    enr_map: dict[str, dict] = {}
+    pred_map: dict[str, str | None] = {}  # fixture_id → raw_json
+    mkt_map: dict[str, dict] = {}
+
+    if fid_list:
+        placeholders = ",".join("?" * len(fid_list))
+        for er in conn.execute(
+            f"SELECT * FROM fixture_stat_enrichment WHERE fixture_id IN ({placeholders})",
+            fid_list,
+        ).fetchall():
+            enr_map[er["fixture_id"]] = dict(er)
+
+        for pr in conn.execute(
+            f"SELECT fixture_id, raw_json FROM api_football_predictions WHERE fixture_id IN ({placeholders})",
+            fid_list,
+        ).fetchall():
+            pred_map[pr["fixture_id"]] = pr["raw_json"]
+
+        for mr in conn.execute(
+            f"SELECT fixture_id, market_key, selection, odds, bookmaker FROM odds_markets WHERE fixture_id IN ({placeholders})",
+            fid_list,
+        ).fetchall():
+            fid = mr["fixture_id"]; mk = mr["market_key"]; sel = mr["selection"]
+            if fid not in mkt_map: mkt_map[fid] = {}
+            if mk not in mkt_map[fid]: mkt_map[fid][mk] = {"bookmaker": mr["bookmaker"]}
+            mkt_map[fid][mk][sel] = mr["odds"]
+
+    conn.close()
+
+    # Parse last_5 goal averages from AF prediction raw JSON → xG estimate
+    def _pred_xg(raw_json: str | None) -> tuple[float, float] | None:
+        if not raw_json:
+            return None
+        try:
+            raw = _json.loads(raw_json)
+            h5 = raw["teams"]["home"]["last_5"]["goals"]
+            a5 = raw["teams"]["away"]["last_5"]["goals"]
+            h_played = int(raw["teams"]["home"]["last_5"].get("played") or 0)
+            a_played = int(raw["teams"]["away"]["last_5"].get("played") or 0)
+            if h_played < 1 or a_played < 1:
+                return None
+            hf = float(h5["for"]["average"])
+            ha = float(h5["against"]["average"])
+            af = float(a5["for"]["average"])
+            aa = float(a5["against"]["average"])
+            xg_h = max((hf + aa) / 2, 0.1)
+            xg_a = max((af + ha) / 2, 0.05)
+            return xg_h, xg_a
+        except Exception:
+            return None
+
+    # Rejection counters
+    reject_bad_odds    = 0
+    reject_no_enr_1x2  = 0
+    reject_edge_small  = 0
+    reject_duplicate   = 0
+    reject_error       = 0
+    n_evaluated        = 0
+    tier_counts        = {"a": 0, "b": 0, "c": 0}
+
+    def _tier(ep: float) -> str:
+        return "tier_a" if ep >= 8 else ("tier_b" if ep >= 5 else "tier_c")
+
+    def _make_bet(fid, match_name, market, outcome, bookmaker, ref_odds,
+                  impl_p, model_p, ep, reason, league, kickoff, model_quality):
+        nonlocal reject_edge_small, reject_duplicate
+        if ep < min_edge_pp:
+            reject_edge_small += 1
+            return
+        if bet_exists(fid, market, outcome):
+            reject_duplicate += 1
+            return
+        t = _tier(ep)
+        create_bet(
+            fixture_id=fid, match_name=match_name, market=market, outcome=outcome,
+            bookmaker=bookmaker, ref_odds=ref_odds, implied_prob=impl_p,
+            model_prob=model_p, edge_pp=ep, insight_type=t, reason=reason,
+            league=league, kickoff_utc=kickoff, coupon_id=None,
+            model_quality=model_quality,
+        )
+        tier_counts[t.split("_")[1]] += 1
+
+    for fix in fixtures_to_eval:
+        fid       = fix["fixture_id"]
+        odds_h    = fix["odds_h"]
+        odds_u    = fix["odds_u"]
+        odds_b    = fix["odds_b"]
+        odds_src  = fix["source"] or "api_football"
+        kickoff   = fix["kickoff_utc"]
+        home_name = fix["home_name"] or "Home"
+        away_name = fix["away_name"] or "Away"
+        match_name = f"{home_name} vs {away_name}"
+        bookmaker  = odds_src.split(":")[-1] if ":" in odds_src else odds_src
+
+        if not (odds_h and odds_u and odds_b and odds_h > 1 and odds_u > 1 and odds_b > 1):
+            reject_bad_odds += 1
+            continue
+
+        enr    = enr_map.get(fid)
+        league = enr.get("league_name") if enr else None
+        mkt    = mkt_map.get(fid, {})
+        pxg    = _pred_xg(pred_map.get(fid))  # AF predictions xG, or None
+
+        try:
+            m = Match(number=0, home_team=home_name, away_team=away_name,
+                      odds_h=odds_h, odds_u=odds_u, odds_b=odds_b, odds_source=odds_src)
+            m.fixture_id = fid
+            process_match(m)
+            run_model(m, enr)
+        except Exception:
+            reject_error += 1
+            continue
+
+        n_evaluated += 1
+        ih, iu, ib = _devig(odds_h, odds_u, odds_b)
+
+        # ── 1X2 ────────────────────────────────────────────────────────────────
+        # Level 1: enrichment → run_model produced adjusted probs
+        # Level 3: no enrichment + AF predictions → Poisson from last_5 goal data
+        # Level 4: no enrichment, no predictions → model = bookmaker → skip
+        try:
+            if enr:
+                probs_1x2 = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+                quality_1x2 = "full_model"
+            elif pxg:
+                ph, pu, pb = win_draw_loss_probability(pxg[0], pxg[1])
+                probs_1x2 = {"H": ph, "U": pu, "B": pb}
+                quality_1x2 = "af_supported"
+            else:
+                reject_no_enr_1x2 += 1
+                probs_1x2 = None
+                quality_1x2 = None
+
+            if probs_1x2:
+                rec        = max(probs_1x2, key=probs_1x2.get)
+                model_p    = probs_1x2[rec]
+                implied_p  = {"H": ih, "U": iu, "B": ib}[rec]
+                ep         = round((model_p - implied_p) * 100, 1)
+                ref_odds   = {"H": odds_h, "U": odds_u, "B": odds_b}[rec]
+                utfall     = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
+
+                if quality_1x2 == "af_supported":
+                    reason = (
+                        f"AF-støttet: Poisson fra kampstatistikk "
+                        f"(xG {pxg[0]:.1f}–{pxg[1]:.1f}) → modell {model_p*100:.1f}% "
+                        f"vs marked {implied_p*100:.1f}% (+{ep:.1f}pp). "
+                        f"{utfall} til odds {ref_odds:.2f}."
+                    )
+                else:
+                    reason = (
+                        f"Modell {model_p*100:.1f}% vs marked {implied_p*100:.1f}% "
+                        f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} ({bookmaker})."
+                    )
+                _make_bet(fid, match_name, "1x2", rec, bookmaker, ref_odds,
+                          implied_p, model_p, ep, reason, league, kickoff, quality_1x2)
+        except Exception:
+            reject_error += 1
+
+        # ── BTTS / O/U ─────────────────────────────────────────────────────────
+        # Level 1: enrichment with real goal data (has_data=True)
+        # Level 3: AF predictions last_5 xG
+        # Level 4: European-average prior
+        try:
+            btts_mkt = mkt.get("BTTS", {})
+            ou_mkt   = mkt.get("OVER_UNDER", {})
+
+            if enr:
+                poisson  = market_probs_from_enrichment(enr)
+                has_data = poisson.get("has_data", False)
+                if has_data:
+                    qual_ou    = "full_model"
+                    btts_yes_p = poisson["btts_yes"]
+                    over_p     = poisson["over_2_5"]
+                    xg_label   = f"xG {poisson['xg_home']}–{poisson['xg_away']}"
+                elif pxg:
+                    qual_ou    = "af_supported"
+                    btts_yes_p = btts_probability(pxg[0], pxg[1])
+                    over_p, _  = over_under_probability(pxg[0], pxg[1])
+                    xg_label   = f"xG {pxg[0]:.1f}–{pxg[1]:.1f} (AF)"
+                else:
+                    qual_ou    = "generic_prior"
+                    btts_yes_p = _eu_btts_yes
+                    over_p     = _eu_over_25
+                    xg_label   = None
+            elif pxg:
+                qual_ou    = "af_supported"
+                btts_yes_p = btts_probability(pxg[0], pxg[1])
+                over_p, _  = over_under_probability(pxg[0], pxg[1])
+                xg_label   = f"xG {pxg[0]:.1f}–{pxg[1]:.1f} (AF)"
+            else:
+                qual_ou    = "generic_prior"
+                btts_yes_p = _eu_btts_yes
+                over_p     = _eu_over_25
+                xg_label   = None
+
+            btts_no_p = round(1 - btts_yes_p, 4)
+            under_p   = round(1 - over_p, 4)
+            xg_str    = f" {xg_label}." if xg_label else ""
+            qual_tag  = " (AF-støttet)" if qual_ou == "af_supported" else \
+                        " (eurosnitt-prior)" if qual_ou == "generic_prior" else ""
+
+            ba = btts_mkt.get("YES")
+            bb = btts_mkt.get("NO")
+            if ba and bb and ba > 1 and bb > 1:
+                total_inv     = 1/ba + 1/bb
+                btts_impl_yes = 1/ba / total_inv
+                btts_impl_no  = 1/bb / total_inv
+                bkm_btts      = btts_mkt.get("bookmaker", bookmaker)
+
+                mep_yes = round((btts_yes_p - btts_impl_yes) * 100, 1)
+                _make_bet(fid, match_name, "btts", "yes", bkm_btts, ba,
+                          btts_impl_yes, btts_yes_p, mep_yes,
+                          f"Poisson begge scorer {btts_yes_p*100:.1f}% vs marked {btts_impl_yes*100:.1f}% "
+                          f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
+                          league, kickoff, qual_ou)
+
+                mep_no = round((btts_no_p - btts_impl_no) * 100, 1)
+                _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
+                          btts_impl_no, btts_no_p, mep_no,
+                          f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs marked {btts_impl_no*100:.1f}% "
+                          f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
+                          league, kickoff, qual_ou)
+
+            oa = ou_mkt.get("OVER")
+            ob = ou_mkt.get("UNDER")
+            if oa and ob and oa > 1 and ob > 1:
+                total_inv_ou = 1/oa + 1/ob
+                over_impl    = 1/oa / total_inv_ou
+                under_impl   = 1/ob / total_inv_ou
+                bkm_ou       = ou_mkt.get("bookmaker", bookmaker)
+
+                mep_over = round((over_p - over_impl) * 100, 1)
+                _make_bet(fid, match_name, "over_2.5", "over", bkm_ou, oa,
+                          over_impl, over_p, mep_over,
+                          f"Poisson over 2,5 mål {over_p*100:.1f}% vs marked {over_impl*100:.1f}% "
+                          f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
+                          league, kickoff, qual_ou)
+
+                mep_under = round((under_p - under_impl) * 100, 1)
+                _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
+                          under_impl, under_p, mep_under,
+                          f"Poisson under 2,5 mål {under_p*100:.1f}% vs marked {under_impl*100:.1f}% "
+                          f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
+                          league, kickoff, qual_ou)
+
+        except Exception:
+            reject_error += 1
+
+    n_created = sum(tier_counts.values())
+    return {
+        "n_evaluated":     n_evaluated,
+        "n_created":       n_created,
+        "n_skipped":       reject_edge_small + reject_duplicate,
+        "rejection_breakdown": {
+            "bad_odds":         reject_bad_odds,
+            "no_enr_1x2":      reject_no_enr_1x2,
+            "edge_too_small":   reject_edge_small,
+            "duplicate":        reject_duplicate,
+            "error":            reject_error,
+        },
+        "tiers": tier_counts,
+        "min_edge_pp": min_edge_pp,
+    }
+
+
+@app.post("/v1/bets/scan", response_model=ScanResponse)
+def scan_and_generate(lookahead_hours: int = 72):
+    """
+    Trigger a global odds scan for all tracked leagues (not coupon-limited),
+    then generate Modellspill candidates for any fixture with model edge ≥ 3pp.
+
+    Tiers: A ≥ 8pp | B 5–8pp | C 3–5pp.
+    European-average Poisson prior used for BTTS/O/U on non-enriched fixtures.
+    Fully independent of NT coupons and NT public percentages.
+    """
+    import time as _time
+    from ingestion.api_football_odds import scan_af_market_odds
+    t0 = _time.monotonic()
+    scan_summary = scan_af_market_odds(lookahead_hours=lookahead_hours, verbose=False)
+    cand_summary = generate_global_bet_candidates()
+    duration = round(_time.monotonic() - t0, 2)
+    return ScanResponse(scan=scan_summary, candidates=cand_summary, duration_s=duration)

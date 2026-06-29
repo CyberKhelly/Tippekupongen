@@ -43,13 +43,13 @@ function computeVI(bmProb: number, nt: number | null): number | null {
 // ── VI text colour — applied ONLY to the number, nothing else ─────────────────
 
 function viColor(vi: number | null): { color: string; weight: number } {
-  if (vi == null)   return { color: "#D5D0C8", weight: 500 };
-  if (vi >= 1.50)   return { color: "#14532D", weight: 800 };
-  if (vi >= 1.20)   return { color: "#15803D", weight: 700 };
-  if (vi >= 1.00)   return { color: "#16A34A", weight: 600 };
-  if (vi >= 0.90)   return { color: "#ADA9A2", weight: 500 };
-  if (vi >= 0.70)   return { color: "#92400E", weight: 600 };
-  return               { color: "#991B1B", weight: 700 };
+  if (vi == null)   return { color: "#4A4744", weight: 500 };
+  if (vi >= 1.50)   return { color: "#22C55E", weight: 800 };
+  if (vi >= 1.20)   return { color: "#34D399", weight: 700 };
+  if (vi >= 1.00)   return { color: "#4ADE80", weight: 600 };
+  if (vi >= 0.90)   return { color: "#7A7673", weight: 500 };
+  if (vi >= 0.70)   return { color: "#F5C030", weight: 600 };
+  return               { color: "#F05252", weight: 700 };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -106,10 +106,10 @@ function SignTile({
   const modelVI  = computeVI(modelProb, nt);
   const vc       = viColor(vi);
 
-  // PickTile colours: matches MatchTable exactly
-  const tileBg     = selected ? "#111110" : "#F5F3EF";
-  const tileBorder = selected ? "none"    : "1.5px solid #D5D0C8";
-  const tileColor  = selected ? "#FFFFFF" : "#ADA9A2";
+  // PickTile colours: matches MatchTable dark theme
+  const tileBg     = selected ? "#E8E4DD" : "#1C1C1C";
+  const tileBorder = selected ? "none"    : "1px solid rgba(255,255,255,0.1)";
+  const tileColor  = selected ? "#0D0D0D" : "#4A4744";
 
   return (
     <div className="flex flex-col items-center" style={{ width: 52 }}>
@@ -144,7 +144,7 @@ function SignTile({
 
       {/* Odds — most muted */}
       <span style={{
-        fontSize: 9, color: "#C8C4BC", lineHeight: 1,
+        fontSize: 9, color: "#4A4744", lineHeight: 1,
         marginTop: 5, fontVariantNumeric: "tabular-nums",
       }}>
         {odds > 0 ? odds.toFixed(2) : "—"}
@@ -152,7 +152,7 @@ function SignTile({
 
       {/* NT public % */}
       <span style={{
-        fontSize: 9, fontWeight: 500, color: "#6B6862", lineHeight: 1,
+        fontSize: 9, fontWeight: 500, color: "#7A7673", lineHeight: 1,
         marginTop: 2, fontVariantNumeric: "tabular-nums",
       }}>
         {nt != null ? `${Math.round(nt * 100)}%` : "—"}
@@ -179,11 +179,11 @@ function SignTile({
         <div style={{
           marginTop: 5,
           paddingTop: 4,
-          borderTop: "1px solid #E4E1DA",
+          borderTop: "1px solid rgba(255,255,255,0.07)",
           width: "100%",
           fontSize: 7,
           lineHeight: 1.7,
-          color: "#ADA9A2",
+          color: "#4A4744",
           fontVariantNumeric: "tabular-nums",
           textAlign: "center",
         }}>
@@ -208,18 +208,18 @@ export function SystemMatchRow({
   const kickoff  = formatKickoff(kickoffUtc);
 
   const matchNumColor =
-    coverageType === "key"     ? "#D4930A" :
-    coverageType === "reserve" ? "#ADA9A2" :
-    "#C8C4BC";
+    coverageType === "key"     ? "#F5C030" :
+    coverageType === "reserve" ? "#7A7673" :
+    "#4A4744";
 
   return (
     <div className={cn(
-      "flex items-center gap-3 px-4 border-b border-[#F0EDE8]",
-      "transition-colors duration-100 hover:bg-[#FAFAF8]",
+      "flex items-center gap-3 px-4 border-b border-[rgba(255,255,255,0.06)]",
+      "transition-colors duration-100 hover:bg-[#161616]",
       !inSystem && "opacity-30",
     )} style={{ paddingTop: 10, paddingBottom: 10 }}>
 
-      {/* Match number — amber for key, slate for reserve, default otherwise */}
+      {/* Match number — gold for key, slate for reserve, default otherwise */}
       <span
         className="text-[11px] tabular-nums font-medium w-5 shrink-0 text-right select-none"
         style={{ color: matchNumColor }}
@@ -231,15 +231,15 @@ export function SystemMatchRow({
       <div className="flex flex-col justify-center flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <TeamLogo url={enrichment?.home_logo_url} name={match.home_team} />
-          <span className="text-[13px] font-semibold text-[#111110] truncate leading-none">
+          <span className="text-[13px] font-semibold text-[#E8E4DD] truncate leading-none">
             {match.home_team}
-            <span className="text-[#C8C4BC] font-normal mx-1.5">–</span>
+            <span className="text-[#4A4744] font-normal mx-1.5">–</span>
             {match.away_team}
           </span>
           <TeamLogo url={enrichment?.away_logo_url} name={match.away_team} />
         </div>
         {kickoff && (
-          <span className="text-[10px] text-[#ADA9A2] leading-tight mt-1">
+          <span className="text-[10px] text-[#4A4744] leading-tight mt-1">
             {kickoff}
           </span>
         )}

@@ -367,6 +367,66 @@ def _odds_check_job() -> None:
         pass
 
 
+def _market_scan_job() -> None:
+    """
+    Every 2h: scan tracked leagues for upcoming fixtures + odds,
+    then generate Modellspill candidates for any fixture with model edge ≥ 5pp.
+    Independent of NT coupons and NT public percentages.
+    """
+    state = load_state()
+    if state.get("is_running"):
+        return
+    if _secs_since(state.get("last_market_scan_at")) < 2 * 3600:
+        return
+    try:
+        from ingestion.api_football_odds import scan_af_market_odds
+        from backend.main import generate_global_bet_candidates
+        scan_summary = scan_af_market_odds(lookahead_hours=72, verbose=False)
+        cand_summary = generate_global_bet_candidates()
+        now_iso = _iso(_now())
+        patch_state(last_market_scan_at=now_iso)
+        tiers = cand_summary.get("tiers", {})
+        logger.info(
+            "Market scan: %d leagues, %d fixtures, %d new | candidates created: %d (A=%d B=%d C=%d)",
+            scan_summary.get("n_leagues", 0),
+            scan_summary.get("n_fixtures_found", 0),
+            scan_summary.get("n_fixtures_new", 0),
+            cand_summary.get("n_created", 0),
+            tiers.get("a", 0), tiers.get("b", 0), tiers.get("c", 0),
+        )
+    except Exception as exc:
+        logger.exception("Market scan job failed: %s", exc)
+
+
+def _auto_settle_job() -> None:
+    """
+    Every hour: settle pending model_bets for fixtures that have finished
+    (kickoff_utc + 100 min in the past) and have a result in match_results.
+    """
+    try:
+        from db.connection import get_conn
+        from db.paper_bets import settle_pending_bets
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=100)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        conn = get_conn()
+        rows = conn.execute(
+            """SELECT DISTINCT mb.fixture_id FROM model_bets mb
+               JOIN match_results mr ON mr.fixture_id = mb.fixture_id
+               WHERE mb.status = 'pending' AND mb.kickoff_utc < ?""",
+            (cutoff,),
+        ).fetchall()
+        conn.close()
+        n_settled = 0
+        for r in rows:
+            n_settled += settle_pending_bets(r["fixture_id"])
+        if n_settled:
+            logger.info("Auto-settle: %d bet(s) settled", n_settled)
+    except Exception as exc:
+        logger.exception("Auto-settle job failed: %s", exc)
+
+
 def _freeze_check_job() -> None:
     """
     Runs every 5 min. Freezes active coupons that are within FREEZE_WINDOW_MINUTES
@@ -456,13 +516,16 @@ def start_scheduler() -> None:
         job_defaults={"misfire_grace_time": 120, "coalesce": True},
         timezone="UTC",
     )
-    _scheduler.add_job(_nt_check_job,     "interval", minutes=5, id="nt_check")
-    _scheduler.add_job(_odds_check_job,   "interval", hours=3,   id="odds_check")
-    _scheduler.add_job(_freeze_check_job, "interval", minutes=5, id="freeze_check")
+    _scheduler.add_job(_nt_check_job,     "interval", minutes=5,  id="nt_check")
+    _scheduler.add_job(_odds_check_job,   "interval", hours=3,    id="odds_check")
+    _scheduler.add_job(_freeze_check_job, "interval", minutes=5,  id="freeze_check")
+    _scheduler.add_job(_market_scan_job,  "interval", hours=2,    id="market_scan")
+    _scheduler.add_job(_auto_settle_job,  "interval", minutes=60, id="auto_settle")
     _scheduler.start()
     logger.info(
         "Scheduler started — NT check every 5 min (adaptive), "
-        "odds every 3 h, freeze check every 5 min"
+        "odds every 3 h, market scan every 2 h, auto-settle every 60 min, "
+        "freeze check every 5 min"
     )
 
     # Immediately catch any coupons that should have been frozen (startup safety net)

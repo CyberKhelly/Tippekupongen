@@ -1,8 +1,101 @@
 "use client";
 
-import { motion, LayoutGroup } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { useState, useRef } from "react";
 
+interface BudgetInputProps {
+  value: number;
+  onChange: (b: number) => void;
+}
+
+const QUICK: number[] = [96, 192, 384];
+
+export function BudgetInput({ value, onChange }: BudgetInputProps) {
+  const [draft, setDraft] = useState<string>("");
+  const [editing, setEditing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function commit(raw: string) {
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 32) {
+      onChange(Math.round(n / 32) * 32); // snap to multiples of 32 (minimum row cost)
+    }
+    setEditing(false);
+    setDraft("");
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {/* Input field */}
+      <div
+        onClick={() => { setEditing(true); setDraft(String(value)); setTimeout(() => inputRef.current?.select(), 0); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 4,
+          padding: "3px 8px 3px 10px",
+          background: "#1A1A1A",
+          border: "1px solid rgba(255,255,255,0.09)",
+          borderRadius: 5,
+          cursor: "text",
+          minWidth: 72,
+        }}
+      >
+        {editing ? (
+          <input
+            ref={inputRef}
+            type="number"
+            min={32}
+            step={32}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={() => commit(draft)}
+            onKeyDown={e => {
+              if (e.key === "Enter") commit(draft);
+              if (e.key === "Escape") { setEditing(false); setDraft(""); }
+            }}
+            autoFocus
+            className="budget-input"
+          />
+        ) : (
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700,
+            color: "#E8E4DD", fontVariantNumeric: "tabular-nums",
+            letterSpacing: "0.02em",
+            minWidth: 56, textAlign: "right",
+          }}>
+            {value}
+          </span>
+        )}
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#4A4744", flexShrink: 0 }}>
+          kr
+        </span>
+      </div>
+
+      {/* Quick-select chips */}
+      <div style={{ display: "flex", gap: 3 }}>
+        {QUICK.map(q => (
+          <button
+            key={q}
+            onClick={() => onChange(q)}
+            style={{
+              padding: "3px 7px",
+              borderRadius: 4,
+              border: "1px solid",
+              borderColor: value === q ? "var(--gold-border)" : "var(--bdr-1)",
+              background: value === q ? "var(--gold-10)" : "transparent",
+              fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600,
+              color: value === q ? "var(--gold)" : "#4A4744",
+              cursor: "pointer", transition: "all 0.12s",
+              letterSpacing: "0.02em",
+            }}
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Legacy grid variant — kept for any external callers */
 interface BudgetSelectorProps {
   budgets: number[];
   selected: number;
@@ -10,81 +103,26 @@ interface BudgetSelectorProps {
   variant?: "horizontal" | "grid";
 }
 
-const LABELS: Record<number, string> = {
-  32:  "Minimal",
-  96:  "Moderat",
-  192: "Anbefalt",
-  384: "Aggressiv",
-};
-
-export function BudgetSelector({ budgets, selected, onSelect, variant = "grid" }: BudgetSelectorProps) {
-  if (variant === "horizontal") {
-    return (
-      <LayoutGroup>
-        <div className="flex gap-1.5">
-          {budgets.map((b) => {
-            const isActive = b === selected;
-            return (
-              <motion.button
-                key={b}
-                onClick={() => onSelect(b)}
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.12 }}
-                className={cn(
-                  "relative flex-1 text-center py-2 px-2.5 rounded-lg border overflow-hidden min-h-[40px]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4930A]/30",
-                  "transition-colors duration-150",
-                  isActive
-                    ? "bg-[#F5C542] border-[#E8B400] text-[#111110]"
-                    : "bg-white border-[#E4E1DA] text-[#6B6862] hover:border-[#C0BAB0] hover:text-[#111110]",
-                )}
-              >
-                <div className={cn("text-[12px] font-bold tabular-nums leading-none", isActive ? "text-[#111110]" : "")}>
-                  {b} kr
-                </div>
-                <div className={cn("text-[9px] mt-0.5 leading-none", isActive ? "text-[#6B4C00]" : "text-[#ADA9A2]")}>
-                  {LABELS[b] ?? String(b)}
-                </div>
-              </motion.button>
-            );
-          })}
-        </div>
-      </LayoutGroup>
-    );
-  }
-
+export function BudgetSelector({ budgets, selected, onSelect }: BudgetSelectorProps) {
   return (
-    <LayoutGroup>
-      <div className="grid grid-cols-2 gap-1.5">
-        {budgets.map((b, i) => {
-          const isActive = b === selected;
-          return (
-            <motion.button
-              key={b}
-              onClick={() => onSelect(b)}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.04, duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              whileTap={{ scale: 0.97 }}
-              className={cn(
-                "relative py-2.5 px-3 rounded-lg border text-left",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4930A]/30",
-                "transition-colors duration-150",
-                isActive
-                  ? "bg-[#F5C542] border-[#E8B400] text-[#111110]"
-                  : "bg-white border-[#E4E1DA] text-[#6B6862] hover:border-[#C0BAB0] hover:text-[#111110]",
-              )}
-            >
-              <div className={cn("text-[13px] font-bold tabular-nums leading-none", isActive ? "text-[#111110]" : "")}>
-                {b} kr
-              </div>
-              <div className={cn("text-[10px] mt-1", isActive ? "text-[#6B4C00]" : "text-[#ADA9A2]")}>
-                {LABELS[b] ?? String(b)}
-              </div>
-            </motion.button>
-          );
-        })}
-      </div>
-    </LayoutGroup>
+    <div className="grid grid-cols-2 gap-1.5">
+      {budgets.map(b => {
+        const isActive = b === selected;
+        return (
+          <button
+            key={b}
+            onClick={() => onSelect(b)}
+            className="relative py-2.5 px-3 rounded-lg border text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--gold)]/30"
+            style={{
+              background: isActive ? "#1C1C1C" : "#141414",
+              borderColor: isActive ? "rgba(245,192,48,0.3)" : "rgba(255,255,255,0.07)",
+              color: isActive ? "#E8E4DD" : "#4A4744",
+            }}
+          >
+            <div className="text-[13px] font-bold tabular-nums leading-none">{b} kr</div>
+          </button>
+        );
+      })}
+    </div>
   );
 }

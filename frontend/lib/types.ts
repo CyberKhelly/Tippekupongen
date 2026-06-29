@@ -85,6 +85,8 @@ export interface CouponShape {
 export interface PayoutSimulation {
   n_winning_sims: number;
   p_win_simulated: number;
+  p_11?: number | null;
+  p_10?: number | null;
   min: number;
   p10: number;
   median: number;
@@ -376,6 +378,198 @@ export interface GenerationAnalytics {
   hit_rate_11: number | null;
   hit_rate_12: number | null;
   roi: number | null;
+}
+
+// ── /v1/signals ───────────────────────────────────────────────────────────────
+
+export interface MatchSignal {
+  match_number: number;
+  home_team: string;
+  away_team: string;
+  fixture_id: string | null;
+  league_name: string | null;
+  kickoff_utc: string | null;
+  recommended_pick: string;
+  model_prob: number;
+  pub_prob: number | null;
+  edge_pp: number | null;
+  crowd_disagreement_score: number | null;
+  value_index: number | null;
+  signal_strength: number;
+  has_public_tips: boolean;
+  prob_h: number;
+  prob_u: number;
+  prob_b: number;
+  pub_prob_h: number | null;
+  pub_prob_u: number | null;
+  pub_prob_b: number | null;
+  stats_signals: string[];
+  classification: string;
+  home_logo_url: string | null;
+  away_logo_url: string | null;
+}
+
+export interface SignalBoardResponse {
+  coupon_id: string;
+  coupon_label: string;
+  deadline_utc: string;
+  week: number;
+  year: number;
+  signals: MatchSignal[];
+}
+
+// ── /v1/insights ─────────────────────────────────────────────────────────────
+
+export interface OddsMovement {
+  open_h: number;
+  open_u: number;
+  open_b: number;
+  current_h: number;
+  current_u: number;
+  current_b: number;
+  n_snapshots: number;
+  direction: "steaming" | "drifting" | "stable";
+  bookmaker: string;
+}
+
+export interface InsightSignal {
+  match_number: number;
+  home_team: string;
+  away_team: string;
+  fixture_id: string | null;
+  league_name: string | null;
+  kickoff_utc: string | null;
+  recommended_pick: string;
+  prob_h: number;
+  prob_u: number;
+  prob_b: number;
+  model_prob: number;
+
+  // NT public percentages — coupon layer only, never used for betting edge
+  pub_prob_h: number | null;
+  pub_prob_u: number | null;
+  pub_prob_b: number | null;
+  pub_prob: number | null;
+  has_public_tips: boolean;
+  edge_pp: number | null;               // model − pub in pp (coupon layer only)
+  crowd_disagreement_score: number | null;
+  value_index: number | null;
+
+  // 1X2 bookmaker odds and market edge (betting value)
+  odds_h: number | null;
+  odds_u: number | null;
+  odds_b: number | null;
+  odds_source: string | null;
+  implied_prob: number | null;          // de-vigged bookmaker implied prob (0–100)
+  market_edge_pp: number | null;        // model_prob − implied_prob in pp
+
+  odds_movement: OddsMovement | null;
+
+  // Poisson: BTTS
+  btts_model_prob: number | null;
+  btts_yes_odds: number | null;
+  btts_no_odds: number | null;
+  btts_bookmaker: string | null;
+  btts_implied_yes: number | null;
+  btts_market_edge_pp: number | null;
+
+  // Poisson: Over/Under 2.5
+  over_model_prob: number | null;
+  under_model_prob: number | null;
+  over_25_odds: number | null;
+  under_25_odds: number | null;
+  ou_bookmaker: string | null;
+  over_implied: number | null;
+  over_market_edge_pp: number | null;
+
+  // Poisson inputs
+  xg_home: number | null;
+  xg_away: number | null;
+
+  // API-Football prediction signals
+  af_winner_name:   string | null;
+  af_winner_pick:   "H" | "U" | "B" | null;
+  af_winner_agrees: boolean | null;
+  af_win_or_draw:   boolean | null;
+  af_under_over:    number | null;   // positive=Over, negative=Under
+  af_advice:        string | null;
+  af_poisson_home:  number | null;   // comparison.poisson_distribution.home (%)
+  af_poisson_away:  number | null;
+  af_goals_home:    number | null;
+  af_goals_away:    number | null;
+  af_ou_agrees:     boolean | null;
+
+  // Composite confidence score (0–100)
+  confidence_score: number | null;
+}
+
+export interface InsightsResponse {
+  coupon_id: string;
+  coupon_label: string;
+  deadline_utc: string;
+  week: number;
+  year: number;
+  signals: InsightSignal[];
+}
+
+export interface PaperBet {
+  id: string;
+  coupon_id: string | null;
+  fixture_id: string;
+  match_name: string;
+  league: string | null;
+  kickoff_utc: string | null;
+  market: string;
+  outcome: string;
+  bookmaker: string;
+  ref_odds: number;
+  implied_prob: number;
+  model_prob: number;
+  edge_pp: number;
+  stake_nok: number;
+  expected_value: number;
+  insight_type: string | null;
+  risk_level: "low" | "medium" | "high";
+  reason: string | null;
+  model_quality: "full_model" | "partial_model" | "af_supported" | "generic_prior" | null;
+  status: "pending" | "won" | "lost" | "void";
+  result_outcome: string | null;
+  closing_odds: number | null;
+  clv: number | null;
+  profit_nok: number | null;
+  created_at: string;
+  settled_at: string | null;
+}
+
+export interface BankrollPoint {
+  bet_index: number;
+  bankroll_after: number;
+  label: string;
+  market: string | null;
+  outcome: string | null;
+  profit_nok: number | null;
+  odds: number | null;
+  settled_at: string | null;
+}
+
+export interface BetSummary {
+  starting_bankroll: number;
+  current_bankroll: number;
+  total_staked: number;
+  total_profit: number;
+  roi: number | null;
+  n_won: number;
+  n_lost: number;
+  n_pending: number;
+  hit_rate: number | null;
+  avg_clv: number | null;
+  by_market: Record<string, { n_won: number; n_lost: number; n_pending: number; profit: number; staked: number }>;
+}
+
+export interface GenerateBetsResponse {
+  created: number;
+  skipped: number;
+  bets: PaperBet[];
 }
 
 export interface SyncStatus {

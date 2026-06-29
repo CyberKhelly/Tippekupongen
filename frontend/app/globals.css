@@ -2,46 +2,92 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Design tokens ── */
+/* ── TippeIQ Design Tokens — Claude Design prototype ── */
 :root {
-  --bg-base:       #F5F3EF;
-  --bg-surface:    #FFFFFF;
-  --bg-elevated:   #FAF9F7;
-  --border:        #E4E1DA;
-  --border-subtle: #EDE9E2;
+  /* Canvas & Surface Ladder */
+  --canvas:   #0A0A0B;   /* Base — near-black canvas */
+  --surf-0:   #0C0C0E;   /* Sidebar bg */
+  --surf-1:   #0E0E10;   /* Cards, panels (Flate) */
+  --surf-2:   #16161A;   /* Elevated cards (Hevet) */
+  --surf-3:   #1F1F24;   /* Hover / active state (Linje) */
 
-  --text-1: #111110;
-  --text-2: #6B6862;
-  --text-3: #ADA9A2;
+  /* Borders — hairline only */
+  --bdr-0:    rgba(255, 255, 255, 0.04);  /* row dividers */
+  --bdr-1:    rgba(255, 255, 255, 0.06);  /* card borders */
+  --bdr-2:    rgba(255, 255, 255, 0.12);  /* strong / inputs */
+  --bdr-3:    rgba(255, 255, 255, 0.14);  /* focus / emphasized */
 
-  --gold:        #D4930A;
-  --gold-fill:   #F5C542;
-  --gold-bg:     #FEF7E6;
-  --gold-border: rgba(212, 147, 10, 0.22);
+  /* Text */
+  --tx-1:     #F4F3F0;   /* Primær */
+  --tx-2:     #9A9A9F;   /* Sekundær */
+  --tx-3:     #65656B;   /* Dempet */
+  --tx-4:     #54545A;   /* Dimmer / labels */
+  --tx-dim:   #86868C;   /* Mid-dim for supporting text */
 
-  --green:  #15803D;
-  --red:    #C42B2B;
-  --blue:   #1D4ED8;
+  /* Brand Gold — amber, not yellow */
+  --gold:         #C9A04A;
+  --gold-hover:   #DCB35F;
+  --gold-10:      rgba(201, 160, 74, 0.10);
+  --gold-22:      rgba(201, 160, 74, 0.22);
+  --gold-border:  rgba(201, 160, 74, 0.28);
 
-  /* shadcn sidebar tokens — tuned to match warm off-white design system */
-  --sidebar-background:        0 0% 100%;      /* #FFFFFF */
-  --sidebar-foreground:        40 3% 6%;        /* #111110 */
-  --sidebar-primary:           38 91% 44%;      /* #D4930A gold */
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent:            40 18% 95%;      /* #F5F3EF hover */
-  --sidebar-accent-foreground: 40 3% 6%;        /* #111110 */
-  --sidebar-border:            40 14% 87%;      /* #E4E1DA */
-  --sidebar-ring:              38 91% 44%;      /* gold */
+  /* Signal Colors */
+  --green:         #5FAE6E;
+  --green-09:      rgba(95, 174, 110, 0.12);
+  --red:           #C8554E;
+  --red-09:        rgba(200, 85, 78, 0.14);
+  --amber:         #C9A04A;
+  --blue:          #6098F2;
+  /* Indigo — crowd-disagreement / counter-signal (never for losses) */
+  --indigo:        #7B92FF;
+  --indigo-09:     rgba(123, 146, 255, 0.10);
+  --indigo-border: rgba(123, 146, 255, 0.20);
+
+  /* Border Radius */
+  --r-xs:   3px;
+  --r-sm:   5px;
+  --r-md:   8px;
+  --r-lg:   12px;
+  --r-xl:   16px;
+  --r-pill: 999px;
+
+  /* Legacy aliases — keep for backward compat */
+  --bg-base:       var(--canvas);
+  --bg-surface:    var(--surf-1);
+  --bg-elevated:   var(--surf-2);
+  --bg-raised:     var(--surf-3);
+  --border:        var(--bdr-1);
+  --border-strong: var(--bdr-2);
+  --border-subtle: var(--bdr-0);
+  --text-1:        var(--tx-1);
+  --text-2:        var(--tx-2);
+  --text-3:        var(--tx-3);
+
+  /* shadcn sidebar tokens */
+  --sidebar-background:           240 7% 6%;
+  --sidebar-foreground:           36 4% 96%;
+  --sidebar-primary:              38 51% 54%;
+  --sidebar-primary-foreground:   240 7% 4%;
+  --sidebar-accent:               240 7% 9%;
+  --sidebar-accent-foreground:    36 4% 96%;
+  --sidebar-border:               0 0% 100% / 0.06;
+  --sidebar-ring:                 38 51% 54%;
 }
 
 html { scroll-behavior: smooth; }
 
+/* Reduced motion — all animations collapse to 1ms, opacity/transform snap to final state */
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .skeleton::after     { animation: none; }
-  .animate-bar-grow    { animation: none; transform: scaleX(1); }
-  .animate-fade-up     { animation: none; opacity: 1; transform: none; }
-  .animate-expand-down { animation: none; opacity: 1; }
+  .skeleton::after,
+  .animate-bar-grow,
+  .animate-fade-up,
+  .animate-hero-up,
+  .animate-expand-down { animation: none; }
+  .animate-bar-grow    { transform: scaleX(1); }
+  .animate-fade-up,
+  .animate-hero-up     { opacity: 1; transform: none; }
+  .animate-expand-down { opacity: 1; }
   * {
     transition-duration: 0ms !important;
     animation-duration: 1ms !important;
@@ -50,46 +96,351 @@ html { scroll-behavior: smooth; }
 }
 
 body {
-  background-color: #F5F3EF;
-  color: #111110;
+  background-color: var(--canvas);
+  color: var(--tx-1);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
-::-webkit-scrollbar       { width: 6px; height: 6px; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv01";
+}
+
+/* ── Type Scale — from DESIGN.md ─────────────────────────────────────────── */
+
+/* Hero: signal scores, large numbers */
+.t-hero {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  font-size: clamp(52px, 7vw, 80px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Page title */
+.t-h1 {
+  font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--tx-1);
+}
+
+/* Section heading */
+.t-h2 {
+  font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: var(--tx-1);
+}
+
+/* Card / row heading */
+.t-h3 {
+  font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+  color: var(--tx-1);
+}
+
+/* Body copy */
+.t-body {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--tx-1);
+}
+
+/* Meta, supporting */
+.t-caption {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--tx-2);
+}
+
+/* Section eyebrow — mono, uppercase, positive tracking */
+.t-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--tx-3);
+}
+
+/* Numeric data */
+.t-data {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Prominent data (edge scores in tables) */
+.t-data-lg {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ── Legacy aliases ──────────────────────────────────────────────────────── */
+.text-display { font-family: var(--font-display), var(--font-sans); font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+.text-heading  { font-family: var(--font-display), var(--font-sans); font-weight: 600; letter-spacing: -0.025em; line-height: 1.2; }
+.text-ui-label { font-family: var(--font-sans); font-size: 11px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1.4; }
+.text-data     { font-family: var(--font-sans); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+/* Old t-display maps to hero */
+.t-display {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+
+/* ── Panel / Card System ─────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--surf-1);
+  border: 1px solid var(--bdr-1);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.panel-elevated {
+  background: var(--surf-2);
+  border: 1px solid var(--bdr-2);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* Legacy */
+.card         { background: var(--surf-1); border: 1px solid var(--bdr-1); border-radius: var(--r-md); }
+.card-elevated{ background: var(--surf-2); border: 1px solid var(--bdr-2); border-radius: var(--r-md); }
+
+/* ── Panel Row ───────────────────────────────────────────────────────────── */
+
+.panel-row {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--bdr-0);
+  transition: background 120ms ease;
+}
+
+.panel-row:hover {
+  background: var(--surf-3);
+}
+
+/* ── Pick Badge ──────────────────────────────────────────────────────────── */
+
+.pick-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  background: var(--surf-3);
+  border: 1px solid var(--bdr-2);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--tx-1);
+  flex-shrink: 0;
+}
+
+/* ── Edge Badge ──────────────────────────────────────────────────────────── */
+
+.edge-pos {
+  color: var(--gold);
+  background: var(--gold-10);
+  border: 1px solid var(--gold-22);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+
+.edge-neg {
+  color: var(--red);
+  background: var(--red-09);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+
+/* ── Probability Bar Track ───────────────────────────────────────────────── */
+
+.prob-track {
+  flex: 1;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  position: relative;
+}
+
+.prob-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-pill);
+  transform-origin: left;
+  animation: barGrow 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Insight Bullet ──────────────────────────────────────────────────────── */
+
+.insight-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.insight-icon {
+  font-size: 11px;
+  line-height: 1.3;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.insight-text {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tx-2);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--gold);
+  color: #0A0A0B;
+  padding: 10px 20px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 120ms;
+}
+
+.btn-primary:hover { opacity: 0.9; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surf-2);
+  color: var(--tx-1);
+  border: 1px solid var(--bdr-1);
+  padding: 10px 18px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 120ms, border-color 120ms;
+}
+
+.btn-secondary:hover { background: var(--surf-3); border-color: var(--bdr-2); }
+
+/* ── Budget input ────────────────────────────────────────────────────────── */
+.budget-input {
+  background: transparent;
+  border: none;
+  color: var(--tx-1);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  outline: none;
+  width: 56px;
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.budget-input::-webkit-inner-spin-button,
+.budget-input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+
+/* Gold sheen hover effect */
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.btn-sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(201, 160, 74, 0.08) 50%, transparent 100%);
+  transform: translateX(-110%);
+  transition: transform 0.65s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.btn-sheen:hover::before { transform: translateX(110%); }
+@media (prefers-reduced-motion: reduce) { .btn-sheen::before { display: none; } }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D5D0C8; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #C0BAB0; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
 
 ::selection {
-  background: rgba(212, 147, 10, 0.15);
-  color: #111110;
+  background: rgba(201, 160, 74, 0.20);
+  color: var(--tx-1);
 }
 
+/* ── Tabular nums ────────────────────────────────────────────────────────── */
+.tabular-nums, table, [data-numeric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────────────────── */
 @layer components {
   .skeleton {
     @apply relative overflow-hidden rounded;
-    background-color: #EDE9E2;
+    background-color: var(--surf-2);
   }
   .skeleton::after {
     content: '';
     @apply absolute inset-0;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.70) 50%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
     background-size: 200% 100%;
     animation: shimmerSlide 1.6s linear infinite;
   }
 }
+
+/* ── Keyframes ───────────────────────────────────────────────────────────── */
 
 @keyframes shimmerSlide {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
 }
 
+/* Probability bar — scaleX (not width) to avoid layout thrash */
 @keyframes barGrow {
   from { transform: scaleX(0); }
   to   { transform: scaleX(1); }
@@ -113,4 +464,149 @@ body {
 }
 .animate-expand-down {
   animation: expandDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Hero entrance — CSS-only, immune to React Strict Mode double-mount */
+@keyframes heroUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-hero-up {
+  animation: heroUp 0.9s cubic-bezier(0.25, 0.4, 0.25, 1) both;
+}
+
+/* Subtle fade-in for panels/cards */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease both;
+}
+
+/* ── TippeIQ Design System — motion primitives ───────────────────────────── */
+
+@keyframes tq-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.65); }
+}
+@keyframes tq-pulsering {
+  0%   { transform: scale(0.6); opacity: 0.55; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes tq-shimmer {
+  0%   { background-position: -180% 0; }
+  100% { background-position:  180% 0; }
+}
+@keyframes tq-rise {
+  from        { opacity: 0; transform: translateY(20px); }
+  60%         { opacity: 1; }
+  to          { transform: none; opacity: 1; }
+}
+@keyframes tq-draw {
+  from { stroke-dashoffset: 2600; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes tq-barx {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes tq-fill-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Live pulse indicator */
+.tq-live-dot {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+}
+.tq-live-dot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--green);
+  animation: tq-pulse 2.4s ease-in-out infinite;
+}
+.tq-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1px solid rgba(95, 174, 110, 0.5);
+  animation: tq-pulsering 2.4s ease-out infinite;
+}
+
+/* Gold shimmer CTA */
+.tq-btn-shimmer {
+  background: linear-gradient(100deg, var(--gold) 0%, var(--gold-hover) 45%, var(--gold) 70%);
+  background-size: 200% 100%;
+  animation: tq-shimmer 3.2s linear infinite;
+  color: #0A0A0B;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  border-radius: 11px;
+  transition: transform 0.15s ease;
+}
+.tq-btn-shimmer:hover { transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) { .tq-btn-shimmer { animation: none; background: var(--gold); } }
+
+/* ── Budget input ─────────────────────────────────────────────────────────── */
+input.tq-budget {
+  background: var(--canvas);
+  border: 1px solid var(--bdr-2);
+  border-radius: 9px;
+  padding: 11px 13px;
+  color: var(--tx-1);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  width: 110px;
+  transition: border-color 0.15s;
+  -moz-appearance: textfield;
+}
+input.tq-budget::-webkit-inner-spin-button,
+input.tq-budget::-webkit-outer-spin-button { appearance: none; margin: 0; }
+input.tq-budget:focus { border-color: var(--gold-border); }
+
+/* ── Strategy slider ─────────────────────────────────────────────────────── */
+input.tq-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #5fae6e, #c9a04a, #d0655e);
+  outline: none;
+  cursor: pointer;
+}
+input.tq-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f4f3f0;
+  border: 4px solid #0a0a0b;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.25), 0 2px 8px rgba(0,0,0,0.5);
+  cursor: pointer;
+}
+input.tq-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f4f3f0;
+  border: 4px solid #0a0a0b;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.25);
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tq-live-dot::before, .tq-live-dot::after { animation: none; }
 }

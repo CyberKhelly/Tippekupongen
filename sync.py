@@ -893,10 +893,15 @@ def cmd_refresh_coupons(week: int, year: int) -> None:
         except Exception as exc:
             print(f"  Enrichment error: {exc}")
         try:
-            from ingestion.api_football_odds import ingest_af_odds_fallback
+            from ingestion.api_football_odds import ingest_af_odds_fallback, report_market_coverage
             osummary = ingest_af_odds_fallback(week=week, year=year, verbose=True)
-            n_fill = osummary.get("n_filled", 0) if "error" not in osummary else 0
-            print(f"  AF odds: {n_fill} fixture(s) filled.")
+            if "error" not in osummary:
+                n_fill = osummary.get("n_1x2_filled", 0)
+                n_mkt  = osummary.get("n_markets_rows", 0)
+                print(f"  AF odds: {n_fill} 1X2 filled, {n_mkt} market rows written.")
+                report_market_coverage(week=week, year=year)
+            else:
+                print(f"  AF odds error: {osummary.get('error')}")
         except Exception as exc:
             print(f"  AF odds error: {exc}")
         print()
@@ -1001,18 +1006,17 @@ def cmd_daily(week: int, year: int) -> None:
         print("        API_FOOTBALL_KEY not set — skipping AF odds.")
     else:
         try:
-            from ingestion.api_football_odds import ingest_af_odds_fallback
+            from ingestion.api_football_odds import ingest_af_odds_fallback, report_market_coverage
             osummary = ingest_af_odds_fallback(week=week, year=year, verbose=False)
             if "error" not in osummary:
-                n_af_filled = osummary.get("n_filled", 0)
-                n_af_skip   = osummary.get("n_already_have", 0)
-                if n_af_filled == 0 and n_af_skip == osummary.get("n_total", 0):
-                    print("        All fixtures already have odds.")
-                else:
-                    print(
-                        f"        Done — {n_af_filled} filled via AF"
-                        f", {n_af_skip} already had odds."
-                    )
+                n_af_filled = osummary.get("n_1x2_filled", 0)
+                n_af_skip   = osummary.get("n_skipped", 0)
+                n_af_mkt    = osummary.get("n_markets_rows", 0)
+                print(
+                    f"        Done — {n_af_filled} 1X2 filled"
+                    f", {n_af_skip} complete, {n_af_mkt} market rows."
+                )
+                report_market_coverage(week=week, year=year)
         except Exception as exc:
             print(f"        AF odds error: {exc}")
 
@@ -1029,6 +1033,18 @@ def cmd_daily(week: int, year: int) -> None:
             print(f"        Done — {n_est_computed} estimated prior(s) computed.")
     except Exception as exc:
         print(f"        Estimated priors error: {exc}")
+
+    # ── Step 4c: AF Predictions scan ─────────────────────────────────────────
+    print("  [4c]  Scanning API-Football predictions...")
+    try:
+        from ingestion.api_football_predictions import scan_nt_predictions
+        pred_summary = scan_nt_predictions(week=week, year=year, verbose=False, remap=True)
+        n_fetched = pred_summary.get("n_fetched", 0)
+        n_mapped  = pred_summary.get("n_mapped", 0)
+        n_total   = pred_summary.get("n_total", 0)
+        print(f"        Done — {n_fetched} predictions fetched, {n_mapped}/{n_total} fixtures mapped.")
+    except Exception as exc:
+        print(f"        AF predictions error: {exc}")
 
     # ── Step 5: Validation ────────────────────────────────────────────────────
     print("  [5/5] Running validation...")
@@ -1152,6 +1168,7 @@ def cmd_af_odds(week: int, year: int) -> None:
     init_db()
     print(f"  Fetching AF odds fallback for week {week}/{year}...\n")
 
+    from ingestion.api_football_odds import report_market_coverage
     summary = ingest_af_odds_fallback(week=week, year=year, verbose=True)
 
     if "error" in summary:
@@ -1161,12 +1178,14 @@ def cmd_af_odds(week: int, year: int) -> None:
     print()
     print(f"  -- AF odds fallback summary -- week {week}/{year} " + "-" * 16)
     print(f"  Total fixtures checked:  {summary['n_total']}")
-    print(f"  Already had odds:        {summary['n_already_have']}  (skipped)")
+    print(f"  All complete (skipped):  {summary['n_skipped']}")
     print(f"  No AF link:              {summary['n_no_af_link']}  (skipped)")
-    print(f"  Odds inserted:           {summary['n_filled']}  (source=api_football)")
-    print(f"  AF has no 1X2 data:      {summary['n_no_odds_data']}")
+    print(f"  1X2 odds inserted:       {summary['n_1x2_filled']}  (source=api_football)")
+    print(f"  Market rows written:     {summary['n_markets_rows']}  (BTTS + O/U)")
+    print(f"  AF returned no data:     {summary['n_no_data']}")
     print(f"  Errors:                  {summary['n_failed']}")
     print()
+    report_market_coverage(week=week, year=year)
 
 
 # ── Model-estimated priors ──────────────────────────────────────────────────

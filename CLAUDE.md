@@ -4,49 +4,155 @@ Project guidance for Claude Code. Read the relevant `docs/` file before changing
 
 ## Project
 
-Norsk Tipping (NT) prediction engine for Tippekupongen. Three parallel systems share the same SQLite database and analysis pipeline:
+TippeIQ — Norwegian Tipping (NT) prediction engine. Three parallel systems share the same SQLite database and analysis pipeline:
 
 - **Streamlit** (`app.py`) — original UI, must not be broken
 - **FastAPI** (`backend/main.py`) — REST API on port 8000
 - **Next.js** (`frontend/`) — primary user-facing UI under development, port 3000
 
-## Product Philosophy
+---
 
-**TippeQpongen is a coupon optimization product.**
+## Product Split
 
-The user's primary job is: *"Tell me what to fill in on my coupon this week, and give me a reason to trust it."*
+TippeIQ contains two separate intelligence products. They share the same model core but use different inputs and target different markets.
 
-- The **coupon** is the product.
-- The **analysis** is the justification.
-- The **optimizer** is the engine.
-- **Crowd disagreement** is the source of alpha.
+### 1. Kupong-intelligens
 
-### What the metrics are
+- Norsk Tipping pool / coupon logic
+- **Uses** NT public tip percentages (crowd data)
+- Goal: find where the model disagrees with the crowd, exploit pool mispricing
+- Key metrics: PVR, P(12), P(11+), P(10+), folkeavvik (edge_pp), expected pool value
+- Coupon output: Balansert + Jackpot strategies producing 1-2-3 mark recommendations
+- Pages: `/signaler`, `/kupong`
 
-CDS, PVR, NT public tip percentages, bookmaker probabilities, model adjustments, and payout simulations are not the product. They are evidence used to justify the recommended coupon. No feature, page, or metric should become an end in itself.
+### 2. Odds-intelligens / Modellspill
 
-### Product vs. differentiator
+- Bookmaker market logic
+- **Must NOT** use NT public tip percentages in any probability or edge calculation
+- Uses: bookmaker odds + model probability (bookmaker prior + AF stats adjustment)
+- Goal: beat bookmaker implied probability, find market mispricing
+- Key metrics: ROI, CLV, bankroll, hit rate, drawdown, model edge
+- Output: paper bets on 1X2 / BTTS / Over 2.5 with edge ≥ 3pp (tiered)
+- Page: `/oddstips`
 
-| | |
+---
+
+## Model Quality Hierarchy
+
+All matches evaluated for Modellspill are tagged with a model quality level:
+
+| Level | Label | Definition |
+|---|---|---|
+| `full_model` | Full modell | Real seasonal enrichment with venue-specific goal averages → Poisson from Phase 13 stats |
+| `af_supported` | AF-støttet | No enrichment (or no goal data), but AF Predictions `last_5` goal data available for Poisson |
+| `generic_prior` | Eurosnitt-prior | No enrichment, no AF predictions → European-average Poisson (xG home 1.40, away 1.10) |
+
+The `model_quality` field is stored per bet in the `model_bets` table and used for transparency badges in the UI.
+
+**Model quality for Kupong-intelligens (NT coupon matches):** Always goes through the full bookmaker prior pipeline. AF stats adjustment is applied when enrichment data exists. `estimated_prior` fallback is used when no bookmaker odds are available (never tagged "full_model" for the coupon product).
+
+---
+
+## Odds Scanner
+
+`scan_af_market_odds()` in `ingestion/api_football_odds.py`:
+
+- 72-hour lookahead window (configurable)
+- 27 tracked leagues (see `_SCAN_LEAGUES` in `api_football_odds.py`)
+- Markets fetched per fixture: 1X2, BTTS (Both Teams Score), Over/Under 2.5
+- Bookmaker priority: Bet365 → William Hill → Marathonbet → 10Bet → first available
+- World Cup included: `league_id=1, season=2026`
+- New fixtures not yet in DB are inserted into `fixtures` + `api_football_fixture_links`
+- 1X2 stored in `odds` table (skipped if already present)
+- BTTS/O/U stored in `odds_markets` table (upserted every run — latest wins)
+
+**Scheduler:** runs via `_market_scan_job()` every 2 hours inside the FastAPI process.
+
+**Endpoint:** `POST /v1/bets/scan` — triggers scan + candidate generation immediately (manual trigger).
+
+**Auto-settle:** `_auto_settle_job()` runs every 60 minutes. Settles pending bets for fixtures where `kickoff_utc + 100 min` is in the past and a result exists in `match_results`.
+
+---
+
+## Modellspill Persistence (model_bets table)
+
+All generated Modellspill candidates are stored in the `model_bets` table (via `db/paper_bets.py`).
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `coupon_id` | TEXT \| NULL | NULL for global scan bets; set for coupon-specific bets |
+| `fixture_id` | TEXT | Internal fixture ID |
+| `match_name` | TEXT | "Home vs Away" |
+| `league` | TEXT \| NULL | League name |
+| `kickoff_utc` | TEXT \| NULL | ISO kickoff time |
+| `market` | TEXT | `1x2`, `btts`, `over_2.5` |
+| `outcome` | TEXT | `H`, `U`, `B`, `yes`, `no`, `over`, `under` |
+| `bookmaker` | TEXT | Bookmaker name |
+| `ref_odds` | REAL | Reference odds at bet generation time |
+| `implied_prob` | REAL | De-vigged implied probability (0–1) |
+| `model_prob` | REAL | Model probability (0–1) |
+| `edge_pp` | REAL | `(model_prob − implied_prob) × 100` |
+| `stake_nok` | REAL | Flat stake in NOK |
+| `expected_value` | REAL | `model_prob × ref_odds − 1` |
+| `insight_type` | TEXT \| NULL | `value_bet`, `longshot`, tier tag |
+| `model_quality` | TEXT | `full_model`, `af_supported`, `generic_prior` |
+| `risk_level` | TEXT | `tier_a` (≥8pp), `tier_b` (5–8pp), `tier_c` (3–5pp) |
+| `reason` | TEXT \| NULL | Human-readable edge explanation |
+| `status` | TEXT | `pending`, `won`, `lost`, `void` |
+| `result_outcome` | TEXT \| NULL | Actual result (set on settle) |
+| `closing_odds` | REAL \| NULL | Bookmaker odds at close (for CLV) |
+| `clv` | REAL \| NULL | Closing Line Value: `ref_odds / closing_odds − 1` |
+| `profit_nok` | REAL \| NULL | `stake × (ref_odds − 1)` if won, else `−stake` |
+| `created_at` | TEXT | ISO timestamp |
+| `settled_at` | TEXT \| NULL | ISO timestamp when settled |
+
+**API endpoints:**
+| Route | Purpose |
 |---|---|
-| **Product** | A coupon optimizer that recommends marks and coverage structures based on budget, probability, and expected value. |
-| **Differentiator** | The optimizer gains edge by incorporating crowd disagreement (CDS), pool value (PVR), public tip percentages, and model adjustments over the bookmaker baseline. |
+| `GET /v1/bets` | List bets (optional `status`, `market`, `limit` filters) |
+| `GET /v1/bets/summary` | Aggregate performance metrics across all settled bets |
+| `GET /v1/bets/bankroll` | Chronological bankroll series for equity chart |
+| `POST /v1/bets/generate` | Generate bets for active coupon (edge ≥ 5pp) |
+| `POST /v1/bets/scan` | Global 72h odds scan + candidate generation (edge ≥ 3pp) |
+| `POST /v1/bets/settle/{fixture_id}` | Manually settle pending bets for a fixture |
 
-### Evaluation rule for all frontend changes
+---
 
-Before implementing any UI, UX, or feature change, ask:
+## Design Semantics
 
-> Does this help the user understand, trust, or act on the recommended coupon?
+| Color | Role | Use |
+|---|---|---|
+| Gold `#F5C542` | Value / strong recommendation | Top signal, recommended pick, CTA |
+| Indigo `#7B92FF` | Model disagreement / crowd mispricing | Edge signal, "where the crowd is wrong" |
+| Green `#22C55E` | Positive outcome | Won bets, positive ROI, covered picks |
+| Red `#EF4444` | Actual bad outcomes only | Losses, negative ROI, errors, drawdown |
+| Amber `#F59E0B` | Caution / risk | Warning states, risk level badges |
 
-If no, it is analysis for its own sake. Defer or remove it.
+**Red must never be used for ordinary model disagreement.** Disagreement is shown with indigo or as an absolute value + explanation, not as failure.
 
-### Invariants
+---
 
-- The optimizer remains the center of the product.
-- The coupon remains the primary output.
-- Analysis exists to explain optimizer decisions, not to replace them.
-- Statistics should support decisions, not become the product itself.
-- "Where the crowd is wrong" is the differentiator and the reason to trust the coupon — it is not the product itself.
+## Systemspill (frontend/app/strategien/page.tsx)
+
+- **Risk slider:** Treffsikkerhet ↔ Jackpotpotensial — maps to n_full/n_half balance within the selected system
+- **Coverage allocation:** Matches are ranked by coverage score; top `n_full` get full-cover (H+U+B), next `n_half` get half-cover (2 marks), remainder get single marks
+- **Reduction funnel:** `buildSystemProposal` assigns coverage types rank-first; `generateRows()` computes the Cartesian product (3^n_full × 2^n_half = rows)
+- **Reason bands per match:** Classification chip (banker/halvdekk/heldekk/standard) shown per row; Explain Mode shows coverage type and confidence rationale
+- **Payout/profile section:** When omsetning is set, MetricsRow shows P(win), PVR, total rows, total cost
+
+---
+
+## Current Known Caveats
+
+- **P(11+) / P(10+):** Depend on backend Monte Carlo simulation. Available only when omsetning > 0 is provided to `/v1/optimize`. Missing data shown as "—".
+- **Non-enriched NT coupon matches:** Some matches (e.g. lower Norwegian leagues, some international fixtures) rely on `af_supported` or `generic_prior` Poisson for Modellspill. The Kupong-intelligens pipeline always uses bookmaker prior; enrichment data only adjusts the model, never replaces it.
+- **NT odds for Modellspill:** NT odds are not used for Modellspill. Modellspill always uses bookmaker odds (Bet365 / Pinnacle via Odds API). NT public percentages are Layer 2 (coupon value) only.
+- **API-Football odds:** Market references for BTTS and O/U. Odds from API-Football bookmakers (Bet365 etc.) are used as model_bets reference odds. These are not exchange prices.
+- **Settlement lag:** Auto-settle requires `match_results` to be populated via `evaluate.py --fetch`. Results are not fetched automatically by the scheduler.
+- **CLV accuracy:** `closing_odds` must be set manually or via a future closing-odds refresh job. Currently NULL for most bets.
+
+---
 
 ## Commands
 
@@ -101,7 +207,13 @@ Do not assume prior conversation context carries over. Always re-derive current 
 
 ## Current Phase
 
-**Systemspill — Cartesian system generator (Category A) + Category B disable.** (2026-06-24)
+**Milestone: Premium TippeIQ redesign + global Modellspill intelligence.** (2026-06-29)
+
+- **Modellspill / Odds-intelligens (complete):** Global odds scanner (`scan_af_market_odds`) fetches 27 leagues, 72h window. `generate_global_bet_candidates()` runs the full model pipeline on every fixture with 1X2 odds. Edge tiers: A ≥ 8pp, B 5–8pp, C 3–5pp. Poisson model for BTTS/O/U uses `full_model` → `af_supported` → `generic_prior` quality hierarchy. `/oddstips` page shows bankroll chart, active/settled bets, market signals.
+- **Modellspill scheduler jobs (complete):** `_market_scan_job()` runs every 2h. `_auto_settle_job()` runs every 60min. Both run inside FastAPI lifespan alongside existing NT and odds jobs.
+- **Insights endpoint (complete):** `GET /v1/insights` returns per-fixture model probabilities + bookmaker odds + Pinnacle movement + Poisson BTTS/O/U + AF prediction signals. Multi-market odds from `odds_markets` table (row-per-selection schema).
+- **Poisson market models (complete):** `analysis/market_models.py` — `btts_probability()`, `over_under_probability()`, `win_draw_loss_probability()`, `market_probs_from_enrichment()`. Uses Phase 13 venue-specific goal averages (preferred) or Phase 10 overall averages as fallback.
+- **Paper bets system (complete):** `db/paper_bets.py`, `model_bets` table. Generation, settlement, bankroll tracking, CLV field. `BetSummary`, `BankrollPoint`, `PaperBet` schemas.
 
 - **Systemspill Category A (complete):** `frontend/lib/systemLibrary.ts` rebuilt with `category: "A" | "B"` field. All 10 Category A systems have verified `n_full`/`n_half` values satisfying `3^n_full × 2^n_half = rows` exactly. 9 of 10 were wrong before (only U 8-2-432 was correct). Category A systems: U 7-0-36 (3²×2²=36), MU 4-3-64 (2⁶=64), U 6-0-64 (2⁶=64), MU 7-0-108 (3³×2²=108), MU 9-1-192 (3×2⁶=192), U 9-0-192 (3×2⁶=192), MU 6-2-324 (3⁴×2²=324), U 8-2-432 (3³×2⁴=432), MU 7-1-486 (3⁵×2=486), MU 5-5-864 (3³×2⁵=864).
 - **Cartesian row generator:** `generateRows()` in `strategien/page.tsx` takes the sign state and computes the exact Cartesian product, returning the full `rows × 12` matrix. `buildSystemProposal` for Category A is rank-forced (no threshold) — always fills exactly n_full + n_half slots to guarantee correct row count. Row count verified against `system.rows` at generation time.
@@ -147,6 +259,7 @@ decimal odds
 - `analysis/strategy.py` — StrategyConfig + STRATEGIES dict (safe/balanced/jackpot)
 - `analysis/pool_value.py` — compute_value_index, compute_p_win, compute_pool_value_ratio, simulate_payout
 - `analysis/estimated_prior.py` — fallback H/U/B when no bookmaker odds (NT expert 60% + stats 40%)
+- `analysis/market_models.py` — Poisson BTTS/O/U models; `market_probs_from_enrichment()` uses Phase 13 venue-specific stats
 - `data/loader.py` — SQLite (preferred) or flat-file `data/coupon_weekNN_YYYY.py` (fallback)
 
 **FastAPI routes:**
@@ -154,13 +267,23 @@ decimal odds
 |---|---|
 | `GET /v1/coupons` | Active non-expired coupons (no args); or by `?week=&year=` for history |
 | `POST /v1/optimize` | Run optimizer — accepts `coupon_id`, `strategy`, `budget` |
+| `GET /v1/signals` | Signal board: all matches ranked by signal strength (model edge × CDS boost) |
+| `GET /v1/insights` | Enriched insights: bookmaker odds + Pinnacle movement + Poisson + AF predictions |
 | `GET /v1/sync/status` | Sync state: last refresh times, omsetning, tip change count |
 | `POST /v1/sync/refresh-coupons` | Trigger NT refresh (background task — admin/backend only) |
 | `POST /v1/sync/daily` | Trigger full daily sync |
 | `GET /v1/analytics/strategy` | Per-strategy generation analytics (Phase 9) |
+| `GET /v1/history` | All coupons with saved predictions (evaluated or pending) |
+| `GET /v1/history/{coupon_id}` | Per-pick breakdown for one saved coupon |
+| `GET /v1/bets` | List paper bets (Modellspill) |
+| `GET /v1/bets/summary` | Aggregate performance metrics |
+| `GET /v1/bets/bankroll` | Bankroll equity series |
+| `POST /v1/bets/generate` | Generate bets from active coupon (edge ≥ 5pp) |
+| `POST /v1/bets/scan` | Global 72h odds scan + candidate generation (edge ≥ 3pp) |
+| `POST /v1/bets/settle/{fixture_id}` | Manually settle bets for a fixture |
 | `GET /health` | Health check |
 
-**Database:** SQLite via `db/connection.py`. Key tables: `fixtures`, `coupons`, `coupon_fixtures`, `odds`, `odds_snapshots`, `coupon_predictions`, `match_results`, `coupon_evaluations`, `fixture_stat_enrichment`, `fixture_estimated_prior`, `coupon_save_snapshot`, `pick_evaluations`. Phase 9 tables: `coupon_generations`, `generation_picks`, `generation_results` (auto-populated by `/v1/optimize`; managed by `db/generation.py`). Phase 12 columns on `fixture_stat_enrichment`: `home_recent_fixture_stats TEXT`, `away_recent_fixture_stats TEXT` (JSON). Phase 13 columns on `fixture_stat_enrichment`: `league_size INTEGER`, `home_avg_goals_for_home REAL`, `home_avg_goals_against_home REAL`, `away_avg_goals_for_away REAL`, `away_avg_goals_against_away REAL`, `home_clean_sheets_home INTEGER`, `away_clean_sheets_away INTEGER`.
+**Database:** SQLite via `db/connection.py`. Key tables: `fixtures`, `coupons`, `coupon_fixtures`, `odds`, `odds_snapshots`, `odds_markets`, `coupon_predictions`, `match_results`, `coupon_evaluations`, `fixture_stat_enrichment`, `fixture_estimated_prior`, `coupon_save_snapshot`, `pick_evaluations`, `model_bets`. Phase 9 tables: `coupon_generations`, `generation_picks`, `generation_results` (auto-populated by `/v1/optimize`; managed by `db/generation.py`). Phase 12 columns on `fixture_stat_enrichment`: `home_recent_fixture_stats TEXT`, `away_recent_fixture_stats TEXT` (JSON). Phase 13 columns on `fixture_stat_enrichment`: `league_size INTEGER`, `home_avg_goals_for_home REAL`, `home_avg_goals_against_home REAL`, `away_avg_goals_for_away REAL`, `away_avg_goals_against_away REAL`, `home_clean_sheets_home INTEGER`, `away_clean_sheets_away INTEGER`.
 
 `coupons` table columns include: `omsetning REAL` (NT turnover in NOK, added 2026-06-19), `nt_game_day_id TEXT`, `day_type TEXT`, `deadline_utc TEXT`.
 
@@ -177,19 +300,28 @@ decimal odds
 **Next.js frontend structure (`frontend/`):**
 | File | Purpose |
 |---|---|
-| `app/coupon/page.tsx` | Main coupon optimizer page — all layout, queries, sidebar |
+| `app/page.tsx` | Signal board — matches ranked by edge × CDS |
+| `app/signaler/page.tsx` | Kupong-intelligens analyst view — model vs folket |
+| `app/kupong/page.tsx` | Coupon builder (replaces legacy coupon page) |
+| `app/coupon/page.tsx` | Legacy coupon optimizer page — all layout, queries, sidebar |
+| `app/oddstips/page.tsx` | Modellspill — bankroll chart, bets list, market signals |
+| `app/historikk/page.tsx` | History — generation performance, evaluated coupons |
+| `app/strategien/page.tsx` | Systemspill — system library, Cartesian generator, Explain Mode |
+| `app/home/page.tsx` | Marketing home — hero + terminal panel |
+| `app/modellen/page.tsx` | Model explanation page |
+| `app/om/page.tsx` | About page |
 | `components/MatchTable.tsx` | 12-match table with conviction dots, prob bars, edge badges |
 | `components/MetricsRow.tsx` | P(win), PVR, rows, cost metric cards |
 | `components/StrategySelector.tsx` | Safe / Balanced / Jackpot tabs |
 | `components/CouponSelector.tsx` | Active coupon tabs (feeds from `list_active_coupons` via API) |
 | `components/BudgetSelector.tsx` | Budget selector (32 / 96 / 192 / 384 NOK) |
 | `components/SyncStatus.tsx` | Data freshness panel — passive, no manual refresh button |
-| `app/strategien/page.tsx` | Systemspill page — system library dropdown, Cartesian row generator, Explain Mode, coverage scoring |
-| `components/SystemMatchRow.tsx` | Per-match row for Systemspill — sign tiles (H/U/B), coverage type indicator (key/reserve/single) |
-| `lib/systemLibrary.ts` | 42 NT system definitions — `category: "A" | "B"`, verified `n_full`/`n_half` for Category A, `rows`, `cost` |
+| `components/SystemMatchRow.tsx` | Per-match row for Systemspill |
+| `lib/systemLibrary.ts` | 42 NT system definitions — `category: "A" | "B"`, verified `n_full`/`n_half` for Category A |
 | `lib/api.ts` | All API fetch functions |
 | `lib/types.ts` | TypeScript mirrors of backend Pydantic schemas |
 | `lib/utils.ts` | Formatting helpers: `formatRelative`, `formatUntil`, `secsUntil`, `fmtKr`, etc. |
+| `lib/insights.ts` | `deriveOddstips()` — client-side signal derivation from InsightsResponse |
 
 ## Active Coupon Lifecycle
 
@@ -213,6 +345,9 @@ Expired coupons remain in the DB forever for history, Results entry, and evaluat
 
 - **NT check:** every 5-min tick, self-throttles to 60/15/5-min intervals based on time-to-deadline.
 - **Odds check:** every 3 hours.
+- **Market scan:** every 2 hours — `scan_af_market_odds()` + `generate_global_bet_candidates()`.
+- **Auto-settle:** every 60 minutes — settles pending bets with results in `match_results`.
+- **Freeze check:** every 5 minutes — auto-freezes active coupons within FREEZE_WINDOW_MINUTES of deadline.
 - State: `data/sync_state.json` (thread-safe, atomic writes via `backend/sync_state.py`).
 - Never calls `sync.py` functions that contain `sys.exit()`.
 
@@ -226,7 +361,7 @@ This applies to: React components, Next.js pages, Tailwind styling, layout chang
 
 ### Design Identity
 
-TippeQongen is a **sports analytics product**, not a sportsbook.
+TippeIQ is a **premium sports intelligence platform**, not a sportsbook.
 
 Preferred inspirations: Football Manager, FotMob, SofaScore, Flashscore, Bloomberg Terminal, professional trading platforms, modern sports analytics dashboards.
 
@@ -234,7 +369,7 @@ Avoid: Casino websites, gambling landing pages, neon-heavy dashboards, crypto da
 
 ### Visual Direction
 
-- **Theme:** Moneyball Black — pure black background (`#050505`), amber/yellow as primary accent, emerald for positive signals, red for negative signals, minimal blue.
+- **Theme:** Near-black canvas (`#0A0A0B`), gold as primary accent, indigo for crowd mispricing signals, green for positive outcomes, red for actual losses only.
 - **Design priorities (in order):** Data clarity → information hierarchy → fast scanning → professional appearance → compact layouts → meaningful visualizations.
 - **Not priorities:** Fancy animations, decorative effects, visual clutter, empty marketing space.
 
@@ -290,6 +425,8 @@ Never assume the UI is good without visual verification.
 - **Phase 13 — venue-specific stats only shown when games played > 0:** `home_avg_goals_for_home` and related columns can be 0.0 when a WC team was always listed as "away" in the API fixture (no home games played). The frontend guards these rows with `hHomeGames > 0` / `aAwayGames > 0` (derived by parsing the W/D/L counts in `home_home_record` / `away_away_record`). Do not remove this guard — showing "0.0 | MÅL/KAMP | X.X" for a team with 0 home games misleads the user.
 - **Systemspill — Category A is Cartesian product, not an NT reduction matrix:** `generateRows()` produces all combinations of selected sign sets (3^n_full × 2^n_half = rows). The row count matches the NT system name, but the mathematical coverage guarantee does not — NT's named systems are combinatorial covering codes, not Cartesian products. Never represent Category A as "NT-compatible" or claim it has the same guarantees as the official system. Category B systems (32 of 42) require NT's proprietary reduction tables and are disabled. `n_full` and `n_half` in `systemLibrary.ts` are the unique factorization of `rows` into 3^a × 2^b — do not change them without re-verifying the row count formula.
 - **Systemspill — rank-forced coverage for Category A:** `buildSystemProposal` with `system.category === "A"` must NEVER use `minCoverageThreshold` — it must always force-assign exactly `n_full` full-cover slots and `n_half` half-cover slots by coverage score rank, regardless of how confident the model is. Any threshold gating would break the row count (3^n_full × 2^n_half only holds when ALL slots are filled).
+- **Modellspill — model quality tags are informational only:** `model_quality` stored in `model_bets` records which Poisson data source was used. It does not affect edge calculation or bet generation logic. Do not use it as a filter gate.
+- **Red is for losses and errors only:** Never use red color for "model disagrees with crowd" or CDS signals. Crowd mispricing signals use indigo or gold. Red is reserved for: negative profit, negative ROI, losses, errors, drawdown.
 
 ## Detailed Documentation
 

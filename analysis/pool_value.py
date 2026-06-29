@@ -231,6 +231,8 @@ def simulate_payout(
 
     payouts:       list[float] = []
     winner_counts: list[int]   = []
+    n_11_sims:     int         = 0
+    n_10_sims:     int         = 0
 
     for _ in range(n_sims):
         # ── Step 1: sample outcome from model ────────────────────────────────
@@ -244,8 +246,13 @@ def simulate_payout(
             else:
                 outcome[m.number] = "B"
 
-        # ── Step 2: check if our coupon covers this outcome ──────────────────
-        if not all(outcome[mn] in coupon[mn] for mn in coupon):
+        # ── Step 2: count correct matches; track 11+ and 10+ hit thresholds ─
+        n_correct = sum(1 for mn in coupon if outcome[mn] in coupon[mn])
+        if n_correct >= 11:
+            n_11_sims += 1
+        if n_correct >= 10:
+            n_10_sims += 1
+        if n_correct < 12:
             continue
 
         # ── Step 3: public probability of this exact 12-match outcome ────────
@@ -266,7 +273,11 @@ def simulate_payout(
         winner_counts.append(total_winners)
 
     if not payouts:
-        return {"n_winning_sims": 0, "p_win_simulated": 0.0}
+        return {
+            "n_winning_sims": 0, "p_win_simulated": 0.0,
+            "p_11": round(n_11_sims / n_sims, 4),
+            "p_10": round(n_10_sims / n_sims, 4),
+        }
 
     payouts.sort()
     n_w        = len(payouts)
@@ -284,6 +295,8 @@ def simulate_payout(
     return {
         "n_winning_sims":  n_w,
         "p_win_simulated": round(n_w / n_sims, 4),
+        "p_11": round(n_11_sims / n_sims, 4),
+        "p_10": round(n_10_sims / n_sims, 4),
         "min":      round(payouts[0]),
         "p10":      round(payouts[n_w // 10]) if n_w >= 10 else round(payouts[0]),
         "median":   round(payouts[n_w // 2]),

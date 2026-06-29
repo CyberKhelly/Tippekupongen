@@ -16,46 +16,36 @@ const STRATEGIES: Array<{
   desc: string;
   detail: string;
 }> = [
-  { key: "safe",     badge: "Safe",      desc: "Treffsikker", detail: "Lavest risiko" },
-  { key: "balanced", badge: "Balansert", desc: "Anbefalt",    detail: "Optimalt for de fleste" },
-  { key: "jackpot",  badge: "Jackpot",   desc: "Høy risiko",  detail: "Maks forventet verdi" },
+  { key: "balanced", badge: "Balansert", desc: "Anbefalt",   detail: "Optimalt for de fleste" },
+  { key: "jackpot",  badge: "Jackpot",   desc: "Høy risiko", detail: "Maks forventet verdi" },
 ];
 
 export function StrategySelector({ selected, onSelect, variant = "vertical" }: StrategySelectorProps) {
   if (variant === "horizontal") {
     return (
-      <LayoutGroup>
-        <div className="flex gap-1.5">
+      <LayoutGroup id="strategy-h">
+        <div className="flex items-end gap-6">
           {STRATEGIES.map((s) => {
             const isActive = s.key === selected;
             return (
-              <motion.button
+              <button
                 key={s.key}
                 onClick={() => onSelect(s.key)}
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.12 }}
                 className={cn(
-                  "relative flex-1 text-center py-2 px-2 rounded-lg border overflow-hidden min-h-[40px]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111110]/20",
-                  "transition-colors duration-150",
-                  isActive
-                    ? "bg-[#111110] border-[#111110]"
-                    : "bg-white border-[#E4E1DA] hover:border-[#C0BAB0]",
+                  "relative pb-2.5 text-[12px] font-semibold transition-colors duration-150",
+                  "focus-visible:outline-none focus-visible:ring-0",
+                  isActive ? "text-[#E8E4DD]" : "text-[#4A4744] hover:text-[#7A7673]",
                 )}
               >
-                <div className={cn(
-                  "text-[11px] font-bold tracking-wide leading-none",
-                  isActive ? "text-white" : "text-[#6B6862]",
-                )}>
-                  {s.badge}
-                </div>
-                <div className={cn(
-                  "text-[9px] mt-0.5 leading-none",
-                  isActive ? "text-white/60" : "text-[#ADA9A2]",
-                )}>
-                  {s.desc}
-                </div>
-              </motion.button>
+                {isActive && (
+                  <motion.div
+                    layoutId="strategy-underline-h"
+                    className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#F5C030] rounded-full"
+                    transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                  />
+                )}
+                {s.badge}
+              </button>
             );
           })}
         </div>
@@ -64,42 +54,38 @@ export function StrategySelector({ selected, onSelect, variant = "vertical" }: S
   }
 
   return (
-    <LayoutGroup>
-      <div className="space-y-1.5">
+    <LayoutGroup id="strategy-v">
+      <div className="space-y-0.5">
         {STRATEGIES.map((s) => {
           const isActive = s.key === selected;
           return (
-            <motion.button
+            <button
               key={s.key}
               onClick={() => onSelect(s.key)}
-              whileTap={{ scale: 0.98 }}
               className={cn(
-                "relative w-full py-3 px-3.5 rounded-lg border text-left",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111110]/20",
-                "transition-colors duration-150",
+                "relative w-full py-2.5 pl-4 pr-3 rounded-md text-left transition-colors duration-150",
+                "focus-visible:outline-none",
                 isActive
-                  ? "bg-[#111110] border-[#111110]"
-                  : "bg-white border-[#E4E1DA] hover:border-[#C0BAB0]",
+                  ? "bg-[#1C1C1C] text-[#E8E4DD]"
+                  : "text-[#4A4744] hover:bg-[#141414] hover:text-[#7A7673]",
               )}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className={cn(
-                    "text-[12px] font-bold tracking-wide block leading-none",
-                    isActive ? "text-white" : "text-[#111110]",
-                  )}>
-                    {s.badge}
-                  </span>
-                  <span className={cn("text-[10px] mt-1 block", isActive ? "text-white/70" : "text-[#6B6862]")}>
-                    {s.desc}
-                  </span>
-                  <span className={cn("text-[9px] mt-0.5 block", isActive ? "text-white/40" : "text-[#ADA9A2]")}>
-                    {s.detail}
-                  </span>
-                </div>
-                {isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#F5C542] shrink-0 ml-2" />}
+              {isActive && (
+                <motion.div
+                  layoutId="strategy-line-v"
+                  className="absolute left-0 top-2 bottom-2 w-[2px] bg-[#F5C030] rounded-r-full"
+                  transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                />
+              )}
+              <div>
+                <span className="text-[12px] font-bold block leading-none">
+                  {s.badge}
+                </span>
+                <span className="text-[10px] mt-1 block text-[#4A4744]">
+                  {s.desc}
+                </span>
               </div>
-            </motion.button>
+            </button>
           );
         })}
       </div>

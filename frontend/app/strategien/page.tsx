@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { optimize, getEnrichment, getCouponDetail } from "@/lib/api";
 import type { MatchEnrichment, MatchResult } from "@/lib/types";
 import { CouponSelector } from "@/components/CouponSelector";
-import { Logo } from "@/components/brand/Logo";
 import { SystemMatchRow } from "@/components/SystemMatchRow";
 import type { Sign } from "@/components/SystemMatchRow";
 import { cn } from "@/lib/utils";
@@ -276,47 +275,634 @@ function buildSystemProposal(
   return { signState, coverageState, explains, rowMatrix: null };
 }
 
+// ── Coverage reason + uncertainty scale ───────────────────────────────────────
+
+function UncertaintyScale({ score }: { score: number }) {
+  const pct = Math.min(Math.max(score / 0.85, 0), 1);
+  const color =
+    score < 0.35 ? "var(--green)" :
+    score < 0.62 ? "var(--gold)" :
+    "rgba(255,255,255,0.40)";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+      <span style={{ fontSize: 8, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.18)", letterSpacing: "0.04em" }}>LAV</span>
+      <div style={{ width: 72, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.06)", position: "relative" }}>
+        {/* Filled portion */}
+        <div style={{
+          position: "absolute", inset: 0,
+          transform: `scaleX(${pct})`, transformOrigin: "left",
+          background: color, opacity: 0.3, borderRadius: 2,
+        }} />
+        {/* Dot */}
+        <div style={{
+          position: "absolute", top: -2.5,
+          left: `${pct * 100}%`, transform: "translateX(-50%)",
+          width: 8, height: 8, borderRadius: "50%",
+          background: color,
+          boxShadow: `0 0 5px ${color}`,
+        }} />
+      </div>
+      <span style={{ fontSize: 8, fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.18)", letterSpacing: "0.04em" }}>HØY</span>
+    </div>
+  );
+}
+
+function coverageLabel(type: CoverageType): { badge: string; text: string; sub: (ex: MatchExplain, m: MatchResult) => string; color: string } {
+  if (type === "single") return {
+    badge: "SINGEL",
+    text: "Modellen ser én klart dominerende utgang.",
+    sub: (ex, m) => {
+      const p = Math.round((ex.anchor === "H" ? m.prob_h : ex.anchor === "U" ? m.prob_u : m.prob_b) * 100);
+      return `${ex.anchor}: ${p}% — høy konfidens`;
+    },
+    color: "var(--green)",
+  };
+  if (type === "reserve") return {
+    badge: "HALVDEKK",
+    text: "Modellen ser to realistiske utfall.",
+    sub: (ex, m) => {
+      const ap = Math.round((ex.anchor === "H" ? m.prob_h : ex.anchor === "U" ? m.prob_u : m.prob_b) * 100);
+      const rp = ex.reserve !== null ? Math.round((ex.reserve === "H" ? m.prob_h : ex.reserve === "U" ? m.prob_u : m.prob_b) * 100) : null;
+      return `Anker: ${ex.anchor} (${ap}%) + Reserv: ${ex.reserve ?? "?"} (${rp ?? "?"}%)`;
+    },
+    color: "var(--gold)",
+  };
+  return {
+    badge: "HELDEKK",
+    text: "Usikkerheten er for høy for ett tegn.",
+    sub: (_, m) => {
+      const max = Math.round(Math.max(m.prob_h, m.prob_u, m.prob_b) * 100);
+      return `H/U/B har alle realistiske sjanser — høyest ${max}%`;
+    },
+    color: "rgba(200,200,200,0.35)",
+  };
+}
+
+function CoverageReasonBand({ ex, match }: { ex: MatchExplain; match: MatchResult }) {
+  const info = coverageLabel(ex.coverageType);
+  const subText = info.sub(ex, match);
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "5px 16px 6px",
+      background: "rgba(255,255,255,0.012)",
+      borderBottom: "1px solid rgba(255,255,255,0.04)",
+    }}>
+      <span style={{ width: 20, flexShrink: 0 }} />
+      <span style={{
+        fontFamily: "var(--font-mono)", fontSize: 7, fontWeight: 700, letterSpacing: "0.12em",
+        color: info.color,
+        background: `color-mix(in srgb, ${info.color} 10%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${info.color} 28%, transparent)`,
+        padding: "2px 5px", borderRadius: 3, flexShrink: 0,
+      }}>
+        {info.badge}
+      </span>
+      <span style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: "rgba(255,255,255,0.38)", lineHeight: 1.3, flex: 1, minWidth: 0 }}>
+        {info.text}
+        <span style={{ marginLeft: 8, color: "rgba(255,255,255,0.20)", fontSize: 10 }}>{subText}</span>
+      </span>
+      <UncertaintyScale score={ex.coverageScore} />
+    </div>
+  );
+}
+
+// ── Coverage allocation card ───────────────────────────────────────────────────
+
+function CoverageAllocationCard({ explainData, system }: { explainData: MatchExplain[]; system: SystemPreset }) {
+  const singles  = explainData.filter(e => e.coverageType === "single").length;
+  const halvdekk = explainData.filter(e => e.coverageType === "reserve").length;
+  const heldekk  = explainData.filter(e => e.coverageType === "key").length;
+  const total    = Math.max(explainData.length, 1);
+
+  const tiers = [
+    { label: "Singel",   sub: "Sikkerhet",    count: singles,  color: "var(--green)",               pct: singles  / total },
+    { label: "Halvdekk", sub: "Beskyttelse",   count: halvdekk, color: "var(--gold)",                pct: halvdekk / total },
+    { label: "Heldekk",  sub: "Usikkerhet",   count: heldekk,  color: "rgba(200,200,200,0.32)",      pct: heldekk  / total },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        background: "#0E0E10", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14,
+        padding: "18px 22px", marginBottom: 12,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 7, fontWeight: 700, letterSpacing: "0.16em", color: "rgba(255,255,255,0.2)", marginBottom: 4 }}>
+            DEKNINGSFORDELING
+          </div>
+          <div style={{ fontFamily: "var(--font-heading)", fontSize: 15, fontWeight: 800, color: "#F4F3F0", letterSpacing: "-0.02em" }}>
+            Slik brukes budsjettet
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.22)", letterSpacing: "0.04em" }}>
+            {system.cost.toLocaleString("nb-NO")} kr
+          </span>
+          <span style={{ width: 1, height: 10, background: "rgba(255,255,255,0.08)" }} />
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.22)", letterSpacing: "0.04em" }}>
+            {system.rows.toLocaleString("nb-NO")} rekker
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {tiers.map(t => (
+          <div key={t.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 84, flexShrink: 0 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700, color: t.color, letterSpacing: "0.06em" }}>
+                {t.label}
+              </div>
+              <div style={{ fontFamily: "var(--font-sans)", fontSize: 10, color: "rgba(255,255,255,0.2)", marginTop: 1 }}>
+                {t.sub}
+              </div>
+            </div>
+            {/* Bar — static scaleX, no CSS transition (hook-compliant) */}
+            <div style={{ flex: 1, position: "relative", height: 7, background: "rgba(255,255,255,0.05)", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{
+                position: "absolute", inset: 0,
+                background: t.color,
+                transform: `scaleX(${t.pct})`, transformOrigin: "left",
+                borderRadius: 4,
+              }} />
+            </div>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700, color: t.color, width: 34, textAlign: "right", flexShrink: 0 }}>
+              {Math.round(t.pct * 100)}%
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "rgba(255,255,255,0.22)", width: 64, textAlign: "right", flexShrink: 0 }}>
+              {t.count} {t.count === 1 ? "kamp" : "kamper"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Reduction funnel ───────────────────────────────────────────────────────────
+
+const TOTAL_COMBINATIONS = 531_441; // 3^12
+
+function ReductionFunnel({ system }: { system: SystemPreset }) {
+  const pct = ((1 - system.rows / TOTAL_COMBINATIONS) * 100).toFixed(2);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.06, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        display: "flex", alignItems: "center", gap: 0,
+        background: "#0E0E10", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14,
+        padding: "16px 22px", marginBottom: 16, overflow: "hidden",
+      }}
+    >
+      {/* Before */}
+      <div style={{ textAlign: "center", minWidth: 120, flexShrink: 0 }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 800, color: "rgba(255,255,255,0.18)", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>
+          {TOTAL_COMBINATIONS.toLocaleString("nb-NO")}
+        </div>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 10, color: "rgba(255,255,255,0.2)", marginTop: 3 }}>
+          mulige kombinasjoner
+        </div>
+      </div>
+
+      {/* Arrow */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "0 16px" }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 7, color: "rgba(255,255,255,0.2)", letterSpacing: "0.12em", marginBottom: 6, whiteSpace: "nowrap" }}>
+          MODELLREDUKSJON
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, width: "100%" }}>
+          <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.08)" }} />
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.18)", lineHeight: 1 }}>→</span>
+        </div>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--gold)", marginTop: 5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+          −{pct}%
+        </div>
+      </div>
+
+      {/* After */}
+      <div style={{ textAlign: "center", minWidth: 100, flexShrink: 0 }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 800, color: "var(--gold)", letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>
+          {system.rows.toLocaleString("nb-NO")}
+        </div>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 3 }}>
+          {system.name}
+        </div>
+      </div>
+
+      {/* Explanation */}
+      <div style={{ flex: 2, borderLeft: "1px solid rgba(255,255,255,0.06)", marginLeft: 20, paddingLeft: 20 }}>
+        <p style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "rgba(255,255,255,0.32)", lineHeight: 1.6, margin: 0 }}>
+          Modellen fjerner kombinasjoner med lav forventet verdi og beholder de sterkeste veiene til 12 riktige.
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Risk slider + system auto-recommendation ──────────────────────────────────
+
+const CAT_A_SYSTEMS = SYSTEM_LIBRARY.filter((s) => s.category === "A");
+
+function RiskSliderSection({
+  value,
+  onChange,
+  recommended,
+  onSelect,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  recommended: SystemPreset | null;
+  onSelect: (id: string) => void;
+}) {
+  const label =
+    value < 30 ? "Treffsikkerhet"
+    : value < 70 ? "Balansert"
+    : "Jackpotpotensial";
+
+  const desc =
+    value < 30
+      ? "Modellen prioriterer de sikreste utfallene. Færre rader, høyere krav til hvert tegn."
+      : value < 70
+      ? "Modellen fordeler mellom presisjon og dekning for best mulig forventet verdi."
+      : "Modellen prioriterer maksimal dekning. Høy oppside, men krever riktige enkeltvalg.";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        background: "#0E0E10", border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14, padding: "18px 22px", marginBottom: 16,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, letterSpacing: "0.12em", color: "var(--tx-4)" }}>
+          RISIKOPROFIL
+        </div>
+        <div style={{ fontFamily: "var(--font-heading)", fontSize: 12, fontWeight: 700, color: "var(--gold)", letterSpacing: "-0.01em" }}>
+          {label}
+        </div>
+      </div>
+
+      {/* Track + thumb */}
+      <div style={{ marginBottom: 6 }}>
+        <input
+          type="range" min={0} max={100} value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="tq-slider"
+        />
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--tx-4)" }}>Treffsikkerhet</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--tx-4)" }}>Jackpotpotensial</span>
+      </div>
+
+      <p style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--tx-3)", margin: "0 0 14px", lineHeight: 1.5 }}>
+        {desc}
+      </p>
+
+      {recommended && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 14px", borderRadius: 8,
+          background: "rgba(201,160,74,0.06)", border: "1px solid rgba(201,160,74,0.15)",
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: "var(--font-heading)", fontSize: 13, fontWeight: 700, color: "var(--tx-1)", letterSpacing: "-0.01em" }}>
+              {recommended.name}
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--tx-4)", marginTop: 2 }}>
+              {recommended.rows.toLocaleString("nb-NO")} rader · {recommended.cost.toLocaleString("nb-NO")} kr
+            </div>
+          </div>
+          <button
+            onClick={() => onSelect(recommended.id)}
+            style={{
+              padding: "6px 14px", borderRadius: 6,
+              background: "var(--gold)", color: "#0A0A0B",
+              fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 800,
+              letterSpacing: "0.06em", border: "none", cursor: "pointer",
+            }}
+          >
+            VELG
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── System comparison card ────────────────────────────────────────────────────
+
+function CoverageCountCell({ count, color }: { count: number; color: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+      <span style={{
+        fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600,
+        color, fontVariantNumeric: "tabular-nums",
+      }}>
+        {count}
+      </span>
+      <div style={{ display: "flex", gap: 1.5 }}>
+        {Array.from({ length: Math.min(count, 4) }).map((_, i) => (
+          <div key={i} style={{ width: 3, height: 3, borderRadius: 1, background: color, opacity: 0.55 }} />
+        ))}
+        {count > 4 && <span style={{ fontSize: 7, color, opacity: 0.45 }}>+</span>}
+      </div>
+    </div>
+  );
+}
+
+function SystemComparisonCard({
+  activeId, recommendedId, onSelect,
+}: {
+  activeId: string | null;
+  recommendedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const cols = "1fr 60px 70px 56px 56px 56px 60px";
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        background: "#0E0E10", border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14, overflow: "hidden", marginTop: 20,
+      }}
+    >
+      <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: 8, letterSpacing: "0.12em", color: "var(--tx-4)", marginBottom: 3 }}>
+          SYSTEMBIBLIOTEK · KATEGORI A
+        </div>
+        <div style={{ fontFamily: "var(--font-heading)", fontSize: 14, fontWeight: 700, color: "var(--tx-1)", letterSpacing: "-0.01em" }}>
+          Tilgjengelige systemer
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: cols, padding: "7px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+        {["System", "Rader", "Kostnad", "Singel", "Halvdek.", "Heldek.", ""].map((h) => (
+          <div key={h} style={{ fontFamily: "var(--font-mono)", fontSize: 8, letterSpacing: "0.10em", color: "var(--tx-4)" }}>
+            {h}
+          </div>
+        ))}
+      </div>
+
+      {CAT_A_SYSTEMS.map((sys, i) => {
+        const isActive = sys.id === activeId;
+        const isRec = sys.id === recommendedId && !isActive;
+        const singel = 12 - sys.n_full - sys.n_half;
+        return (
+          <div
+            key={sys.id}
+            style={{
+              display: "grid", gridTemplateColumns: cols,
+              padding: "10px 20px", alignItems: "center",
+              borderBottom: i < CAT_A_SYSTEMS.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+              background: isActive
+                ? "rgba(201,160,74,0.07)"
+                : isRec
+                ? "rgba(201,160,74,0.025)"
+                : "transparent",
+            }}
+          >
+            <div style={{
+              fontFamily: "var(--font-heading)", fontSize: 13,
+              fontWeight: isActive ? 700 : 500,
+              color: isActive ? "var(--gold)" : "var(--tx-2)",
+              letterSpacing: "-0.01em",
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              {sys.name}
+              {isRec && (
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 7, color: "var(--gold)", letterSpacing: "0.08em", opacity: 0.8 }}>
+                  ANBEFALT
+                </span>
+              )}
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: "var(--tx-1)", fontVariantNumeric: "tabular-nums" }}>
+              {sys.rows.toLocaleString("nb-NO")}
+            </div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--tx-3)", fontVariantNumeric: "tabular-nums" }}>
+              {sys.cost.toLocaleString("nb-NO")} kr
+            </div>
+            <CoverageCountCell count={singel} color="#5FAE6E" />
+            <CoverageCountCell count={sys.n_half} color="var(--gold)" />
+            <CoverageCountCell count={sys.n_full} color="rgba(255,255,255,0.35)" />
+            <button
+              onClick={() => onSelect(isActive ? "" : sys.id)}
+              style={{
+                padding: "4px 10px", borderRadius: 5,
+                background: isActive ? "rgba(201,160,74,0.15)" : "rgba(255,255,255,0.05)",
+                border: `1px solid ${isActive ? "rgba(201,160,74,0.3)" : "rgba(255,255,255,0.08)"}`,
+                color: isActive ? "var(--gold)" : "var(--tx-3)",
+                fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700,
+                cursor: "pointer", letterSpacing: "0.06em",
+              }}
+            >
+              {isActive ? "AKTIV" : "VELG"}
+            </button>
+          </div>
+        );
+      })}
+    </motion.div>
+  );
+}
+
+// ── Utfallsprofil card ────────────────────────────────────────────────────────
+
+function UtfallsprofilCard({
+  pWin, pvr, avgEdge, riskLabel,
+}: {
+  pWin: number | null;
+  pvr: number | null;
+  avgEdge: number | null;
+  riskLabel: string;
+}) {
+  const pvrColor = !pvr ? "var(--tx-3)"
+    : pvr >= 1.2 ? "#DCB35F"
+    : pvr >= 1.0 ? "var(--gold)"
+    : "var(--tx-3)";
+  const edgeColor = !avgEdge ? "var(--tx-3)"
+    : avgEdge > 0 ? "#5FAE6E"
+    : "#C8554E";
+
+  const fmtProb = (p: number | null) => {
+    if (p == null) return "—";
+    const pct = p * 100;
+    return `${pct < 0.01 ? pct.toFixed(3) : pct < 0.1 ? pct.toFixed(2) : pct.toFixed(1)}%`;
+  };
+
+  const tiers = [
+    { label: "12 RETTE", prob: pWin, color: "var(--gold)", maxRef: 0.05 },
+    { label: "11+ RETTE", prob: null, color: "#5FAE6E", maxRef: 0.20 },
+    { label: "10+ RETTE", prob: null, color: "rgba(255,255,255,0.30)", maxRef: 0.50 },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.10, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        background: "#0E0E10", border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 14, padding: "18px 22px", marginBottom: 16,
+      }}
+    >
+      <div style={{
+        fontFamily: "var(--font-mono)", fontSize: 8,
+        letterSpacing: "0.12em", color: "var(--tx-4)", marginBottom: 16,
+      }}>
+        UTFALLSPROFIL
+      </div>
+
+      {/* Distribution bars */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+        {tiers.map(({ label, prob, color, maxRef }) => {
+          const scale = prob != null ? Math.min(prob / maxRef, 1) : 0;
+          const hasValue = prob != null;
+          return (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 8, letterSpacing: "0.10em",
+                color: "var(--tx-4)", width: 70, flexShrink: 0,
+              }}>
+                {label}
+              </div>
+              <div style={{
+                flex: 1, height: 5, borderRadius: 3,
+                background: "rgba(255,255,255,0.06)",
+                position: "relative", overflow: "hidden",
+              }}>
+                <div style={{
+                  position: "absolute", inset: 0, background: color, borderRadius: 3,
+                  transform: `scaleX(${scale})`, transformOrigin: "left",
+                  transition: "transform 1s cubic-bezier(0.16,1,0.3,1)",
+                }} />
+              </div>
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 700,
+                color: hasValue ? color : "var(--tx-4)",
+                width: 58, textAlign: "right", flexShrink: 0,
+                fontVariantNumeric: "tabular-nums",
+              }}>
+                {hasValue ? fmtProb(prob) : <span style={{ fontSize: 10, color: "var(--tx-4)" }}>Estimat</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p style={{
+        fontFamily: "var(--font-sans)", fontSize: 10, color: "var(--tx-4)",
+        margin: "0 0 16px", lineHeight: 1.4,
+      }}>
+        P(11+) og P(10+) beregnes av modellen etter neste optimering.
+      </p>
+
+      {/* Metric tiles */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        {[
+          {
+            label: "PREMIEANDEL (PVR)",
+            value: pvr != null ? pvr.toFixed(2) : "—",
+            sub: pvr != null ? (pvr >= 1.0 ? "Bedre enn snittet" : "Under snittet") : "Ingen data",
+            color: pvrColor,
+          },
+          {
+            label: "FOLKEAVVIK",
+            value: avgEdge != null ? `${avgEdge > 0 ? "+" : ""}${avgEdge.toFixed(1)}pp` : "—",
+            sub: avgEdge != null
+              ? (avgEdge > 2 ? "Modellen ser tydelig mer verdi"
+                : avgEdge > 0 ? "Modellen ser litt mer verdi"
+                : "Modellen er mer forsiktig enn folket")
+              : "Ingen data",
+            color: edgeColor,
+          },
+          {
+            label: "RISIKOPROFIL",
+            value: riskLabel,
+            sub: riskLabel === "Lav" ? "Fokus på riktige tegn"
+              : riskLabel === "Høy" ? "Fokus på jackpot-oppside"
+              : "Balanse mellom presisjon og dekning",
+            color: "var(--tx-2)",
+          },
+        ].map(({ label, value, sub, color }) => (
+          <div
+            key={label}
+            style={{
+              padding: "12px 14px", borderRadius: 10,
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.05)",
+            }}
+          >
+            <div style={{
+              fontFamily: "var(--font-mono)", fontSize: 7,
+              letterSpacing: "0.12em", color: "var(--tx-4)", marginBottom: 7,
+            }}>
+              {label}
+            </div>
+            <div style={{
+              fontFamily: "var(--font-heading)", fontSize: 19, fontWeight: 800,
+              color, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 6,
+            }}>
+              {value}
+            </div>
+            <div style={{
+              fontFamily: "var(--font-sans)", fontSize: 10,
+              color: "var(--tx-4)", lineHeight: 1.3,
+            }}>
+              {sub}
+            </div>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 // ── Page header ────────────────────────────────────────────────────────────────
 
 function PageHeader({ isConnected }: { isConnected: boolean }) {
   return (
-    <header className="sticky top-0 z-20 bg-[#0D0D0D] border-b border-[rgba(255,255,255,0.07)]">
-      <div
-        className="max-w-screen-xl mx-auto px-4 sm:px-6 flex items-center justify-between"
-        style={{ height: 52 }}
-      >
-        <motion.div
-          className="flex items-center gap-3"
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        >
-          <Logo size="sm" theme="dark" />
-          <span className="hidden sm:inline-flex items-center h-5 px-2 rounded border border-[rgba(255,255,255,0.1)] bg-[#141414] text-[10px] font-semibold text-[#4A4744] tracking-wide">
-            Systemspill
+    <header className="sticky top-0 z-20" style={{
+      background: "var(--surf-0)", borderBottom: "1px solid rgba(255,255,255,0.06)",
+      height: 44, display: "flex", alignItems: "center",
+    }}>
+      <div style={{
+        maxWidth: 1200, margin: "0 auto", padding: "0 40px",
+        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700,
+            letterSpacing: "0.14em", color: "var(--gold)",
+          }}>
+            SYSTEMSPILL
           </span>
-        </motion.div>
-
-        <motion.div
-          className="flex items-center gap-2"
-          initial={{ opacity: 0, x: 8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-        >
-          <span className="relative flex h-2 w-2">
-            <span className={cn(
-              "absolute inline-flex h-full w-full rounded-full opacity-60",
-              isConnected ? "bg-[#22C55E] animate-ping" : "bg-[#F05252]",
-            )} />
-            <span className={cn(
-              "relative inline-flex rounded-full h-2 w-2",
-              isConnected ? "bg-[#22C55E]" : "bg-[#F05252]",
-            )} />
+          <span style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)" }} />
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--tx-4)", letterSpacing: "0.06em",
+          }}>
+            Kartesiansk systemgenerator
           </span>
-          <span className="text-[11px] text-[#4A4744] font-medium hidden sm:block">
-            {isConnected ? "tilkoblet" : "frakoblet"}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="relative flex" style={{ width: 6, height: 6 }}>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full"
+              style={{ background: isConnected ? "var(--green)" : "var(--red)", opacity: 0.5 }} />
+            <span className="relative inline-flex rounded-full"
+              style={{ width: 6, height: 6, background: isConnected ? "var(--green)" : "var(--red)" }} />
           </span>
-        </motion.div>
+        </div>
       </div>
     </header>
   );
@@ -576,6 +1162,7 @@ export default function StrategienPage() {
   const [debugMode, setDebugMode] = useState(false);
   const [explainData, setExplainData] = useState<MatchExplain[]>([]);
   const [rowMatrix, setRowMatrix] = useState<Sign[][] | null>(null);
+  const [riskSlider, setRiskSlider] = useState(50);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -620,6 +1207,11 @@ export default function StrategienPage() {
         (couponDetailQuery.data?.matches ?? []).map((m) => [m.match_number, m.kickoff_utc]),
       ),
     [couponDetailQuery.data],
+  );
+
+  const explainMap = useMemo(
+    () => new Map<number, MatchExplain>(explainData.map((e) => [e.matchNumber, e])),
+    [explainData],
   );
 
   // Reset when coupon changes
@@ -719,13 +1311,49 @@ export default function StrategienPage() {
   const displayRows = activeSystem?.rows ?? naiveRows;
   const displayCost = activeSystem?.cost ?? naiveRows;
 
+  const recommendedSystem = useMemo(() => {
+    const target = Math.round(36 + (riskSlider / 100) * (864 - 36));
+    return CAT_A_SYSTEMS.reduce((best, s) =>
+      Math.abs(s.rows - target) < Math.abs(best.rows - target) ? s : best,
+      CAT_A_SYSTEMS[0],
+    );
+  }, [riskSlider]);
+
+  // System-level payout metrics — computed from signState + model probabilities (no backend call)
+  const systemMetrics = useMemo(() => {
+    if (!matches.length || !activeSystem || Object.keys(signState).length === 0) return null;
+    let pWin = 1.0;
+    let pModel = 1.0;
+    let pPublic = 1.0;
+    let edgeSum = 0;
+    let edgeCount = 0;
+    for (const m of matches) {
+      const signs = signState[m.match_number];
+      if (!signs || signs.size === 0) return null;
+      let matchP = 0, mp = 0, pp = 0;
+      if (signs.has("H")) { matchP += m.prob_h; mp += m.prob_h; pp += m.pub_prob_h ?? 0; }
+      if (signs.has("U")) { matchP += m.prob_u; mp += m.prob_u; pp += m.pub_prob_u ?? 0; }
+      if (signs.has("B")) { matchP += m.prob_b; mp += m.prob_b; pp += m.pub_prob_b ?? 0; }
+      pWin *= matchP;
+      pModel *= mp;
+      pPublic *= pp;
+      const topVal = Math.max(m.value_h ?? -Infinity, m.value_u ?? -Infinity, m.value_b ?? -Infinity);
+      if (isFinite(topVal)) { edgeSum += topVal; edgeCount++; }
+    }
+    return {
+      pWin,
+      pvr: pPublic > 1e-30 ? pModel / pPublic : null,
+      avgEdge: edgeCount > 0 ? edgeSum / edgeCount : null,
+    };
+  }, [matches, signState, activeSystem]);
+
   const isLoading = optimizeQuery.isLoading || optimizeQuery.isFetching;
   const isConnected = !isApiOffline;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative min-h-screen bg-[#0D0D0D]">
+    <div className="relative min-h-screen bg-[#0D0D0D]" style={{ marginLeft: 240 }}>
       <PageHeader isConnected={isConnected} />
 
       <SystemStrip
@@ -788,21 +1416,29 @@ export default function StrategienPage() {
             </motion.p>
           )}
         </AnimatePresence>
-        <AnimatePresence>
-          {!isLoading && matches.length > 0 && !!activeSystemId && activeSystemId !== "custom" && (
-            <motion.p
-              key="system"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="mb-4 text-[12px] text-[#4A4744]"
-            >
-              {activeSystem?.category === "A"
-                ? `${activeSystem.name} — ${activeSystem.rows.toLocaleString("nb-NO")} rekker, fullt implementert. Klikk Debug for å se rekker.`
-                : "Dette er en modellbasert systemplan. Full reduksjonsmatrise/garanti kommer senere."}
-            </motion.p>
-          )}
-        </AnimatePresence>
+        {/* Risk profile slider — always visible when matches are loaded */}
+        {!isLoading && matches.length > 0 && (
+          <RiskSliderSection
+            value={riskSlider}
+            onChange={setRiskSlider}
+            recommended={recommendedSystem}
+            onSelect={(id) => { if (id) handleSystem(id); }}
+          />
+        )}
+
+        {/* Coverage allocation + reduction funnel — visible when a Category A system is active */}
+        {!isLoading && activeSystem?.category === "A" && explainData.length > 0 && (
+          <>
+            <CoverageAllocationCard explainData={explainData} system={activeSystem} />
+            <ReductionFunnel system={activeSystem} />
+            <UtfallsprofilCard
+              pWin={systemMetrics?.pWin ?? null}
+              pvr={systemMetrics?.pvr ?? null}
+              avgEdge={systemMetrics?.avgEdge ?? null}
+              riskLabel={riskSlider < 30 ? "Lav" : riskSlider < 70 ? "Middels" : "Høy"}
+            />
+          </>
+        )}
 
         {/* Explain table — visible when Debug is ON and a system is active */}
         <AnimatePresence>
@@ -966,20 +1602,34 @@ export default function StrategienPage() {
               Ingen kampdata tilgjengelig
             </div>
           ) : (
-            matches.map((match) => (
-              <SystemMatchRow
-                key={match.match_number}
-                match={match}
-                enrichment={enrichmentMap.get(match.match_number)}
-                signs={signState[match.match_number] ?? new Set()}
-                onToggle={(sign) => handleToggle(match.match_number, sign)}
-                kickoffUtc={kickoffMap.get(match.match_number)}
-                debugMode={debugMode}
-                coverageType={coverageState[match.match_number]}
-              />
-            ))
+            matches.map((match) => {
+              const ex = explainMap.get(match.match_number);
+              return (
+                <div key={match.match_number}>
+                  <SystemMatchRow
+                    match={match}
+                    enrichment={enrichmentMap.get(match.match_number)}
+                    signs={signState[match.match_number] ?? new Set()}
+                    onToggle={(sign) => handleToggle(match.match_number, sign)}
+                    kickoffUtc={kickoffMap.get(match.match_number)}
+                    debugMode={debugMode}
+                    coverageType={coverageState[match.match_number]}
+                  />
+                  {ex && <CoverageReasonBand ex={ex} match={match} />}
+                </div>
+              );
+            })
           )}
         </motion.div>
+
+        {/* System comparison — always visible when matches are loaded */}
+        {!isLoading && matches.length > 0 && (
+          <SystemComparisonCard
+            activeId={activeSystemId}
+            recommendedId={recommendedSystem?.id ?? null}
+            onSelect={(id) => { if (id) handleSystem(id); else setActiveSystemId(null); }}
+          />
+        )}
 
         {/* Merknad om systemtype */}
         {inSystemCount > 0 && (

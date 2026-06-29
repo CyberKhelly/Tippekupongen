@@ -1,5 +1,2 @@
-import { redirect } from "next/navigation";
-
-export default function Home() {
-  redirect("/coupon");
-}
+// `/` → home page (landing/oversikt)
+export { default } from "./home/page";

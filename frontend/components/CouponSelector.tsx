@@ -48,10 +48,10 @@ export function CouponSelector({ coupons, selected, onSelect, isLoading }: Coupo
               whileTap={{ scale: 0.97 }}
               className={cn(
                 "relative px-4 py-2 text-[13px] font-semibold rounded-lg border transition-colors duration-150",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#111110]/20",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C030]/20",
                 isActive
-                  ? "bg-[#111110] border-[#111110] text-white"
-                  : "bg-white border-[#E4E1DA] text-[#6B6862] hover:text-[#111110] hover:border-[#C0BAB0]",
+                  ? "bg-[rgba(255,255,255,0.07)] border-[rgba(255,255,255,0.14)] text-[#E8E4DD]"
+                  : "bg-transparent border-[rgba(255,255,255,0.07)] text-[#4A4744] hover:text-[#7A7673] hover:border-[rgba(255,255,255,0.12)]",
               )}
             >
               {label}

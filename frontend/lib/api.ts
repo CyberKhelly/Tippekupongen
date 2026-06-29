@@ -1,16 +1,22 @@
 import type {
+  BankrollPoint,
+  BetSummary,
   CdsValidationBucket,
   ConvictionStat,
   CouponDetail,
   CouponListItem,
+  GenerateBetsResponse,
   GenerationAnalytics,
   GenerationDetail,
   GenerationSummary,
   HistoryCouponDetail,
   HistoryCouponItem,
+  InsightsResponse,
   MatchEnrichment,
   NtComparison,
   OptimizeResponse,
+  PaperBet,
+  SignalBoardResponse,
   StrategyPerformance,
   Strategy,
   SyncStatus,
@@ -123,4 +129,77 @@ export async function getGenerations(): Promise<GenerationSummary[]> {
 
 export async function getGenerationDetail(generationId: string): Promise<GenerationDetail> {
   return apiFetch<GenerationDetail>(`/v1/analytics/generations/${generationId}`);
+}
+
+// ── Signal board ──────────────────────────────────────────────────────────────
+
+export async function getSignalBoard(couponId?: string): Promise<SignalBoardResponse> {
+  const qs = couponId ? `?coupon_id=${encodeURIComponent(couponId)}` : "";
+  return apiFetch<SignalBoardResponse>(`/v1/signals${qs}`);
+}
+
+// ── Oddstips insights ─────────────────────────────────────────────────────────
+
+export async function getInsights(couponId?: string): Promise<InsightsResponse> {
+  const qs = couponId ? `?coupon_id=${encodeURIComponent(couponId)}` : "";
+  return apiFetch<InsightsResponse>(`/v1/insights${qs}`);
+}
+
+// ── Modellspill (paper bets) ───────────────────────────────────────────────────
+
+export async function getBets(params?: { status?: string; market?: string }): Promise<PaperBet[]> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  if (params?.market) qs.set("market", params.market);
+  const q = qs.toString();
+  return apiFetch<PaperBet[]>(`/v1/bets${q ? `?${q}` : ""}`);
+}
+
+export async function getBetSummary(): Promise<BetSummary> {
+  return apiFetch<BetSummary>("/v1/bets/summary");
+}
+
+export async function getBankroll(): Promise<BankrollPoint[]> {
+  return apiFetch<BankrollPoint[]>("/v1/bets/bankroll");
+}
+
+export async function generateBets(couponId?: string): Promise<GenerateBetsResponse> {
+  const qs = couponId ? `?coupon_id=${encodeURIComponent(couponId)}` : "";
+  return apiFetch<GenerateBetsResponse>(`/v1/bets/generate${qs}`, { method: "POST" });
+}
+
+export async function settleBets(fixtureId: string): Promise<{ settled: number }> {
+  return apiFetch<{ settled: number }>(`/v1/bets/settle/${encodeURIComponent(fixtureId)}`, { method: "POST" });
+}
+
+export interface ScanResponse {
+  scan: {
+    n_leagues: number;
+    n_fixtures_found: number;
+    n_fixtures_new: number;
+    n_1x2_stored: number;
+    n_markets_stored: number;
+    n_no_odds: number;
+    n_errors: number;
+    n_api_calls: number;
+  };
+  candidates: {
+    n_evaluated: number;
+    n_created: number;
+    n_skipped: number;
+    min_edge_pp: number;
+    tiers: { a: number; b: number; c: number };
+    rejection_breakdown: {
+      bad_odds: number;
+      no_enr_1x2: number;
+      edge_too_small: number;
+      duplicate: number;
+      error: number;
+    };
+  };
+  duration_s: number;
+}
+
+export async function scanAndGenerateBets(lookaheadHours = 72): Promise<ScanResponse> {
+  return apiFetch<ScanResponse>(`/v1/bets/scan?lookahead_hours=${lookaheadHours}`, { method: "POST" });
 }

@@ -7,13 +7,11 @@ import { getCoupons, optimize, getSyncStatus, getEnrichment } from "@/lib/api";
 import type { MatchEnrichment, Strategy } from "@/lib/types";
 import { CouponSelector } from "@/components/CouponSelector";
 import { StrategySelector } from "@/components/StrategySelector";
-import { BudgetSelector } from "@/components/BudgetSelector";
+import { BudgetInput } from "@/components/BudgetSelector";
 import { MetricsRow } from "@/components/MetricsRow";
 import { MatchTable } from "@/components/MatchTable";
 import { cn, secsUntil } from "@/lib/utils";
 import { Logo } from "@/components/brand/Logo";
-
-const BUDGETS = [32, 96, 192, 384] as const;
 
 // ── Polling intervals ─────────────────────────────────────────────────────────
 
@@ -37,8 +35,8 @@ function TopBar({ isConnected, weekLabel }: { isConnected: boolean; weekLabel?: 
     <header
       className="sticky top-0 z-20"
       style={{
-        background: "#070709",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        background: "var(--surf-0)",
+        borderBottom: "1px solid var(--bdr-1)",
         height: 52,
         display: "flex",
         alignItems: "center",
@@ -128,10 +126,10 @@ function ControlsStrip({
   return (
     <div
       className="sticky top-[52px] z-10"
-      style={{ background: "#070709", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+      style={{ background: "var(--surf-0)", borderBottom: "1px solid var(--bdr-0)" }}
     >
       <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
-        <div className="flex items-center h-11 gap-0">
+        <div className="flex items-center h-12 gap-0">
           {/* Strategy */}
           <div
             className="flex items-center gap-4 pr-5 h-full"
@@ -140,12 +138,8 @@ function ControlsStrip({
             <span
               className="hidden sm:block shrink-0"
               style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 9,
-                fontWeight: 600,
-                color: "#2E2C2A",
-                textTransform: "uppercase",
-                letterSpacing: "0.12em",
+                fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
+                color: "#2E2C2A", textTransform: "uppercase", letterSpacing: "0.12em",
               }}
             >
               Strategi
@@ -154,21 +148,17 @@ function ControlsStrip({
           </div>
 
           {/* Budget */}
-          <div className="flex items-center gap-4 pl-5 h-full">
+          <div className="flex items-center gap-3 pl-5 h-full">
             <span
               className="hidden sm:block shrink-0"
               style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 9,
-                fontWeight: 600,
-                color: "#2E2C2A",
-                textTransform: "uppercase",
-                letterSpacing: "0.12em",
+                fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
+                color: "#2E2C2A", textTransform: "uppercase", letterSpacing: "0.12em",
               }}
             >
               Budsjett
             </span>
-            <BudgetSelector variant="horizontal" budgets={[...BUDGETS]} selected={budget} onSelect={onBudget} />
+            <BudgetInput value={budget} onChange={onBudget} />
           </div>
         </div>
       </div>
@@ -335,7 +325,7 @@ export default function CouponPage() {
     : undefined;
 
   return (
-    <div className="pl-12 min-h-screen" style={{ background: "#070709" }}>
+    <div className="pl-12 min-h-screen" style={{ background: "var(--canvas)" }}>
       <TopBar isConnected={isConnected} weekLabel={weekLabel} />
       <ControlsStrip strategy={strategy} onStrategy={setStrategy} budget={budget} onBudget={setBudget} />
 
@@ -385,6 +375,7 @@ export default function CouponPage() {
           matches={result?.matches ?? []}
           enrichmentMap={enrichmentMap}
           isLoading={isLoading || !selectedCouponId}
+          grouped
           footer={
             result ? (
               <ShapeStrip

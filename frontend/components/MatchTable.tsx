@@ -8,9 +8,9 @@ import type { MatchEnrichment, MatchResult, RecentMatch } from "@/lib/types";
 // ── Outcome colors (light-mode) ───────────────────────────────────────────────
 
 const PROB_COLORS: Record<string, string> = {
-  H: "#1D4ED8",
-  U: "#9B9894",
-  B: "#16A34A",
+  H: "#6098F2",
+  U: "#7A7673",
+  B: "#34D399",
 };
 
 // ── Signature: Pick Tile ──────────────────────────────────────────────────────
@@ -28,9 +28,9 @@ function PickTile({
 }) {
   const isGold = isPrimary && isConviction;
   const isDark = isPrimary && !isConviction;
-  const bg     = isGold ? "#F5C542" : isDark ? "#111110" : "#F5F3EF";
-  const border = isGold || isDark ? "none" : "1.5px solid #D5D0C8";
-  const color  = isGold ? "#111110" : isDark ? "#FFFFFF" : "#ADA9A2";
+  const bg     = isGold ? "#F5C030" : isDark ? "#E8E4DD" : "#1C1C1C";
+  const border = isGold || isDark ? "none" : "1.5px solid rgba(255,255,255,0.1)";
+  const color  = isGold ? "#0D0D0D" : isDark ? "#0D0D0D" : "#4A4744";
   const fs     = size >= 30 ? 14 : size >= 26 ? 12 : 11;
 
   return (
@@ -60,11 +60,11 @@ function ProbBar({
     <div className="flex items-center gap-1.5 min-w-0">
       <span className={cn(
         "text-[10px] w-3 text-right shrink-0 tabular-nums font-semibold",
-        highlighted ? "text-[#6B6862]" : "text-[#C8C4BC]",
+        highlighted ? "text-[#7A7673]" : "text-[#4A4744]",
       )}>
         {label}
       </span>
-      <div className="flex-1 h-[3px] rounded-full overflow-hidden min-w-[36px]" style={{ background: "#EDE9E2" }}>
+      <div className="flex-1 h-[3px] rounded-full overflow-hidden min-w-[36px]" style={{ background: "rgba(255,255,255,0.06)" }}>
         <div
           className="h-full rounded-full animate-bar-grow"
           style={{
@@ -78,7 +78,7 @@ function ProbBar({
       </div>
       <span className={cn(
         "text-[10px] tabular-nums w-6 text-right shrink-0 font-medium",
-        highlighted ? "text-[#111110]" : "text-[#C8C4BC]",
+        highlighted ? "text-[#E8E4DD]" : "text-[#4A4744]",
       )}>
         {pct}%
       </span>
@@ -89,12 +89,12 @@ function ProbBar({
 // ── Badges ────────────────────────────────────────────────────────────────────
 
 function CdsBadge({ cds }: { cds: number | null }) {
-  if (cds == null) return <span className="text-[10px] text-[#C8C4BC]">—</span>;
+  if (cds == null) return <span className="text-[10px] text-[#4A4744]">—</span>;
   const level = cds >= 20 ? "high" : cds >= 10 ? "mid" : "low";
   const cls = {
-    high: "text-[#D4930A] bg-[#FEF7E6] border border-[rgba(212,147,10,0.22)]",
-    mid:  "text-[#6B6862] bg-white border border-[#E4E1DA]",
-    low:  "text-[#C8C4BC]",
+    high: "text-[#F5C030] bg-[rgba(245,192,48,0.12)] border border-[rgba(245,192,48,0.2)]",
+    mid:  "text-[#7A7673] bg-[#1C1C1C] border border-[rgba(255,255,255,0.1)]",
+    low:  "text-[#4A4744]",
   }[level];
   return (
     <span className={cn("text-[10px] tabular-nums font-semibold px-1.5 py-0.5 rounded", cls)}>
@@ -104,10 +104,11 @@ function CdsBadge({ cds }: { cds: number | null }) {
 }
 
 function ViBadge({ vi }: { vi: number | null }) {
-  if (vi == null) return <span className="text-[10px] text-[#C8C4BC]">—</span>;
+  if (vi == null) return <span className="text-[10px] text-[#4A4744]">—</span>;
   const isHigh  = vi >= 1.2;
   const isAbove = vi > 1.0;
-  const color   = isHigh ? "text-[#15803D]" : isAbove ? "text-[#111110]" : "text-[#C42B2B]";
+  // indigo for crowd-overvalued (vi < 1.0) — not a failure, just a counter-signal
+  const color = isHigh ? "text-[#5FAE6E]" : isAbove ? "text-[#E8E4DD]" : "text-[#7B92FF]";
   return (
     <span className={cn("text-[10px] tabular-nums font-bold", color)}>
       {vi.toFixed(2)}
@@ -117,18 +118,20 @@ function ViBadge({ vi }: { vi: number | null }) {
 }
 
 function EdgeBadge({ match }: { match: MatchResult }) {
-  if (!match.has_public_tips) return <span className="text-[10px] text-[#C8C4BC]">—</span>;
+  if (!match.has_public_tips) return <span className="text-[10px] text-[#4A4744]">—</span>;
   const val = recValue(match.recommendation, match.value_h, match.value_u, match.value_b);
-  if (val == null) return <span className="text-[10px] text-[#C8C4BC]">—</span>;
+  if (val == null) return <span className="text-[10px] text-[#4A4744]">—</span>;
   const positive = val > 0;
+  const abs = Math.abs(val);
   return (
-    <span className={cn(
-      "text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded",
-      positive
-        ? "text-[#15803D] bg-[#DCFCE7] border border-[#86EFAC]"
-        : "text-[#C42B2B] bg-[#FEE2E2] border border-[#FCA5A5]",
-    )}>
-      {positive ? "+" : ""}{val.toFixed(0)}pp
+    <span
+      className="text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded"
+      style={positive
+        ? { color: "#5FAE6E", background: "rgba(95,174,110,0.12)", border: "1px solid rgba(95,174,110,0.2)" }
+        : { color: "#7B92FF", background: "rgba(123,146,255,0.10)", border: "1px solid rgba(123,146,255,0.20)" }
+      }
+    >
+      {positive ? "+" : "≠"}{abs.toFixed(0)}pp
     </span>
   );
 }
@@ -239,7 +242,7 @@ function FormPips({
   recentMatches?: RecentMatch[] | null; align?: "left" | "right";
 }) {
   const [hovered, setHovered] = useState<{ idx: number; rect: DOMRect } | null>(null);
-  if (!s) return <span className="text-[#C8C4BC] text-[9px]">—</span>;
+  if (!s) return <span className="text-[#4A4744] text-[9px]">—</span>;
   const tail = s.toUpperCase().slice(-n);
 
   if (!withTooltips) {
@@ -248,7 +251,7 @@ function FormPips({
         {[...tail].map((c, i) => (
           <span key={i} title={_resultLabel(c)} className={cn(
             "inline-block w-[9px] h-[9px] rounded-full",
-            c === "W" ? "bg-[#16A34A]" : c === "D" ? "bg-[#D5D0C8]" : "bg-[#EF4444]/70",
+            c === "W" ? "bg-[#22C55E]" : c === "D" ? "bg-[#4A4744]" : "bg-[#F05252]/70",
           )} />
         ))}
       </span>
@@ -265,7 +268,7 @@ function FormPips({
           >
             <span className={cn(
               "inline-block w-[11px] h-[11px] rounded-full",
-              c === "W" ? "bg-[#16A34A]" : c === "D" ? "bg-[#D5D0C8]" : "bg-[#EF4444]/70",
+              c === "W" ? "bg-[#22C55E]" : c === "D" ? "bg-[#4A4744]" : "bg-[#F05252]/70",
             )} />
           </span>
         ))}
@@ -282,10 +285,10 @@ function TeamLogo({ url, name, size = 28 }: { url: string | null; name: string; 
   if (!url) {
     return (
       <div
-        className="rounded-xl bg-[#F5F3EF] border border-[#E4E1DA] flex items-center justify-center shrink-0"
+        className="rounded-xl bg-[#1C1C1C] border border-[rgba(255,255,255,0.07)] flex items-center justify-center shrink-0"
         style={{ width: sz, height: sz }}
       >
-        <span className="font-bold text-[#ADA9A2]" style={{ fontSize: Math.max(8, Math.round(size * 0.28)) }}>
+        <span className="font-bold text-[#4A4744]" style={{ fontSize: Math.max(8, Math.round(size * 0.28)) }}>
           {name.slice(0, 2).toUpperCase()}
         </span>
       </div>
@@ -303,10 +306,10 @@ function PositionBar({ position, total }: { position: number; total: number | nu
   const segments  = Math.min(Math.max(total ?? position, position), 32);
   const quartile  = position / segments;
   const barColor  =
-    quartile <= 0.25 ? "#15803D"
-    : quartile <= 0.5  ? "#6B6862"
-    : quartile <= 0.75 ? "#ADA9A2"
-    : "#C42B2B";
+    quartile <= 0.25 ? "#22C55E"
+    : quartile <= 0.5  ? "#7A7673"
+    : quartile <= 0.75 ? "#4A4744"
+    : "#F05252";
 
   return (
     <div className="flex flex-col gap-1">
@@ -318,12 +321,12 @@ function PositionBar({ position, total }: { position: number; total: number | nu
           return (
             <div key={i} className="rounded-[1px] shrink-0" style={{
               width: 4, height: isCurrent ? 7 : 4,
-              background: isCurrent ? barColor : isAbove ? "#D5D0C8" : "#EDE9E2",
+              background: isCurrent ? barColor : isAbove ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.07)",
             }} />
           );
         })}
       </div>
-      <span className="text-[8px] text-[#ADA9A2] tabular-nums leading-none">
+      <span className="text-[8px] text-[#4A4744] tabular-nums leading-none">
         {position}.{total != null ? ` av ${total}` : ""}
       </span>
     </div>
@@ -333,10 +336,10 @@ function PositionBar({ position, total }: { position: number; total: number | nu
 function GroupHeader({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2.5 px-6 pt-5 pb-1">
-      <span className="text-[8.5px] font-bold text-[#1D4ED8] uppercase tracking-[0.22em] shrink-0 leading-none">
+      <span className="text-[8.5px] font-bold text-[#F5C030] uppercase tracking-[0.22em] shrink-0 leading-none">
         {label}
       </span>
-      <div className="flex-1 h-px bg-[#EDE9E2]" />
+      <div className="flex-1 h-px bg-[rgba(255,255,255,0.07)]" />
     </div>
   );
 }
@@ -359,14 +362,14 @@ function StatRow({ label, homeText, awayText, homeRaw, awayRaw, lowerIsBetter = 
 
   if (signed) {
     const signCls = (n: number | null) =>
-      n == null ? "text-[#ADA9A2]" : n > 0 ? "text-[#15803D]" : n < 0 ? "text-[#C42B2B]" : "text-[#6B6862]";
+      n == null ? "text-[#4A4744]" : n > 0 ? "text-[#22C55E]" : n < 0 ? "text-[#F05252]" : "text-[#7A7673]";
     return (
-      <div className="py-2.5 border-b border-[#EDE9E2] last:border-0">
+      <div className="py-2.5 border-b border-[rgba(255,255,255,0.06)] last:border-0">
         <div className="grid grid-cols-[1fr_100px_1fr] items-center gap-2">
           <div className="text-right">
             <span className={cn("text-[16px] font-bold tabular-nums leading-none tracking-tight", signCls(homeRaw ?? null))}>{homeText}</span>
           </div>
-          <div className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-[0.14em] text-center leading-snug px-1">{label}</div>
+          <div className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-[0.14em] text-center leading-snug px-1">{label}</div>
           <div>
             <span className={cn("text-[16px] font-bold tabular-nums leading-none tracking-tight", signCls(awayRaw ?? null))}>{awayText}</span>
           </div>
@@ -377,8 +380,8 @@ function StatRow({ label, homeText, awayText, homeRaw, awayRaw, lowerIsBetter = 
 
   const homeWins = both ? (lowerIsBetter ? homeRaw! < awayRaw! : homeRaw! > awayRaw!) : false;
   const awayWins = both ? (lowerIsBetter ? awayRaw! < homeRaw! : awayRaw! > homeRaw!) : false;
-  const hCls = homeWins ? "text-[#D4930A]" : both ? "text-[#6B6862]" : "text-[#ADA9A2]";
-  const aCls = awayWins ? "text-[#15803D]" : both ? "text-[#6B6862]" : "text-[#ADA9A2]";
+  const hCls = homeWins ? "text-[#F5C030]" : both ? "text-[#7A7673]" : "text-[#4A4744]";
+  const aCls = awayWins ? "text-[#22C55E]" : both ? "text-[#7A7673]" : "text-[#4A4744]";
 
   const rawH = both ? (lowerIsBetter ? awayRaw! : homeRaw!) : 0;
   const rawA = both ? (lowerIsBetter ? homeRaw! : awayRaw!) : 0;
@@ -387,20 +390,20 @@ function StatRow({ label, homeText, awayText, homeRaw, awayRaw, lowerIsBetter = 
   const hShare = showBar ? Math.max(0.08, Math.min(0.92, rawH / rawTotal)) : 0;
 
   return (
-    <div className="py-2.5 border-b border-[#EDE9E2] last:border-0">
+    <div className="py-2.5 border-b border-[rgba(255,255,255,0.06)] last:border-0">
       <div className="grid grid-cols-[1fr_100px_1fr] items-center gap-2">
         <div className="text-right">
           <span className={cn("text-[16px] font-bold tabular-nums leading-none tracking-tight", hCls)}>{homeText}</span>
         </div>
-        <div className="text-[8px] font-semibold text-[#ADA9A2] uppercase tracking-[0.14em] text-center leading-snug px-1">{label}</div>
+        <div className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-[0.14em] text-center leading-snug px-1">{label}</div>
         <div>
           <span className={cn("text-[16px] font-bold tabular-nums leading-none tracking-tight", aCls)}>{awayText}</span>
         </div>
       </div>
       {showBar && (
         <div className="mt-[7px] flex h-[3px] rounded-full overflow-hidden">
-          <div style={{ flex: hShare, background: homeWins ? "rgba(212,147,10,0.40)" : "#EDE9E2" }} />
-          <div style={{ flex: 1 - hShare, background: awayWins ? "rgba(21,128,61,0.35)" : "#EDE9E2" }} />
+          <div style={{ flex: hShare, background: homeWins ? "rgba(245,192,48,0.35)" : "rgba(255,255,255,0.06)" }} />
+          <div style={{ flex: 1 - hShare, background: awayWins ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.06)" }} />
         </div>
       )}
     </div>
@@ -457,8 +460,8 @@ function buildSignals(e: MatchEnrichment, homeTeam: string, awayTeam: string): S
 
 // ── TeamComparisonCard ────────────────────────────────────────────────────────
 
-function TeamComparisonCard({ match, enrichment, colSpan }: {
-  match: MatchResult; enrichment: MatchEnrichment | null; colSpan: number;
+function TeamComparisonCard({ match, enrichment, colSpan, hasCrowdData }: {
+  match: MatchResult; enrichment: MatchEnrichment | null; colSpan: number; hasCrowdData: boolean;
 }) {
   const hasData     = enrichment?.has_api_football_data ?? false;
   const e           = enrichment;
@@ -499,16 +502,16 @@ function TeamComparisonCard({ match, enrichment, colSpan }: {
 
   return (
     <tr>
-      <td colSpan={colSpan} className="p-0 border-b border-[#E4E1DA]">
-        <div className="bg-[#FAF9F7] border-t border-[#EDE9E2]">
+      <td colSpan={colSpan} className="p-0 border-b border-[rgba(255,255,255,0.06)]">
+        <div className="bg-[#0D0D0D] border-t border-[rgba(255,255,255,0.07)]">
 
           {/* HEADER */}
-          <div className="grid grid-cols-2 divide-x divide-[#EDE9E2] pt-5 pb-4">
+          <div className="grid grid-cols-2 divide-x divide-[rgba(255,255,255,0.07)] pt-5 pb-4">
             <div className="px-5 flex items-start gap-3">
               <TeamLogo url={e?.home_logo_url ?? null} name={match.home_team} size={44} />
               <div className="min-w-0 flex-1 pt-0.5">
-                <div className="text-[14px] font-bold leading-tight tracking-tight text-[#111110]">{match.home_team}</div>
-                <div className="text-[8px] text-[#ADA9A2] uppercase tracking-[0.1em] mt-0.5">
+                <div className="text-[14px] font-bold leading-tight tracking-tight text-[#E8E4DD]">{match.home_team}</div>
+                <div className="text-[8px] text-[#4A4744] uppercase tracking-[0.1em] mt-0.5">
                   Hjemme{e?.league_name ? ` · ${e.league_name}` : ""}
                 </div>
                 {hasData && e!.home_last_5 && <div className="mt-2"><FormPips s={e!.home_last_5} n={5} withTooltips recentMatches={e!.home_recent_matches} align="left" /></div>}
@@ -517,14 +520,66 @@ function TeamComparisonCard({ match, enrichment, colSpan }: {
             </div>
             <div className="px-5 flex items-start justify-end gap-3">
               <div className="min-w-0 text-right flex-1 pt-0.5">
-                <div className="text-[14px] font-bold leading-tight tracking-tight text-[#111110]">{match.away_team}</div>
-                <div className="text-[8px] text-[#ADA9A2] uppercase tracking-[0.1em] mt-0.5">
+                <div className="text-[14px] font-bold leading-tight tracking-tight text-[#E8E4DD]">{match.away_team}</div>
+                <div className="text-[8px] text-[#4A4744] uppercase tracking-[0.1em] mt-0.5">
                   Borte{e?.league_name ? ` · ${e.league_name}` : ""}
                 </div>
                 {hasData && e!.away_last_5 && <div className="mt-2 flex justify-end"><FormPips s={e!.away_last_5} n={5} withTooltips recentMatches={e!.away_recent_matches} align="right" /></div>}
                 {hasData && e!.away_position != null && <div className="mt-2 flex justify-end"><PositionBar position={e!.away_position} total={leagueSize} /></div>}
               </div>
               <TeamLogo url={e?.away_logo_url ?? null} name={match.away_team} size={44} />
+            </div>
+          </div>
+
+          {/* ── SANNSYNLIGHETER — always shown in expanded card ── */}
+          <GroupHeader label="Sannsynligheter" />
+          <div className="px-6 pb-4">
+            {/* Model H/U/B bars */}
+            <div className="flex flex-col gap-[5px] mb-3">
+              <ProbBar label="H" value={match.prob_h} highlighted={match.recommendation === "H"} delay={0} />
+              <ProbBar label="U" value={match.prob_u} highlighted={match.recommendation === "U"} delay={60} />
+              <ProbBar label="B" value={match.prob_b} highlighted={match.recommendation === "B"} delay={120} />
+            </div>
+
+            {/* Crowd row */}
+            {hasCrowdData && match.has_public_tips && (
+              <div className="flex items-center gap-3 pt-2.5 border-t border-[rgba(255,255,255,0.05)]">
+                <span className="text-[8px] font-semibold text-[#4A4744] uppercase tracking-[0.12em] w-14 shrink-0">Folket</span>
+                <div className="flex items-center gap-4">
+                  {(["H", "U", "B"] as const).map((label) => {
+                    const v = label === "H" ? match.pub_prob_h : label === "U" ? match.pub_prob_u : match.pub_prob_b;
+                    return (
+                      <div key={label} className="flex items-center gap-1">
+                        <span className="text-[9px] text-[#4A4744] font-semibold">{label}</span>
+                        <span className={cn(
+                          "text-[11px] tabular-nums font-bold",
+                          label === match.recommendation ? "text-[#E8E4DD]" : "text-[#4A4744]",
+                        )}>
+                          {v != null ? `${Math.round(v * 100)}%` : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Edge / VI / CDS strip */}
+            <div className="flex items-center gap-5 pt-2.5 mt-0.5 border-t border-[rgba(255,255,255,0.05)]">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] text-[#4A4744] uppercase tracking-[0.1em] font-semibold">Edge</span>
+                <EdgeBadge match={match} />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] text-[#4A4744] uppercase tracking-[0.1em] font-semibold">VI</span>
+                <ViBadge vi={match.vi} />
+              </div>
+              {match.crowd_disagreement_score != null && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[8px] text-[#4A4744] uppercase tracking-[0.1em] font-semibold">CDS</span>
+                  <CdsBadge cds={match.crowd_disagreement_score} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -568,7 +623,7 @@ function TeamComparisonCard({ match, enrichment, colSpan }: {
             </>
           ) : (
             <div className="px-6 py-8 text-center">
-              <p className="text-[10px] text-[#ADA9A2] italic">Ingen statistikk tilgjengelig for dette oppgjøret</p>
+              <p className="text-[10px] text-[#4A4744] italic">Ingen statistikk tilgjengelig for dette oppgjøret</p>
             </div>
           )}
 
@@ -594,7 +649,7 @@ function TeamComparisonCard({ match, enrichment, colSpan }: {
                 <GroupHeader label="Toppstatistikk" />
                 <div className="px-6 pb-1">
                   {rows.map((row) => <StatRow key={row.label} label={row.label} homeText={row.hVal} awayText={row.aVal} homeRaw={row.hRaw} awayRaw={row.aRaw} lowerIsBetter={row.lowerIsBetter} />)}
-                  {sampleNote && <div className="pt-2 pb-1 text-right"><span className="text-[8px] text-[#ADA9A2] italic">{sampleNote}</span></div>}
+                  {sampleNote && <div className="pt-2 pb-1 text-right"><span className="text-[8px] text-[#4A4744] italic">{sampleNote}</span></div>}
                 </div>
                 <div className="pb-2" />
               </>
@@ -612,10 +667,10 @@ function TeamComparisonCard({ match, enrichment, colSpan }: {
                       className="w-[2px] shrink-0 rounded-full self-stretch mt-[2px]"
                       style={{
                         minHeight: 14,
-                        background: sig.side === "home" ? "#D4930A" : sig.side === "away" ? "#15803D" : "#D5D0C8",
+                        background: sig.side === "home" ? "#F5C030" : sig.side === "away" ? "#22C55E" : "rgba(255,255,255,0.15)",
                       }}
                     />
-                    <p className="text-[11px] text-[#6B6862] leading-relaxed">{sig.text}</p>
+                    <p className="text-[11px] text-[#7A7673] leading-relaxed">{sig.text}</p>
                   </div>
                 ))}
               </div>
@@ -632,7 +687,7 @@ function TeamComparisonCard({ match, enrichment, colSpan }: {
 
 function SkeletonRow({ i }: { i: number }) {
   return (
-    <tr className="border-b border-[#F0EDE8]" style={{ animationDelay: `${i * 35}ms` }}>
+    <tr className="border-b border-[rgba(255,255,255,0.04)]" style={{ animationDelay: `${i * 35}ms` }}>
       <td className="py-3 px-3"><div className="skeleton h-3 w-4 rounded" /></td>
       <td className="py-3 px-3">
         <div className="space-y-1.5">
@@ -640,9 +695,10 @@ function SkeletonRow({ i }: { i: number }) {
           <div className="skeleton h-2.5 w-20 rounded" />
         </div>
       </td>
-      {[44, 120, 52, 40, 40].map((w, j) => (
+      {/* Pick, Edge, VI, Analyse */}
+      {[32, 48, 36, 52].map((w, j) => (
         <td key={j} className="py-3 px-3">
-          <div className="skeleton h-3 rounded mx-auto" style={{ width: w * 0.6 }} />
+          <div className="skeleton h-3 rounded mx-auto" style={{ width: w }} />
         </td>
       ))}
     </tr>
@@ -663,50 +719,47 @@ function MatchRow({
 }) {
   const isConviction = match.is_conviction;
   const picks        = sortSigns(match.picks);
-  const barDelay     = index * 35;
-  const colSpan      = showCrowd ? 9 : 8;
   const tileSize     = picks.length === 1 ? 32 : picks.length === 2 ? 27 : 22;
-
-  const crowd = match.has_public_tips
-    ? [{ label: "H", v: match.pub_prob_h ?? 0 }, { label: "U", v: match.pub_prob_u ?? 0 }, { label: "B", v: match.pub_prob_b ?? 0 }]
-    : null;
 
   return (
     <>
       <tr
         className={cn(
-          "border-b border-[#F0EDE8] transition-colors duration-100 animate-fade-up group cursor-pointer",
-          isExpanded ? "bg-[#FAF9F7]" : "hover:bg-[#FAFAF8]",
+          "border-b border-[rgba(255,255,255,0.05)] transition-colors duration-100 animate-fade-up group cursor-pointer",
+          isExpanded ? "bg-[#1A1A1A]" : "hover:bg-[#141414]",
         )}
-        style={{ animationDelay: `${index * 38}ms` }}
+        style={{
+          animationDelay: `${index * 38}ms`,
+          borderLeft: isConviction ? "2px solid rgba(245,192,48,0.5)" : "2px solid transparent",
+        }}
         onClick={onToggle}
       >
         {/* # */}
-        <td className="py-3 pl-4 pr-2 w-8">
-          <span className="text-[11px] text-[#C8C4BC] tabular-nums font-medium">{match.match_number}</span>
+        <td className="py-4 pl-4 pr-2 w-8">
+          <span className="text-[12px] text-[#4A4744] tabular-nums font-medium">{match.match_number}</span>
         </td>
 
         {/* Teams */}
-        <td className="py-3 px-3">
-          <div className="flex items-center gap-1.5 min-w-0">
-            {isConviction && (
-              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                <span className="absolute inset-0 rounded-full bg-[#D4930A] animate-ping opacity-40" />
-                <span className="relative rounded-full h-1.5 w-1.5 bg-[#D4930A]" />
-              </span>
-            )}
+        <td className="py-4 px-3">
+          <div className="flex items-center gap-2 min-w-0">
             <SmallLogo url={enrichment?.home_logo_url} name={match.home_team} />
-            <span className="text-[13px] font-semibold text-[#111110] truncate leading-none">
+            <span className="text-[15px] font-semibold text-[#E8E4DD] truncate leading-none tracking-tight">
               {match.home_team}
-              <span className="text-[#C8C4BC] font-normal mx-1.5">–</span>
+              <span className="text-[#3A3835] font-normal mx-1.5">–</span>
               {match.away_team}
             </span>
             <SmallLogo url={enrichment?.away_logo_url} name={match.away_team} />
+            {isConviction && (
+              <span className="relative flex h-1.5 w-1.5 shrink-0 ml-0.5">
+                <span className="absolute inset-0 rounded-full bg-[#F5C030] animate-ping opacity-40" />
+                <span className="relative rounded-full h-1.5 w-1.5 bg-[#F5C030]" />
+              </span>
+            )}
           </div>
         </td>
 
         {/* Pick tiles */}
-        <td className="py-3 px-3">
+        <td className="py-4 px-3">
           <div className="flex items-center gap-1">
             {picks.map((p) => (
               <PickTile
@@ -720,46 +773,13 @@ function MatchRow({
           </div>
         </td>
 
-        {/* Model probs */}
-        <td className="py-3 px-3 w-44">
-          <div className="flex flex-col gap-[3px]">
-            <ProbBar label="H" value={match.prob_h} highlighted={match.recommendation === "H"} delay={barDelay} />
-            <ProbBar label="U" value={match.prob_u} highlighted={match.recommendation === "U"} delay={barDelay + 80} />
-            <ProbBar label="B" value={match.prob_b} highlighted={match.recommendation === "B"} delay={barDelay + 160} />
-          </div>
-        </td>
+        <td className="py-4 px-3 text-right w-20"><EdgeBadge match={match} /></td>
+        <td className="py-4 px-3 text-center w-16"><ViBadge vi={match.vi} /></td>
 
-        {/* Crowd */}
-        {showCrowd && (
-          <td className="py-3 px-3 w-20">
-            {crowd ? (
-              <div className="flex flex-col gap-[3px]">
-                {crowd.map(({ label, v }) => (
-                  <div key={label} className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-[#C8C4BC] w-3 text-right shrink-0 font-medium">{label}</span>
-                    <span className={cn(
-                      "text-[10px] tabular-nums font-semibold",
-                      label === match.recommendation ? "text-[#111110]" : "text-[#C8C4BC]",
-                    )}>
-                      {Math.round(v * 100)}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <span className="text-[10px] text-[#C8C4BC]">—</span>
-            )}
-          </td>
-        )}
-
-        <td className="py-3 px-3 text-right w-16"><EdgeBadge match={match} /></td>
-        <td className="py-3 px-3 text-center w-14"><ViBadge vi={match.vi} /></td>
-        <td className="py-3 px-3 text-center w-16"><CdsBadge cds={match.crowd_disagreement_score} /></td>
-
-        <td className="py-3 pr-4 pl-1 w-20">
+        <td className="py-4 pr-4 pl-1 w-20">
           <span className={cn(
             "inline-flex items-center gap-1 text-[10px] transition-colors select-none font-medium",
-            isExpanded ? "text-[#111110]" : "text-[#C8C4BC] group-hover:text-[#6B6862]",
+            isExpanded ? "text-[#E8E4DD]" : "text-[#4A4744] group-hover:text-[#7A7673]",
           )}>
             <span>{isExpanded ? "▴" : "▾"}</span>
             <span className="hidden sm:inline">{isExpanded ? "Lukk" : "Analyse"}</span>
@@ -768,9 +788,50 @@ function MatchRow({
       </tr>
 
       {isExpanded && (
-        <TeamComparisonCard match={match} enrichment={enrichment} colSpan={colSpan} />
+        <TeamComparisonCard match={match} enrichment={enrichment} colSpan={6} hasCrowdData={showCrowd} />
       )}
     </>
+  );
+}
+
+// ── Table group header row ────────────────────────────────────────────────────
+
+function TableGroupDivider({ label, count, note }: { label: string; count: number; note?: string }) {
+  return (
+    <tr>
+      <td colSpan={6} style={{ padding: "20px 16px 6px", borderBottom: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700,
+              color: "var(--gold)", letterSpacing: "0.20em",
+              textTransform: "uppercase", lineHeight: 1, flexShrink: 0,
+            }}
+          >
+            {label}
+          </span>
+          {note && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)", fontSize: 9,
+                color: "rgba(255,255,255,0.14)", letterSpacing: "0.08em",
+              }}
+            >
+              · {note}
+            </span>
+          )}
+          <span
+            style={{
+              fontFamily: "var(--font-mono)", fontSize: 9,
+              color: "#3A3835", fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {count} kamp{count !== 1 ? "er" : ""}
+          </span>
+          <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.05)" }} />
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -781,51 +842,100 @@ interface MatchTableProps {
   enrichmentMap?: Map<number, MatchEnrichment>;
   isLoading?: boolean;
   footer?: React.ReactNode;
+  grouped?: boolean;
 }
 
-const TH = "text-[9px] font-semibold text-[#ADA9A2] uppercase tracking-[1.2px] py-2.5 px-3 whitespace-nowrap bg-[#FAF9F7]";
+const TH = "text-[9px] font-semibold text-[#4A4744] uppercase tracking-[1.2px] py-2.5 px-3 whitespace-nowrap bg-[#141414]";
 
-export function MatchTable({ matches, enrichmentMap, isLoading, footer }: MatchTableProps) {
+export function MatchTable({ matches, enrichmentMap, isLoading, footer, grouped }: MatchTableProps) {
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const hasCrowdData = !isLoading && matches.some((m) => m.has_public_tips);
 
+  // Build ordered list with group divider markers when grouped=true
+  type GroupedItem =
+    | { type: "divider"; label: string; count: number; note?: string }
+    | { type: "match"; match: MatchResult; index: number };
+
+  const items: GroupedItem[] = (() => {
+    if (!grouped || isLoading) return [];
+
+    // Sort by picks.length ascending; within singles, conviction picks first
+    const singles  = matches
+      .filter(m => m.picks.length === 1)
+      .sort((a, b) => (b.is_conviction ? 1 : 0) - (a.is_conviction ? 1 : 0));
+    const halvdekk = matches.filter(m => m.picks.length === 2);
+    const heldekk  = matches.filter(m => m.picks.length >= 3);
+
+    const result: GroupedItem[] = [];
+    let runningIndex = 0;
+
+    const addGroup = (label: string, group: MatchResult[], note?: string) => {
+      if (group.length === 0) return;
+      result.push({ type: "divider", label, count: group.length, note });
+      for (const m of group) {
+        result.push({ type: "match", match: m, index: runningIndex++ });
+      }
+    };
+
+    addGroup("Singel", singles, "1 tegn");
+    addGroup("Halvdekk", halvdekk, "2 tegn");
+    addGroup("Heldekk", heldekk, "3 tegn");
+
+    return result;
+  })();
+
   return (
-    <div className="rounded-xl border border-[#E4E1DA] bg-white overflow-hidden shadow-card">
+    <div className="rounded-xl border border-[rgba(255,255,255,0.07)] bg-[#141414] overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-[#E4E1DA]">
+            <tr className="border-b border-[rgba(255,255,255,0.07)]">
               <th className={cn(TH, "pl-4 pr-2 text-left w-8")}>#</th>
               <th className={cn(TH, "text-left")}>Kamp</th>
               <th className={cn(TH, "text-left")}>Pick</th>
-              <th className={cn(TH, "text-left w-44")}>Modell</th>
-              {hasCrowdData && <th className={cn(TH, "text-left w-20")}>Folket</th>}
-              <th className={cn(TH, "text-right w-16")}>Edge</th>
-              <th className={cn(TH, "text-center w-14")}>VI</th>
-              <th className={cn(TH, "text-center w-16")}>CDS</th>
+              <th className={cn(TH, "text-right w-20")}>Edge</th>
+              <th className={cn(TH, "text-center w-16")}>VI</th>
               <th className={cn(TH, "text-left w-20 pr-4")}></th>
             </tr>
           </thead>
           <tbody>
-            {isLoading
-              ? Array.from({ length: 12 }, (_, i) => <SkeletonRow key={i} i={i} />)
-              : matches.map((m, i) => (
+            {isLoading ? (
+              Array.from({ length: 12 }, (_, i) => <SkeletonRow key={i} i={i} />)
+            ) : grouped ? (
+              items.map((item, i) =>
+                item.type === "divider" ? (
+                  <TableGroupDivider key={`div-${i}`} label={item.label} count={item.count} note={item.note} />
+                ) : (
                   <MatchRow
-                    key={m.match_number}
-                    match={m}
-                    enrichment={enrichmentMap?.get(m.match_number) ?? null}
-                    index={i}
-                    isExpanded={expandedRow === m.match_number}
-                    onToggle={() => setExpandedRow((p) => (p === m.match_number ? null : m.match_number))}
+                    key={item.match.match_number}
+                    match={item.match}
+                    enrichment={enrichmentMap?.get(item.match.match_number) ?? null}
+                    index={item.index}
+                    isExpanded={expandedRow === item.match.match_number}
+                    onToggle={() => setExpandedRow((p) => (p === item.match.match_number ? null : item.match.match_number))}
                     showCrowd={hasCrowdData}
                   />
-                ))}
+                )
+              )
+            ) : (
+              matches.map((m, i) => (
+                <MatchRow
+                  key={m.match_number}
+                  match={m}
+                  enrichment={enrichmentMap?.get(m.match_number) ?? null}
+                  index={i}
+                  isExpanded={expandedRow === m.match_number}
+                  onToggle={() => setExpandedRow((p) => (p === m.match_number ? null : m.match_number))}
+                  showCrowd={hasCrowdData}
+                />
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
       {!isLoading && matches.length === 0 && (
-        <div className="py-16 text-center text-[#ADA9A2] text-sm">
+        <div className="py-16 text-center text-[#4A4744] text-sm">
           Ingen kamper tilgjengelig
         </div>
       )}

@@ -596,6 +596,103 @@ def _add_phase13_columns(conn) -> None:
             pass  # column already exists
 
 
+# Phase 14 — Oddstips: multi-market odds storage + paper bet tracking
+# odds_markets uses a row-per-selection design:
+#   one row per (fixture_id, market_key, selection)
+#   market_key: "1X2" | "BTTS" | "OVER_UNDER"
+#   selection:  "HOME"/"DRAW"/"AWAY" | "YES"/"NO" | "OVER"/"UNDER"
+#   line:       2.5 for OVER_UNDER, NULL otherwise
+_DDL_PHASE14_TABLES = """
+CREATE TABLE IF NOT EXISTS odds_markets (
+    id              TEXT PRIMARY KEY,
+    fixture_id      TEXT NOT NULL REFERENCES fixtures(fixture_id),
+    af_fixture_id   INTEGER,
+    bookmaker       TEXT NOT NULL,
+    market_name     TEXT NOT NULL,
+    market_key      TEXT NOT NULL,
+    selection       TEXT NOT NULL,
+    line            REAL,
+    odds            REAL NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'api_football',
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(fixture_id, market_key, selection)
+);
+
+CREATE TABLE IF NOT EXISTS model_bets (
+    id              TEXT PRIMARY KEY,
+    coupon_id       TEXT,
+    fixture_id      TEXT NOT NULL REFERENCES fixtures(fixture_id),
+    match_name      TEXT NOT NULL,
+    league          TEXT,
+    kickoff_utc     TEXT,
+    market          TEXT NOT NULL DEFAULT '1x2',
+    outcome         TEXT NOT NULL,
+    bookmaker       TEXT NOT NULL,
+    ref_odds        REAL NOT NULL,
+    implied_prob    REAL NOT NULL,
+    model_prob      REAL NOT NULL,
+    edge_pp         REAL NOT NULL,
+    stake_nok       REAL NOT NULL,
+    expected_value  REAL NOT NULL,
+    insight_type    TEXT,
+    risk_level      TEXT NOT NULL DEFAULT 'medium',
+    reason          TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending','won','lost','void')),
+    result_outcome  TEXT,
+    closing_odds    REAL,
+    clv             REAL,
+    profit_nok      REAL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    settled_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_odds_markets_fixture    ON odds_markets(fixture_id, market_key);
+CREATE INDEX IF NOT EXISTS idx_odds_markets_market_key ON odds_markets(market_key);
+CREATE INDEX IF NOT EXISTS idx_model_bets_fixture   ON model_bets(fixture_id);
+CREATE INDEX IF NOT EXISTS idx_model_bets_status    ON model_bets(status);
+CREATE INDEX IF NOT EXISTS idx_model_bets_created   ON model_bets(created_at);
+CREATE INDEX IF NOT EXISTS idx_model_bets_coupon    ON model_bets(coupon_id);
+"""
+
+
+_DDL_PREDICTIONS = """
+CREATE TABLE IF NOT EXISTS api_football_predictions (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    fixture_id                  TEXT NOT NULL REFERENCES fixtures(fixture_id),
+    af_fixture_id               INTEGER NOT NULL,
+    prediction_winner_id        INTEGER,
+    prediction_winner_name      TEXT,
+    prediction_winner_comment   TEXT,
+    prediction_win_or_draw      INTEGER,
+    prediction_under_over       TEXT,
+    prediction_goals_home       REAL,
+    prediction_goals_away       REAL,
+    advice                      TEXT,
+    percent_home                TEXT,
+    percent_draw                TEXT,
+    percent_away                TEXT,
+    comparison_json             TEXT,
+    raw_json                    TEXT,
+    fetched_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(fixture_id)
+);
+CREATE INDEX IF NOT EXISTS idx_af_predictions_fixture ON api_football_predictions(fixture_id);
+CREATE INDEX IF NOT EXISTS idx_af_predictions_af_id   ON api_football_predictions(af_fixture_id);
+"""
+
+
+def _migrate_phase14_odds_markets(conn) -> None:
+    """
+    Drop odds_markets if it has the old row-per-market schema (odds_a column).
+    The new schema is row-per-selection — incompatible, but the table was always empty.
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(odds_markets)").fetchall()]
+    if cols and "odds_a" in cols:
+        conn.execute("DROP TABLE IF EXISTS odds_markets")
+        conn.execute("DROP INDEX IF EXISTS idx_odds_markets_fixture")
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_DDL_BASE)
@@ -616,3 +713,6 @@ def init_db() -> None:
         _add_phase11_columns(conn)
         _add_phase12_columns(conn)
         _add_phase13_columns(conn)
+        _migrate_phase14_odds_markets(conn)
+        conn.executescript(_DDL_PHASE14_TABLES)
+        conn.executescript(_DDL_PREDICTIONS)

@@ -832,14 +832,52 @@ def ingest_game_days(week: int, year: int, debug: bool = False,
             None,
         )
         if existing and existing.get("content_hash") == new_hash and not force_refresh:
-            # Fixture data unchanged — but always update omsetning (it changes continuously).
+            # Fixture data unchanged — but always update omsetning and tips (both change continuously).
             if gd.get("omsetning") is not None:
                 with get_conn() as conn:
                     conn.execute(
                         "UPDATE coupons SET omsetning=?, updated_at=datetime('now') WHERE coupon_id=?",
                         (gd["omsetning"], coupon_id),
                     )
-            print(f"  nt: {coupon_id} unchanged — skipping write.")
+            # Public tip percentages change continuously as users vote — update them
+            # even when the fixture structure (match IDs / teams / kickoff) is unchanged.
+            n_tip_changes = 0
+            for m in matches:
+                with get_conn() as conn:
+                    row = conn.execute(
+                        """SELECT cf.fixture_id,
+                                  cf.public_h, cf.public_u, cf.public_b,
+                                  cf.expert_h, cf.expert_u, cf.expert_b
+                           FROM coupon_fixtures cf
+                           JOIN fixtures f ON f.fixture_id = cf.fixture_id
+                           WHERE cf.coupon_id = ? AND f.nt_match_id = ?""",
+                        (coupon_id, m["nt_match_id"]),
+                    ).fetchone()
+                if not row:
+                    continue
+                before = (row["public_h"], row["public_u"], row["public_b"])
+                after  = (m["public_h"],  m["public_u"],  m["public_b"])
+                if before != after:
+                    print(
+                        f"  nt: tips updated  {m['home_name']} vs {m['away_name']}"
+                        f"  public before H{before[0]} U{before[1]} B{before[2]}"
+                        f"  → after H{after[0]} U{after[1]} B{after[2]}"
+                    )
+                    n_tip_changes += 1
+                upsert_tips(
+                    coupon_id=coupon_id,
+                    fixture_id=row["fixture_id"],
+                    expert_h=m["expert_h"],
+                    expert_u=m["expert_u"],
+                    expert_b=m["expert_b"],
+                    public_h=m["public_h"],
+                    public_u=m["public_u"],
+                    public_b=m["public_b"],
+                )
+            print(
+                f"  nt: {coupon_id} fixtures unchanged — "
+                f"tips updated ({n_tip_changes} fixture(s) changed)."
+            )
             ingested += 1
             continue
 

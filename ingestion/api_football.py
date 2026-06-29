@@ -83,6 +83,18 @@ _NT_COMPETITION_MAP: list[tuple[str, int | None, int | None, str]] = [
     # International — Nations League
     ("UEFA Nations League",               5,    2025,   "ok"),
     ("Nations League",                    5,    2025,   "ok"),
+    # Sweden — AF IDs verified 2026-06-28 via /leagues?country=Sweden&season=2026
+    ("SVE Allsvenskan",                 113,    2026,   "ok"),
+    ("SVE Superettan",                  114,    2026,   "ok"),
+    # Iceland — AF 164 = Úrvalsdeild (top division), season 2026 confirmed via /fixtures
+    ("ISL Superliga",                   164,    2026,   "ok"),
+    # Brazil — AF 72 = Série B, season 2026 confirmed via /fixtures
+    ("BRA Serie B",                      72,    2026,   "ok"),
+    # Ireland — AF IDs verified 2026-06-28 via /leagues?country=Ireland&season=2026
+    ("IRL Premier Division",            357,    2026,   "ok"),
+    ("IRL First Division",              358,    2026,   "ok"),
+    # Finland — AF 244 = Veikkausliiga, season 2026 confirmed via /leagues
+    ("FIN Veikkausliiga",               244,    2026,   "ok"),
 ]
 
 # Norwegian team name (lower-cased, pre-normalised) → English (for API-Football matching).
