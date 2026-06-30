@@ -1675,15 +1675,44 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     tier_counts              = {"a": 0, "b": 0, "c": 0}
     bets_by_market           = {"1x2": 0, "btts": 0, "over_2.5": 0}
 
+    # Diagnostics
+    rejected_candidates: list[dict]       = []
+    _market_edge_data:   dict[str, list]  = {}
+    n_nt_matched         = {"1x2": 0, "btts": 0, "over_2.5": 0}
+
     def _tier(ep: float) -> str:
         return "tier_a" if ep >= 8 else ("tier_b" if ep >= 5 else "tier_c")
+
+    def _reject_candidate(match_name, market, outcome, bookmaker, ref_odds,
+                          impl_p, model_p, ep, reason, model_quality, league, kickoff):
+        ev = round(model_p * ref_odds - 1, 4) if ref_odds else None
+        rejected_candidates.append({
+            "fixture":       match_name,
+            "market":        market,
+            "selection":     outcome,
+            "bookmaker":     bookmaker,
+            "ref_odds":      round(ref_odds, 2) if ref_odds else None,
+            "model_prob":    round(model_p, 4),
+            "implied_prob":  round(impl_p, 4),
+            "edge_pp":       round(ep, 2),
+            "ev":            ev,
+            "reason":        reason,
+            "model_quality": model_quality,
+            "league":        league,
+            "kickoff_utc":   kickoff,
+        })
 
     def _make_bet(fid, match_name, market, outcome, bookmaker, ref_odds,
                   impl_p, model_p, ep, reason, league, kickoff, model_quality,
                   debug_json=None):
         nonlocal reject_edge_small, reject_duplicate, reject_contradictory
+        # Track every evaluated edge value regardless of outcome
+        _market_edge_data.setdefault(market, []).append(ep)
         if ep < _min_edge:
             reject_edge_small += 1
+            _reject_candidate(match_name, market, outcome, bookmaker, ref_odds,
+                              impl_p, model_p, ep, "edge_too_small", model_quality,
+                              league, kickoff)
             return
         if bet_exists(fid, market, outcome):
             reject_duplicate += 1
@@ -1771,6 +1800,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 if _nt_fix is None:
                     reject_no_nt_odds += 1
                 else:
+                    n_nt_matched["1x2"] += 1
                     nt_h = _nt_fix["H"]
                     nt_u = _nt_fix["U"]
                     nt_b = _nt_fix["B"]
@@ -1783,6 +1813,10 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                     ref_odds  = {"H": nt_h, "U": nt_u, "B": nt_b}[rec]
                     if ref_odds < _min_odds:
                         reject_odds_too_low += 1
+                        _market_edge_data.setdefault("1x2", []).append(ep)
+                        _reject_candidate(match_name, "1x2", rec, "NT Oddsen", ref_odds,
+                                          implied_p, model_p, ep, "odds_too_low",
+                                          quality_1x2, league, kickoff)
                     else:
                         utfall = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
                         reason = (
@@ -1882,6 +1916,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 if _nt_btts:
                     ba, bb   = _nt_btts["YES"], _nt_btts["NO"]
                     bkm_btts = "NT Oddsen"
+                    n_nt_matched["btts"] += 1
                 else:
                     ba = btts_mkt.get("YES")
                     bb = btts_mkt.get("NO")
@@ -1921,6 +1956,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 if _nt_ou:
                     oa, ob = _nt_ou["OVER"], _nt_ou["UNDER"]
                     bkm_ou = "NT Oddsen"
+                    n_nt_matched["over_2.5"] += 1
                 else:
                     oa = ou_mkt.get("OVER")
                     ob = ou_mkt.get("UNDER")
@@ -1959,11 +1995,29 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             reject_error += 1
 
     n_created = sum(tier_counts.values())
+
+    # Per-market edge statistics (all evaluated candidates, accepted + rejected)
+    market_stats: dict = {}
+    for mkt, edges in _market_edge_data.items():
+        if edges:
+            market_stats[mkt] = {
+                "n_evaluated":       len(edges),
+                "max_edge":          round(max(edges), 2),
+                "avg_edge":          round(sum(edges) / len(edges), 2),
+                "n_above_threshold": sum(1 for e in edges if e >= _min_edge),
+            }
+
+    # Sort rejected by EV descending (best missed opportunity first), keep top 50
+    rejected_candidates.sort(key=lambda c: c.get("ev") or -99, reverse=True)
+
     return {
         "n_evaluated":     n_evaluated,
         "n_created":       n_created,
         "n_skipped":       reject_edge_small + reject_duplicate,
         "bets_by_market":  bets_by_market,
+        "n_nt_matched":    n_nt_matched,
+        "market_stats":    market_stats,
+        "rejected_candidates": rejected_candidates[:50],
         "rejection_breakdown": {
             "bad_odds":           reject_bad_odds,
             "odds_too_low":       reject_odds_too_low,
