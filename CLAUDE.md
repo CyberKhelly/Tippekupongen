@@ -119,19 +119,25 @@ All generated Modellspill candidates are stored in the `model_bets` table (via `
 
 ---
 
-## NT Oddsen Odds Source (Parked)
+## NT Oddsen Odds Source (Active — Playwright)
 
-NT Oddsen scraping was tested via Firecrawl on 2026-06-30. Match metadata rendered, but odds did not load because Sportradar odds feed requires authenticated client access. NT Oddsen direct odds ingestion is parked. Modellspill uses available bookmaker odds until a stable NT odds source exists.
+NT Oddsen 1X2 odds are scraped via Playwright headless Chromium from `https://www.norsk-tipping.no/sport/oddsen`. No login required. Odds load via NT's own WebSocket (`velnt-opr1.sport2.norsk-tipping.no`), not the Sportradar feed. Implemented in `ingestion/nt_oddsen_playwright.py` (production code, importable from main.py/scheduler.py).
 
-`ingestion/nt_oddsen_scraper.py` is **dev-only — not called from production code**. Do NOT import it from `backend/main.py`, `backend/scheduler.py`, or `sync.py`.
+**Scraper architecture:**
+- Target: `norsk-tipping.no/sport/oddsen` → iframe `#sportsbookid` → `/sport/oddsen/sportsbook/`
+- 1X2 odds: `div[data-for="selection-event-ID.1"]` with `aria-label="TeamName, odds X.XX"`
+- Team names from `[class*='ParticipantNameItem']`, kickoff from `[class*='DateContainer']`
+- 3 consecutive selection divs in DOM order = H, U, B for one match
+- Stores to `nt_oddsen_odds_snapshot` table
+- BTTS/O/U: behind "Vis odds" button (requires per-event navigation) — Phase 2
 
-Technical details for future reference:
-- The NT sportsbook page at `norsk-tipping.no/sport/oddsen/sportsbook/` is a pure Sportradar SIR iframe
-- Match metadata is SSR-rendered; odds load via authenticated WebSocket to `feed.mapi.sportradar.com`
-- CSS class `sh-match__matchList-wrapper--no-odds` appears on every row when feed auth fails
-- No NT-owned public odds API exists; `api.norsk-tipping.no` returns 403/404 for odds-related endpoints
-- Team name normalization (`normalize_team_name`, `make_fixture_key`) and `nt_oddsen_odds_snapshot` DB table are preserved for future use
-- Do not use cookie/session scraping as an alternative
+**Modellspill 1X2 gating:** `generate_global_bet_candidates()` only generates 1X2 bets when an NT Oddsen snapshot row exists (max 6h old). Fixture matching uses `normalize_team_name(home)|normalize_team_name(away)|YYYY-MM-DD` key with ±1 day fallback.
+
+**Scheduler flow (every 2h):** `scrape_nt_oddsen_playwright()` → `scan_af_market_odds()` → `generate_global_bet_candidates()`
+
+`ingestion/nt_oddsen_scraper.py` (Firecrawl) is still **dev-only — not imported from production**. The Playwright scraper is the active production path.
+
+**Why Firecrawl failed:** Firecrawl targeted `s5.sir.sportradar.com/norsktipping/no/sport/1` directly — a Sportradar SIR widget requiring authenticated WebSocket. NT's own site (`norsk-tipping.no`) uses their own React sportsbook with a public WebSocket. Do not use cookie/session scraping as an alternative to the Playwright approach.
 
 ---
 
@@ -225,7 +231,7 @@ Do not assume prior conversation context carries over. Always re-derive current 
 
 **Milestone: Premium TippeIQ redesign + global Modellspill intelligence.** (2026-06-29)
 
-- **NT Oddsen scraping (parked, 2026-06-30):** `ingestion/nt_oddsen_scraper.py` was built and tested via Firecrawl LLM extract on `s5.sir.sportradar.com/norsktipping/no/sport/1`. Match metadata rendered from SSR, but odds did not load — the Sportradar SIR widget fetches odds via an authenticated WebSocket (`feed.mapi.sportradar.com`). Every match row carries CSS class `sh-match__matchList-wrapper--no-odds`; no NT public odds API exists. NT Oddsen direct odds ingestion is parked. The scraper code remains in `ingestion/nt_oddsen_scraper.py` as dev-only (not imported by production). `nt_oddsen_odds_snapshot` table exists in DB for future use. Do not call `scrape_nt_oddsen()` from production paths. Modellspill uses available bookmaker market odds (AF/Bet365) until a stable NT odds source exists.
+- **NT Oddsen Playwright scraper (complete, 2026-06-30):** `ingestion/nt_oddsen_playwright.py` scrapes `norsk-tipping.no/sport/oddsen` via headless Playwright Chromium. No login, no Firecrawl. Odds load via NT's own WebSocket (`velnt-opr1.sport2.norsk-tipping.no`). 13 WC matches / 39 rows per run. Norwegian team names normalised to English via `_NO_TO_EN` map. Fixture matching uses `normalize(home)|normalize(away)|YYYY-MM-DD` with ±1 day fallback. Modellspill 1X2 bets are only generated when NT Oddsen snapshot exists (max 6h). BTTS/O/U still uses AF odds_markets — NT phase 2 pending. The old Firecrawl scraper (`ingestion/nt_oddsen_scraper.py`) remains dev-only.
 - **Modellspill odds model calibration (complete, 2026-06-30):** Bayesian xG shrinkage (`weight = n/(n+6)`) in `analysis/market_models.py` and `generate_global_bet_candidates()`. Minimum sample gates: venue-specific Phase 13 stats require n_home ≥ 5 AND n_away ≥ 5; AF predictions require played ≥ 5. `generic_prior` bets (EU-average constants) removed — no bets generated without match-specific data. Contradictory bets prevented: `get_conflicting_bet()` + `void_bet()` in `db/paper_bets.py`; `resolve_contradictory_bets()` runs at scan start. af_supported 1X2 bets removed (Poisson WDL without bookmaker anchor is unreliable). Every bet now stores `debug_json` with `xg_home_raw`, `xg_away_raw`, `xg_home_adjusted`, `xg_away_adjusted`, `sample_size_home`, `sample_size_away`, `shrinkage_weight` (Poisson bets) or `bookmaker_prior_h/u/b` (1x2 bets). **Pre-calibration Modellspill bets were cleared because they were generated before Bayesian xG shrinkage, sample-size gates, generic_prior blocking and contradiction prevention. These were test bets only and not valid launch history.** Modellspill history starts clean from 2026-06-30.
 - **Modellspill / Odds-intelligens (complete):** Global odds scanner (`scan_af_market_odds`) fetches 27 leagues, 72h window. `generate_global_bet_candidates()` runs the full model pipeline on every fixture with 1X2 odds. Edge tiers: A ≥ 8pp, B 5–8pp, C 3–5pp. Poisson model for BTTS/O/U uses `full_model` → `af_supported` quality hierarchy (generic_prior suppressed). `/oddstips` page shows bankroll chart, active/settled bets, market signals.
 - **Modellspill scheduler jobs (complete):** `_market_scan_job()` runs every 2h. `_auto_settle_job()` runs every 60min. Both run inside FastAPI lifespan alongside existing NT and odds jobs.
@@ -423,7 +429,7 @@ Never assume the UI is good without visual verification.
 - **Do not add new strategies or change strategy parameters** without explicit instruction.
 - **Do not implement Elo, xG, or additional AI models** without explicit instruction.
 - **estimated_prior is not bookmaker odds** — never write to `odds` or `odds_snapshots`. Validate check 24 enforces zero overlap.
-- **Modellspill uses available bookmaker market odds** — `generate_global_bet_candidates()` uses AF/Bet365 odds from the `odds` table. NT Oddsen scraping is parked (see "NT Oddsen Odds Source" section). Do not import `ingestion/nt_oddsen_scraper.py` from production paths. Do not claim in the UI that Modellspill odds come from Norsk Tipping unless they were actually scraped from NT.
+- **Modellspill 1X2 uses NT Oddsen odds** — `generate_global_bet_candidates()` only generates 1X2 bets when `nt_oddsen_odds_snapshot` has a matching row (max 6h old, scraped by `ingestion/nt_oddsen_playwright.py`). Fixtures without NT match → no 1X2 bet. BTTS/O/U still uses AF/Bet365 odds_markets. The Firecrawl scraper (`ingestion/nt_oddsen_scraper.py`) is dev-only — do NOT import it from production. Do not claim NT odds in the UI unless the bet's `bookmaker` field is "NT Oddsen".
 - **CLV uses real bookmaker odds only** — `odds_snapshots` must only contain real bookmaker (Pinnacle etc.) data.
 - **Model probabilities in `Match` are read-only** — strategy and optimizer never write to them.
 - **Evaluation uses frozen snapshot only** — `evaluate_coupon()` reads `pub_prob_*`, `value_*`, `crowd_disagreement_score` from `coupon_predictions` (frozen at save time). Never read live `coupon_fixtures.public_h/u/b` for historical evaluation. Old coupons with NULL snapshot fields show "—" — they are never backfilled.
