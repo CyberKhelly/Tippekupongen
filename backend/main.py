@@ -1516,8 +1516,10 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     )
     from datetime import datetime, timezone
 
-    _min_edge = min_edge_pp   # 5.0 by default
-    _min_odds = 1.50          # skip heavy favourites with tiny edges
+    _min_edge  = min_edge_pp  # 5.0 by default
+    _min_odds  = 1.50         # skip heavy favourites with tiny edges
+    _plaus_max = 8.00         # two-way market: reject if either leg ≥ this (placeholder)
+    _plaus_min = 1.10         # two-way market: reject if either leg ≤ this (placeholder)
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1671,6 +1673,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     reject_odds_too_low      = 0
     reject_no_nt_odds        = 0
     reject_no_btts_ou_odds   = 0
+    reject_nt_placeholder    = 0
     n_evaluated              = 0
     tier_counts              = {"a": 0, "b": 0, "c": 0}
     bets_by_market           = {"1x2": 0, "btts": 0, "over_2.5": 0}
@@ -1922,32 +1925,46 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                     bb = btts_mkt.get("NO")
                     bkm_btts = btts_mkt.get("bookmaker", bookmaker)
 
+                def _is_plaus(a: float, b: float) -> bool:
+                    """True when both legs look like real market prices (not placeholders)."""
+                    return (a < _plaus_max and b < _plaus_max
+                            and a > _plaus_min and b > _plaus_min)
+
                 if ba and bb and ba > 1 and bb > 1:
                     total_inv     = 1/ba + 1/bb
                     btts_impl_yes = 1/ba / total_inv
                     btts_impl_no  = 1/bb / total_inv
-                    _src_btts     = "NT Oddsen" if bkm_btts == "NT Oddsen" else "marked"
-                    dbg_btts = _json.dumps({
-                        **_json.loads(dbg_ou),
-                        "nt_odds":         {"YES": ba, "NO": bb} if bkm_btts == "NT Oddsen" else None,
-                        "nt_implied_prob":  {"YES": round(btts_impl_yes, 4), "NO": round(btts_impl_no, 4)} if bkm_btts == "NT Oddsen" else None,
-                        "odds_source":     bkm_btts,
-                        "market":          "btts",
-                    })
-
                     mep_yes = round((btts_yes_p - btts_impl_yes) * 100, 1)
-                    _make_bet(fid, match_name, "btts", "yes", bkm_btts, ba,
-                              btts_impl_yes, btts_yes_p, mep_yes,
-                              f"Poisson begge scorer {btts_yes_p*100:.1f}% vs {_src_btts} {btts_impl_yes*100:.1f}% "
-                              f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_btts)
+                    mep_no  = round((btts_no_p  - btts_impl_no)  * 100, 1)
 
-                    mep_no = round((btts_no_p - btts_impl_no) * 100, 1)
-                    _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
-                              btts_impl_no, btts_no_p, mep_no,
-                              f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs {_src_btts} {btts_impl_no*100:.1f}% "
-                              f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_btts)
+                    if not _is_plaus(ba, bb):
+                        # Placeholder/error price — log both legs and skip
+                        reject_nt_placeholder += 1
+                        _reject_candidate(match_name, "btts", "yes", bkm_btts, ba,
+                                          btts_impl_yes, btts_yes_p, mep_yes,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                        _reject_candidate(match_name, "btts", "no", bkm_btts, bb,
+                                          btts_impl_no, btts_no_p, mep_no,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                    else:
+                        _src_btts = "NT Oddsen" if bkm_btts == "NT Oddsen" else "marked"
+                        dbg_btts = _json.dumps({
+                            **_json.loads(dbg_ou),
+                            "nt_odds":         {"YES": ba, "NO": bb} if bkm_btts == "NT Oddsen" else None,
+                            "nt_implied_prob":  {"YES": round(btts_impl_yes, 4), "NO": round(btts_impl_no, 4)} if bkm_btts == "NT Oddsen" else None,
+                            "odds_source":     bkm_btts,
+                            "market":          "btts",
+                        })
+                        _make_bet(fid, match_name, "btts", "yes", bkm_btts, ba,
+                                  btts_impl_yes, btts_yes_p, mep_yes,
+                                  f"Poisson begge scorer {btts_yes_p*100:.1f}% vs {_src_btts} {btts_impl_yes*100:.1f}% "
+                                  f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_btts)
+                        _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
+                                  btts_impl_no, btts_no_p, mep_no,
+                                  f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs {_src_btts} {btts_impl_no*100:.1f}% "
+                                  f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_btts)
                 elif not (ba and bb):
                     reject_no_btts_ou_odds += 1
 
@@ -1966,28 +1983,37 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                     total_inv_ou = 1/oa + 1/ob
                     over_impl    = 1/oa / total_inv_ou
                     under_impl   = 1/ob / total_inv_ou
-                    _src_ou      = "NT Oddsen" if bkm_ou == "NT Oddsen" else "marked"
-                    dbg_ou25 = _json.dumps({
-                        **_json.loads(dbg_ou),
-                        "nt_odds":        {"OVER": oa, "UNDER": ob} if bkm_ou == "NT Oddsen" else None,
-                        "nt_implied_prob": {"OVER": round(over_impl, 4), "UNDER": round(under_impl, 4)} if bkm_ou == "NT Oddsen" else None,
-                        "odds_source":    bkm_ou,
-                        "market":         "over_2.5",
-                    })
-
-                    mep_over = round((over_p - over_impl) * 100, 1)
-                    _make_bet(fid, match_name, "over_2.5", "over", bkm_ou, oa,
-                              over_impl, over_p, mep_over,
-                              f"Poisson over 2,5 mal {over_p*100:.1f}% vs {_src_ou} {over_impl*100:.1f}% "
-                              f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_ou25)
-
+                    mep_over  = round((over_p  - over_impl)  * 100, 1)
                     mep_under = round((under_p - under_impl) * 100, 1)
-                    _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
-                              under_impl, under_p, mep_under,
-                              f"Poisson under 2,5 mal {under_p*100:.1f}% vs {_src_ou} {under_impl*100:.1f}% "
-                              f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_ou25)
+
+                    if not _is_plaus(oa, ob):
+                        # Placeholder/error price — log both legs and skip
+                        reject_nt_placeholder += 1
+                        _reject_candidate(match_name, "over_2.5", "over", bkm_ou, oa,
+                                          over_impl, over_p, mep_over,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                        _reject_candidate(match_name, "over_2.5", "under", bkm_ou, ob,
+                                          under_impl, under_p, mep_under,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                    else:
+                        _src_ou  = "NT Oddsen" if bkm_ou == "NT Oddsen" else "marked"
+                        dbg_ou25 = _json.dumps({
+                            **_json.loads(dbg_ou),
+                            "nt_odds":        {"OVER": oa, "UNDER": ob} if bkm_ou == "NT Oddsen" else None,
+                            "nt_implied_prob": {"OVER": round(over_impl, 4), "UNDER": round(under_impl, 4)} if bkm_ou == "NT Oddsen" else None,
+                            "odds_source":    bkm_ou,
+                            "market":         "over_2.5",
+                        })
+                        _make_bet(fid, match_name, "over_2.5", "over", bkm_ou, oa,
+                                  over_impl, over_p, mep_over,
+                                  f"Poisson over 2,5 mal {over_p*100:.1f}% vs {_src_ou} {over_impl*100:.1f}% "
+                                  f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_ou25)
+                        _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
+                                  under_impl, under_p, mep_under,
+                                  f"Poisson under 2,5 mal {under_p*100:.1f}% vs {_src_ou} {under_impl*100:.1f}% "
+                                  f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_ou25)
                 elif not (oa and ob):
                     reject_no_btts_ou_odds += 1
 
@@ -2025,6 +2051,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             "af_1x2_skipped":     reject_af_1x2,
             "no_nt_odds_1x2":     reject_no_nt_odds,
             "no_btts_ou_odds":    reject_no_btts_ou_odds,
+            "nt_placeholder_odds": reject_nt_placeholder,
             "generic_prior":      reject_generic_prior,
             "contradictory":      reject_contradictory,
             "edge_too_small":     reject_edge_small,

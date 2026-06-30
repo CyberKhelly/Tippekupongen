@@ -69,17 +69,18 @@ rb = result["rejection_breakdown"]
 min_ep = result["min_edge_pp"]
 print(f"\n  Rejection breakdown (min edge {min_ep}pp, min odds 1.50):")
 for label, key in [
-    (f"Edge < {min_ep}pp",     "edge_too_small"),
-    ("Odds < 1.50",            "odds_too_low"),
-    ("No NT 1X2 odds",         "no_nt_odds_1x2"),
-    ("No BTTS/O/U odds",       "no_btts_ou_odds"),
-    ("Generic prior",          "generic_prior"),
-    ("No enrichment (1X2)",    "no_enr_1x2"),
-    ("AF 1X2 skipped",         "af_1x2_skipped"),
-    ("Duplicate",              "duplicate"),
-    ("Contradictory",          "contradictory"),
-    ("Bad/missing odds",       "bad_odds"),
-    ("Error",                  "error"),
+    (f"Edge < {min_ep}pp",      "edge_too_small"),
+    ("Odds < 1.50",             "odds_too_low"),
+    ("NT placeholder odds",     "nt_placeholder_odds"),
+    ("No NT 1X2 odds",          "no_nt_odds_1x2"),
+    ("No BTTS/O/U odds",        "no_btts_ou_odds"),
+    ("Generic prior",           "generic_prior"),
+    ("No enrichment (1X2)",     "no_enr_1x2"),
+    ("AF 1X2 skipped",          "af_1x2_skipped"),
+    ("Duplicate",               "duplicate"),
+    ("Contradictory",           "contradictory"),
+    ("Bad/missing odds",        "bad_odds"),
+    ("Error",                   "error"),
 ]:
     v = rb.get(key, 0)
     if v:

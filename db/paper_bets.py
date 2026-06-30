@@ -69,7 +69,7 @@ def create_bet(
 ) -> str:
     risk_level = get_risk_level(edge_pp, model_prob)
     stake = tier_stake(edge_pp, model_prob, insight_type or "")
-    ev = round(edge_pp / 100 * stake, 2)
+    ev = round(model_prob * ref_odds - 1, 4)
     bet_id = str(uuid.uuid4())
     with get_conn() as conn:
         conn.execute(
