@@ -96,6 +96,34 @@ _SUFFIX_RE = re.compile(r"\b(fc|fk|if|bk|sk|aik|ik|il|cf|sc|ss)\b")
 
 _ARIA_ODDS_RE = re.compile(r"odds\s+([\d]+\.[\d]{1,2})", re.IGNORECASE)
 
+_BTN_MORE = "[data-id='navigation_bonavigation_button_morema']"
+_SEL_DIV  = "[data-for^='selection-event-']"
+
+# Groups event-detail market toggles with their selection divs.
+# Returns [{market: str, sels: [{aria: str}]}]
+_MARKET_JS = """() => {
+    const groups = [];
+    const toggles = document.querySelectorAll('[data-id="navigation_event_selection_toggle"]');
+    for (const toggle of toggles) {
+        const nameEl = toggle.querySelector('[class*="NavItemCompetitorEvent"], h2');
+        const mktName = nameEl ? nameEl.innerText.trim() : '';
+        let wrapper = toggle.parentElement;
+        for (let i = 0; i < 5; i++) {
+            if (!wrapper) break;
+            if (wrapper.className && (wrapper.className.includes('NavWrapper') ||
+                wrapper.className.includes('EventRow'))) break;
+            wrapper = wrapper.parentElement;
+        }
+        const container = wrapper || toggle.parentElement;
+        const selEls = container
+            ? container.querySelectorAll('[data-for^="selection-event-"]') : [];
+        const sels = [];
+        for (const s of selEls) { sels.push({aria: s.getAttribute('aria-label') || ''}); }
+        if (sels.length > 0) groups.push({market: mktName, sels});
+    }
+    return groups;
+}"""
+
 
 def normalize_team_name(name: str) -> str:
     """Lowercase, strip diacritics, remove org suffixes, apply NO->EN map."""
@@ -197,6 +225,46 @@ def store_nt_snapshot(conn, rows: list[dict]) -> int:
     return stored
 
 
+def load_nt_market_bulk(
+    conn,
+    market: str,
+    required_sels: set,
+    max_age_hours: int = 6,
+) -> dict[str, dict[str, float]]:
+    """
+    Load NT Oddsen rows for a specific market (e.g. "BTTS", "OVER_UNDER_2_5").
+    Returns {fixture_key: {selection: odds}} for fixtures where all required_sels are present.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    try:
+        rows = conn.execute(
+            """SELECT fixture_key, selection, odds
+               FROM nt_oddsen_odds_snapshot
+               WHERE market = ? AND scraped_at >= ?
+               ORDER BY scraped_at DESC""",
+            (market, cutoff),
+        ).fetchall()
+    except Exception:
+        return {}
+
+    raw: dict[str, dict[str, float]] = {}
+    for r in rows:
+        fk  = r["fixture_key"]
+        sel = r["selection"]
+        if fk not in raw:
+            raw[fk] = {}
+        if sel not in raw[fk]:
+            raw[fk][sel] = float(r["odds"])
+
+    result: dict[str, dict[str, float]] = {}
+    for fk, sels in raw.items():
+        if all(s in sels for s in required_sels):
+            result[fk] = {s: sels[s] for s in required_sels}
+    return result
+
+
 def load_nt_odds_bulk(conn, max_age_hours: int = 6) -> dict[str, dict[str, float]]:
     """
     Load all recent NT Oddsen 1X2 rows into memory as:
@@ -235,6 +303,65 @@ def load_nt_odds_bulk(conn, max_age_hours: int = 6) -> dict[str, dict[str, float
         if all(s in sels for s in ("H", "U", "B")):
             result[fk] = {"H": sels["H"], "U": sels["U"], "B": sels["B"]}
 
+    return result
+
+
+# ---- Event-detail helpers ---------------------------------------------------
+
+def _dismiss_cookie(page) -> None:
+    """Dismiss NT cookie consent dialog before any iframe click; no-op if absent."""
+    try:
+        if not page.query_selector('[data-testid="ntds-dialog-sheet-backdrop"]'):
+            return
+        page.evaluate("""
+            () => {
+                const btns = [...document.querySelectorAll('button')];
+                for (const t of ['Kun n', 'Godta', 'Lukk']) {
+                    const b = btns.find(x => x.innerText && x.innerText.includes(t));
+                    if (b) { b.click(); return; }
+                }
+            }
+        """)
+        page.wait_for_timeout(800)
+    except Exception:
+        pass
+
+
+def _extract_btts_ou(frame) -> dict:
+    """
+    Extract BTTS (Begge lag scorer) and O/U 2.5 from an event detail iframe.
+    Returns a dict with keys present only when found:
+      btts_yes, btts_no  — odds for Ja / Nei
+      over_25, under_25  — odds for Over 2.5 / Under 2.5
+    """
+    result: dict[str, float] = {}
+    try:
+        groups = frame.evaluate(_MARKET_JS)
+    except Exception:
+        return result
+    for g in (groups or []):
+        mkt = g.get("market", "")
+        sels = []
+        for s in g.get("sels", []):
+            aria = s.get("aria", "")
+            mv = _ARIA_ODDS_RE.search(aria)
+            if mv:
+                v = float(mv.group(1))
+                if 1.01 <= v <= 99.0:
+                    sels.append({"label": aria.split(",")[0].strip(), "odds": v})
+        t = mkt.lower()
+        if "begge lag" in t:
+            yes_ = next((s["odds"] for s in sels if s["label"].lower() == "ja"),  None)
+            no_  = next((s["odds"] for s in sels if s["label"].lower() == "nei"), None)
+            if yes_ and no_:
+                result["btts_yes"] = yes_
+                result["btts_no"]  = no_
+        elif "2,5" in t or "2.5" in t:
+            ov = next((s["odds"] for s in sels if "over"  in s["label"].lower()), None)
+            un = next((s["odds"] for s in sels if "under" in s["label"].lower()), None)
+            if ov and un:
+                result["over_25"]  = ov
+                result["under_25"] = un
     return result
 
 
@@ -279,6 +406,7 @@ def scrape_nt_oddsen_playwright(
         print(f"[NT Playwright] Scraping {NT_SPORTSBOOK_URL}...")
 
     matches_extracted: list[dict] = []
+    btts_ou_results:   dict[str, dict] = {}   # fixture_key → {btts_yes, btts_no, over_25, under_25}
     error_msg: str | None = None
 
     try:
@@ -368,8 +496,6 @@ def scrape_nt_oddsen_playwright(
                 label = aria.split(",")[0].strip()
                 selections.append({"label": label, "odds": odds_v, "data_for": data_for})
 
-            browser.close()
-
             # Group selections into triples (H, U, B per match, in DOM order)
             n_meta = len(meta_list)
             for i, group_start in enumerate(range(0, len(selections) - 2, 3)):
@@ -377,7 +503,6 @@ def scrape_nt_oddsen_playwright(
                 if len(trio) < 3:
                     break
 
-                # Team/date/league from metadata (by index); fall back to aria labels
                 if i < n_meta:
                     home    = meta_list[i]["home"]
                     away    = meta_list[i]["away"]
@@ -393,50 +518,111 @@ def scrape_nt_oddsen_playwright(
                 ko_date = (ko_iso or "")[:10]
 
                 matches_extracted.append({
-                    "home_team":   home,
-                    "away_team":   away,
-                    "league":      league,
-                    "kickoff_raw": ko_raw,
-                    "kickoff_iso": ko_iso,
+                    "home_team":    home,
+                    "away_team":    away,
+                    "league":       league,
+                    "kickoff_raw":  ko_raw,
+                    "kickoff_iso":  ko_iso,
                     "kickoff_date": ko_date,
-                    "fixture_key": make_fixture_key(home, away, ko_date),
-                    "odds_h":      trio[0]["odds"],
-                    "odds_u":      trio[1]["odds"],
-                    "odds_b":      trio[2]["odds"],
-                    "sel_labels":  [s["label"] for s in trio],
+                    "fixture_key":  make_fixture_key(home, away, ko_date),
+                    "odds_h":       trio[0]["odds"],
+                    "odds_u":       trio[1]["odds"],
+                    "odds_b":       trio[2]["odds"],
+                    "sel_labels":   [s["label"] for s in trio],
                 })
+
+            # Navigate to each event detail to extract BTTS and O/U 2.5
+            if matches_extracted:
+                _dismiss_cookie(page)
+                page.wait_for_timeout(500)
+                _sbf = sb_frame
+                for idx in range(len(matches_extracted)):
+                    try:
+                        _el  = page.query_selector("iframe#sportsbookid")
+                        _sbf = (_el.content_frame() if _el else _sbf) or _sbf
+                        _btns = _sbf.query_selector_all(_BTN_MORE)
+                        if len(_btns) <= idx:
+                            break
+                        _btns[idx].scroll_into_view_if_needed()
+                        _btns[idx].click()
+                        page.wait_for_timeout(settle_ms)
+                        _el  = page.query_selector("iframe#sportsbookid")
+                        _sbf = (_el.content_frame() if _el else _sbf) or _sbf
+                        _mkt = _extract_btts_ou(_sbf)
+                        fk   = matches_extracted[idx]["fixture_key"]
+                        if _mkt:
+                            btts_ou_results[fk] = _mkt
+                        if idx < len(matches_extracted) - 1:
+                            _sbf.evaluate("window.history.back()")
+                            page.wait_for_timeout(2_000)
+                            _el  = page.query_selector("iframe#sportsbookid")
+                            _sbf = (_el.content_frame() if _el else _sbf) or _sbf
+                            try:
+                                _sbf.wait_for_selector(_SEL_DIV, timeout=12_000)
+                            except Exception:
+                                pass
+                            page.wait_for_timeout(settle_ms // 2)
+                            _el  = page.query_selector("iframe#sportsbookid")
+                            _sbf = (_el.content_frame() if _el else _sbf) or _sbf
+                            if not _sbf.query_selector_all(_BTN_MORE):
+                                if verbose:
+                                    print(f"[NT Playwright] history.back() failed at idx {idx}, stopping detail nav")
+                                break
+                    except Exception as _ev_exc:
+                        if verbose:
+                            print(f"[NT Playwright] event {idx} detail error: {_ev_exc!s:.60}")
+                        break
+
+            browser.close()
 
     except Exception as exc:
         error_msg = str(exc)
         if verbose:
             print(f"[NT Playwright] ERROR: {exc}")
 
+    n_btts_extracted = sum(1 for v in btts_ou_results.values() if v.get("btts_yes"))
+    n_ou_extracted   = sum(1 for v in btts_ou_results.values() if v.get("over_25"))
+
     if verbose and matches_extracted:
         print(f"[NT Playwright] Extracted {len(matches_extracted)} matches")
+        print(f"[NT Playwright] BTTS/O/U: {n_btts_extracted} BTTS, {n_ou_extracted} O/U 2.5 out of {len(matches_extracted)} matches")
 
     # Build DB rows and store
     rows: list[dict] = []
     for m in matches_extracted:
-        raw_json = json.dumps({
+        fk = m["fixture_key"]
+        base_common = {
+            "scraped_at":       scraped_at,
+            "source_url":       NT_SPORTSBOOK_URL,
+            "fixture_key":      fk,
+            "home_team":        m["home_team"],
+            "away_team":        m["away_team"],
+            "league":           m["league"] or None,
+            "kickoff_iso":      m["kickoff_iso"],
+            "confidence_score": 1.0,
+        }
+        # 1X2
+        raw_1x2 = json.dumps({
             "home": m["home_team"], "away": m["away_team"],
             "league": m["league"], "kickoff_raw": m["kickoff_raw"],
             "H": m["odds_h"], "U": m["odds_u"], "B": m["odds_b"],
         }, ensure_ascii=False)
-        base = {
-            "scraped_at":    scraped_at,
-            "source_url":    NT_SPORTSBOOK_URL,
-            "fixture_key":   m["fixture_key"],
-            "home_team":     m["home_team"],
-            "away_team":     m["away_team"],
-            "league":        m["league"] or None,
-            "kickoff_iso":   m["kickoff_iso"],
-            "market":        "1x2",
-            "raw_json":      raw_json,
-            "confidence_score": 1.0,
-        }
-        rows.append({**base, "selection": "H", "odds": m["odds_h"]})
-        rows.append({**base, "selection": "U", "odds": m["odds_u"]})
-        rows.append({**base, "selection": "B", "odds": m["odds_b"]})
+        base_1x2 = {**base_common, "market": "1x2", "raw_json": raw_1x2}
+        rows.append({**base_1x2, "selection": "H", "odds": m["odds_h"]})
+        rows.append({**base_1x2, "selection": "U", "odds": m["odds_u"]})
+        rows.append({**base_1x2, "selection": "B", "odds": m["odds_b"]})
+        # BTTS / O/U 2.5
+        ou = btts_ou_results.get(fk, {})
+        if ou.get("btts_yes") and ou.get("btts_no"):
+            raw_btts = json.dumps({"yes": ou["btts_yes"], "no": ou["btts_no"]})
+            base_btts = {**base_common, "market": "BTTS", "raw_json": raw_btts}
+            rows.append({**base_btts, "selection": "YES", "odds": ou["btts_yes"]})
+            rows.append({**base_btts, "selection": "NO",  "odds": ou["btts_no"]})
+        if ou.get("over_25") and ou.get("under_25"):
+            raw_ou = json.dumps({"over": ou["over_25"], "under": ou["under_25"]})
+            base_ou = {**base_common, "market": "OVER_UNDER_2_5", "raw_json": raw_ou}
+            rows.append({**base_ou, "selection": "OVER",  "odds": ou["over_25"]})
+            rows.append({**base_ou, "selection": "UNDER", "odds": ou["under_25"]})
 
     n_stored = 0
     if rows:
@@ -457,6 +643,8 @@ def scrape_nt_oddsen_playwright(
 
     return {
         "n_matches":     len(matches_extracted),
+        "n_btts":        n_btts_extracted,
+        "n_ou25":        n_ou_extracted,
         "n_rows_stored": n_stored,
         "scraped_at":    scraped_at,
         "matches":       matches_extracted,

@@ -129,7 +129,7 @@ NT Oddsen 1X2 odds are scraped via Playwright headless Chromium from `https://ww
 - Team names from `[class*='ParticipantNameItem']`, kickoff from `[class*='DateContainer']`
 - 3 consecutive selection divs in DOM order = H, U, B for one match
 - Stores to `nt_oddsen_odds_snapshot` table
-- BTTS/O/U: behind "Vis odds" button (requires per-event navigation) — Phase 2
+- BTTS/O/U: per-event navigation via `[data-id="navigation_bonavigation_button_morema"]` (+N button) — feasibility confirmed, Phase 2 ready
 
 **Modellspill 1X2 gating:** `generate_global_bet_candidates()` only generates 1X2 bets when an NT Oddsen snapshot row exists (max 6h old). Fixture matching uses `normalize_team_name(home)|normalize_team_name(away)|YYYY-MM-DD` key with ±1 day fallback.
 
@@ -138,6 +138,21 @@ NT Oddsen 1X2 odds are scraped via Playwright headless Chromium from `https://ww
 `ingestion/nt_oddsen_scraper.py` (Firecrawl) is still **dev-only — not imported from production**. The Playwright scraper is the active production path.
 
 **Why Firecrawl failed:** Firecrawl targeted `s5.sir.sportradar.com/norsktipping/no/sport/1` directly — a Sportradar SIR widget requiring authenticated WebSocket. NT's own site (`norsk-tipping.no`) uses their own React sportsbook with a public WebSocket. Do not use cookie/session scraping as an alternative to the Playwright approach.
+
+**BTTS/O/U — production complete (2026-06-30):**
+- Full architecture: `scrape_nt_oddsen_playwright()` scrapes main list (1X2) then navigates each event detail for BTTS + O/U, then calls `history.back()` to return
+- Market values stored: `1x2`, `BTTS`, `OVER_UNDER_2_5`; selections: `H/U/B`, `YES/NO`, `OVER/UNDER`
+- Cookie dialog (`ntds-dialog-sheet-backdrop` z-1300) dismissed via JS `_dismiss_cookie(page)` before any clicks
+- More-markets button: `[data-id="navigation_bonavigation_button_morema"]` — button at index i matches match i
+- Navigate back: `sbf.evaluate("window.history.back()")` — preserves React Router state; hard reload breaks buttons
+- Market grouping JS (`_MARKET_JS`): `navigation_event_selection_toggle` → walk up to `NavWrapper` → collect `[data-for^="selection-event-"]`
+- BTTS market: "Begge lag scorer" (Ja → YES, Nei → NO)
+- O/U 2.5 market: "Totalt antall mål - Over/Under 2,5" (group name containing "2,5" or "2.5")
+- Timing: ~5.5s per event + ~5s navigate-back settle = ~10.5s/match; 13 WC matches in ~136s
+- `load_nt_market_bulk(conn, market, required_sels)` loads any NT market from the snapshot
+- `generate_global_bet_candidates()` uses NT BTTS/O/U odds as primary source; AF `odds_markets` as fallback
+- `_nt_find(nt_source, home, away, kickoff_utc)` handles exact + ±1 day fixture key lookup for all markets
+- POC (dev-only): `scripts/nt_btts_ou_poc.py`
 
 ---
 
@@ -231,7 +246,7 @@ Do not assume prior conversation context carries over. Always re-derive current 
 
 **Milestone: Premium TippeIQ redesign + global Modellspill intelligence.** (2026-06-29)
 
-- **NT Oddsen Playwright scraper (complete, 2026-06-30):** `ingestion/nt_oddsen_playwright.py` scrapes `norsk-tipping.no/sport/oddsen` via headless Playwright Chromium. No login, no Firecrawl. Odds load via NT's own WebSocket (`velnt-opr1.sport2.norsk-tipping.no`). 13 WC matches / 39 rows per run. Norwegian team names normalised to English via `_NO_TO_EN` map. Fixture matching uses `normalize(home)|normalize(away)|YYYY-MM-DD` with ±1 day fallback. Modellspill 1X2 bets are only generated when NT Oddsen snapshot exists (max 6h). BTTS/O/U still uses AF odds_markets — NT phase 2 pending. The old Firecrawl scraper (`ingestion/nt_oddsen_scraper.py`) remains dev-only.
+- **NT Oddsen Playwright scraper + BTTS/O/U (complete, 2026-06-30):** `ingestion/nt_oddsen_playwright.py` scrapes `norsk-tipping.no/sport/oddsen` via headless Playwright Chromium. No login, no Firecrawl. 1X2 extracted from main list; BTTS and O/U 2.5 extracted from per-event detail pages via `_BTN_MORE` click → `_extract_btts_ou()` → `history.back()`. 13 WC matches / 91 rows per run (3 per 1X2 + 2 BTTS + 2 O/U). Market keys: `1x2`, `BTTS`, `OVER_UNDER_2_5`. `load_nt_market_bulk()` loads any market by key. `generate_global_bet_candidates()` uses NT BTTS/O/U as primary odds source with AF fallback. `_nt_find()` handles ±1 day fixture key lookup for all markets. The old Firecrawl scraper remains dev-only.
 - **Modellspill odds model calibration (complete, 2026-06-30):** Bayesian xG shrinkage (`weight = n/(n+6)`) in `analysis/market_models.py` and `generate_global_bet_candidates()`. Minimum sample gates: venue-specific Phase 13 stats require n_home ≥ 5 AND n_away ≥ 5; AF predictions require played ≥ 5. `generic_prior` bets (EU-average constants) removed — no bets generated without match-specific data. Contradictory bets prevented: `get_conflicting_bet()` + `void_bet()` in `db/paper_bets.py`; `resolve_contradictory_bets()` runs at scan start. af_supported 1X2 bets removed (Poisson WDL without bookmaker anchor is unreliable). Every bet now stores `debug_json` with `xg_home_raw`, `xg_away_raw`, `xg_home_adjusted`, `xg_away_adjusted`, `sample_size_home`, `sample_size_away`, `shrinkage_weight` (Poisson bets) or `bookmaker_prior_h/u/b` (1x2 bets). **Pre-calibration Modellspill bets were cleared because they were generated before Bayesian xG shrinkage, sample-size gates, generic_prior blocking and contradiction prevention. These were test bets only and not valid launch history.** Modellspill history starts clean from 2026-06-30.
 - **Modellspill / Odds-intelligens (complete):** Global odds scanner (`scan_af_market_odds`) fetches 27 leagues, 72h window. `generate_global_bet_candidates()` runs the full model pipeline on every fixture with 1X2 odds. Edge tiers: A ≥ 8pp, B 5–8pp, C 3–5pp. Poisson model for BTTS/O/U uses `full_model` → `af_supported` quality hierarchy (generic_prior suppressed). `/oddstips` page shows bankroll chart, active/settled bets, market signals.
 - **Modellspill scheduler jobs (complete):** `_market_scan_job()` runs every 2h. `_auto_settle_job()` runs every 60min. Both run inside FastAPI lifespan alongside existing NT and odds jobs.

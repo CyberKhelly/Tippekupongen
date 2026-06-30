@@ -1584,13 +1584,19 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             if mk not in mkt_map[fid]: mkt_map[fid][mk] = {"bookmaker": mr["bookmaker"]}
             mkt_map[fid][mk][sel] = mr["odds"]
 
-    # Load NT Oddsen 1X2 snapshot (Playwright scraper, max 6h old)
-    _nt_map: dict[str, dict[str, float]] = {}
+    # Load NT Oddsen snapshots (Playwright scraper, max 6h old)
+    _nt_map:      dict[str, dict[str, float]] = {}
+    _nt_btts_map: dict[str, dict[str, float]] = {}
+    _nt_ou_map:   dict[str, dict[str, float]] = {}
     _nt_norm = None
     try:
-        from ingestion.nt_oddsen_playwright import load_nt_odds_bulk, normalize_team_name as _nt_norm_fn
-        _nt_map = load_nt_odds_bulk(conn)
-        _nt_norm = _nt_norm_fn
+        from ingestion.nt_oddsen_playwright import (
+            load_nt_odds_bulk, load_nt_market_bulk, normalize_team_name as _nt_norm_fn,
+        )
+        _nt_map      = load_nt_odds_bulk(conn)
+        _nt_btts_map = load_nt_market_bulk(conn, "BTTS",           {"YES", "NO"})
+        _nt_ou_map   = load_nt_market_bulk(conn, "OVER_UNDER_2_5", {"OVER", "UNDER"})
+        _nt_norm     = _nt_norm_fn
     except Exception:
         pass
 
@@ -1632,19 +1638,42 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     # Resolve existing contradictory bets before generating new ones
     resolve_contradictory_bets()
 
+    # NT fixture-key lookup helper (exact date + ±1 day fallback)
+    def _nt_find(nt_source: dict, home: str, away: str, ko_utc: str | None) -> dict | None:
+        if not _nt_norm or not nt_source:
+            return None
+        ko_date = (ko_utc or "")[:10]
+        fk = f"{_nt_norm(home)}|{_nt_norm(away)}|{ko_date}"
+        if fk in nt_source:
+            return nt_source[fk]
+        if ko_date:
+            try:
+                from datetime import timedelta as _td
+                d0 = datetime.strptime(ko_date, "%Y-%m-%d")
+                for delta in (1, -1):
+                    adj = (d0 + _td(days=delta)).strftime("%Y-%m-%d")
+                    fk2 = f"{_nt_norm(home)}|{_nt_norm(away)}|{adj}"
+                    if fk2 in nt_source:
+                        return nt_source[fk2]
+            except Exception:
+                pass
+        return None
+
     # Rejection counters
-    reject_bad_odds       = 0
-    reject_no_enr_1x2     = 0
-    reject_af_1x2         = 0
-    reject_generic_prior  = 0
-    reject_edge_small     = 0
-    reject_duplicate      = 0
-    reject_contradictory  = 0
-    reject_error          = 0
-    reject_odds_too_low   = 0
-    reject_no_nt_odds     = 0
-    n_evaluated           = 0
-    tier_counts           = {"a": 0, "b": 0, "c": 0}
+    reject_bad_odds          = 0
+    reject_no_enr_1x2        = 0
+    reject_af_1x2            = 0
+    reject_generic_prior     = 0
+    reject_edge_small        = 0
+    reject_duplicate         = 0
+    reject_contradictory     = 0
+    reject_error             = 0
+    reject_odds_too_low      = 0
+    reject_no_nt_odds        = 0
+    reject_no_btts_ou_odds   = 0
+    n_evaluated              = 0
+    tier_counts              = {"a": 0, "b": 0, "c": 0}
+    bets_by_market           = {"1x2": 0, "btts": 0, "over_2.5": 0}
 
     def _tier(ep: float) -> str:
         return "tier_a" if ep >= 8 else ("tier_b" if ep >= 5 else "tier_c")
@@ -1659,7 +1688,6 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
         if bet_exists(fid, market, outcome):
             reject_duplicate += 1
             return
-        # Prevent contradictory bets (e.g. btts yes + btts no on same fixture)
         conflict = get_conflicting_bet(fid, market, outcome)
         if conflict:
             existing_rank = _QUALITY_RANK.get(conflict["model_quality"] or "", 0)
@@ -1679,6 +1707,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             model_quality=model_quality, debug_json=debug_json,
         )
         tier_counts[t.split("_")[1]] += 1
+        bets_by_market[market] = bets_by_market.get(market, 0) + 1
 
     for fix in fixtures_to_eval:
         fid       = fix["fixture_id"]
@@ -1736,26 +1765,8 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 quality_1x2 = None
 
             if probs_1x2:
-                # Require NT Oddsen 1X2 odds — look up by normalised team names + date
-                _nt_fix = None
-                if _nt_norm and _nt_map:
-                    _ko_date = (kickoff or "")[:10]
-                    _fk_exact = f"{_nt_norm(home_name)}|{_nt_norm(away_name)}|{_ko_date}"
-                    if _fk_exact in _nt_map:
-                        _nt_fix = _nt_map[_fk_exact]
-                    elif _ko_date:
-                        # Adjacent-day fallback for UTC/local timezone mismatch
-                        try:
-                            from datetime import timedelta as _td
-                            _d0 = datetime.strptime(_ko_date, "%Y-%m-%d")
-                            for _delta in (1, -1):
-                                _adj = (_d0 + _td(days=_delta)).strftime("%Y-%m-%d")
-                                _fk = f"{_nt_norm(home_name)}|{_nt_norm(away_name)}|{_adj}"
-                                if _fk in _nt_map:
-                                    _nt_fix = _nt_map[_fk]
-                                    break
-                        except Exception:
-                            pass
+                # Require NT Oddsen 1X2 odds (exact date + ±1 day fallback)
+                _nt_fix = _nt_find(_nt_map, home_name, away_name, kickoff)
 
                 if _nt_fix is None:
                     reject_no_nt_odds += 1
@@ -1866,49 +1877,83 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 xg_str    = f" {xg_label}." if xg_label else ""
                 qual_tag  = " (AF-støttet)" if qual_ou == "af_supported" else ""
 
-                ba = btts_mkt.get("YES")
-                bb = btts_mkt.get("NO")
+                # ── BTTS ── prefer NT Oddsen; fall back to AF odds_markets
+                _nt_btts = _nt_find(_nt_btts_map, home_name, away_name, kickoff)
+                if _nt_btts:
+                    ba, bb   = _nt_btts["YES"], _nt_btts["NO"]
+                    bkm_btts = "NT Oddsen"
+                else:
+                    ba = btts_mkt.get("YES")
+                    bb = btts_mkt.get("NO")
+                    bkm_btts = btts_mkt.get("bookmaker", bookmaker)
+
                 if ba and bb and ba > 1 and bb > 1:
                     total_inv     = 1/ba + 1/bb
                     btts_impl_yes = 1/ba / total_inv
                     btts_impl_no  = 1/bb / total_inv
-                    bkm_btts      = btts_mkt.get("bookmaker", bookmaker)
+                    _src_btts     = "NT Oddsen" if bkm_btts == "NT Oddsen" else "marked"
+                    dbg_btts = _json.dumps({
+                        **_json.loads(dbg_ou),
+                        "nt_odds":         {"YES": ba, "NO": bb} if bkm_btts == "NT Oddsen" else None,
+                        "nt_implied_prob":  {"YES": round(btts_impl_yes, 4), "NO": round(btts_impl_no, 4)} if bkm_btts == "NT Oddsen" else None,
+                        "odds_source":     bkm_btts,
+                        "market":          "btts",
+                    })
 
                     mep_yes = round((btts_yes_p - btts_impl_yes) * 100, 1)
                     _make_bet(fid, match_name, "btts", "yes", bkm_btts, ba,
                               btts_impl_yes, btts_yes_p, mep_yes,
-                              f"Poisson begge scorer {btts_yes_p*100:.1f}% vs marked {btts_impl_yes*100:.1f}% "
+                              f"Poisson begge scorer {btts_yes_p*100:.1f}% vs {_src_btts} {btts_impl_yes*100:.1f}% "
                               f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_ou)
+                              league, kickoff, qual_ou, debug_json=dbg_btts)
 
                     mep_no = round((btts_no_p - btts_impl_no) * 100, 1)
                     _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
                               btts_impl_no, btts_no_p, mep_no,
-                              f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs marked {btts_impl_no*100:.1f}% "
+                              f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs {_src_btts} {btts_impl_no*100:.1f}% "
                               f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_ou)
+                              league, kickoff, qual_ou, debug_json=dbg_btts)
+                elif not (ba and bb):
+                    reject_no_btts_ou_odds += 1
 
-                oa = ou_mkt.get("OVER")
-                ob = ou_mkt.get("UNDER")
+                # ── O/U 2.5 ── prefer NT Oddsen; fall back to AF odds_markets
+                _nt_ou = _nt_find(_nt_ou_map, home_name, away_name, kickoff)
+                if _nt_ou:
+                    oa, ob = _nt_ou["OVER"], _nt_ou["UNDER"]
+                    bkm_ou = "NT Oddsen"
+                else:
+                    oa = ou_mkt.get("OVER")
+                    ob = ou_mkt.get("UNDER")
+                    bkm_ou = ou_mkt.get("bookmaker", bookmaker)
+
                 if oa and ob and oa > 1 and ob > 1:
                     total_inv_ou = 1/oa + 1/ob
                     over_impl    = 1/oa / total_inv_ou
                     under_impl   = 1/ob / total_inv_ou
-                    bkm_ou       = ou_mkt.get("bookmaker", bookmaker)
+                    _src_ou      = "NT Oddsen" if bkm_ou == "NT Oddsen" else "marked"
+                    dbg_ou25 = _json.dumps({
+                        **_json.loads(dbg_ou),
+                        "nt_odds":        {"OVER": oa, "UNDER": ob} if bkm_ou == "NT Oddsen" else None,
+                        "nt_implied_prob": {"OVER": round(over_impl, 4), "UNDER": round(under_impl, 4)} if bkm_ou == "NT Oddsen" else None,
+                        "odds_source":    bkm_ou,
+                        "market":         "over_2.5",
+                    })
 
                     mep_over = round((over_p - over_impl) * 100, 1)
                     _make_bet(fid, match_name, "over_2.5", "over", bkm_ou, oa,
                               over_impl, over_p, mep_over,
-                              f"Poisson over 2,5 mal {over_p*100:.1f}% vs marked {over_impl*100:.1f}% "
+                              f"Poisson over 2,5 mal {over_p*100:.1f}% vs {_src_ou} {over_impl*100:.1f}% "
                               f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_ou)
+                              league, kickoff, qual_ou, debug_json=dbg_ou25)
 
                     mep_under = round((under_p - under_impl) * 100, 1)
                     _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
                               under_impl, under_p, mep_under,
-                              f"Poisson under 2,5 mal {under_p*100:.1f}% vs marked {under_impl*100:.1f}% "
+                              f"Poisson under 2,5 mal {under_p*100:.1f}% vs {_src_ou} {under_impl*100:.1f}% "
                               f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
-                              league, kickoff, qual_ou, debug_json=dbg_ou)
+                              league, kickoff, qual_ou, debug_json=dbg_ou25)
+                elif not (oa and ob):
+                    reject_no_btts_ou_odds += 1
 
         except Exception:
             reject_error += 1
@@ -1918,17 +1963,19 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
         "n_evaluated":     n_evaluated,
         "n_created":       n_created,
         "n_skipped":       reject_edge_small + reject_duplicate,
+        "bets_by_market":  bets_by_market,
         "rejection_breakdown": {
-            "bad_odds":          reject_bad_odds,
-            "odds_too_low":      reject_odds_too_low,
-            "no_enr_1x2":        reject_no_enr_1x2,
-            "af_1x2_skipped":    reject_af_1x2,
-            "no_nt_odds_1x2":    reject_no_nt_odds,
-            "generic_prior":     reject_generic_prior,
-            "contradictory":     reject_contradictory,
-            "edge_too_small":    reject_edge_small,
-            "duplicate":         reject_duplicate,
-            "error":             reject_error,
+            "bad_odds":           reject_bad_odds,
+            "odds_too_low":       reject_odds_too_low,
+            "no_enr_1x2":         reject_no_enr_1x2,
+            "af_1x2_skipped":     reject_af_1x2,
+            "no_nt_odds_1x2":     reject_no_nt_odds,
+            "no_btts_ou_odds":    reject_no_btts_ou_odds,
+            "generic_prior":      reject_generic_prior,
+            "contradictory":      reject_contradictory,
+            "edge_too_small":     reject_edge_small,
+            "duplicate":          reject_duplicate,
+            "error":              reject_error,
         },
         "tiers": tier_counts,
         "min_edge_pp": _min_edge,
@@ -1941,12 +1988,13 @@ def scan_and_generate(lookahead_hours: int = 72):
     Trigger a global odds scan then generate Modellspill candidates.
 
     Flow:
-      1. scrape_nt_oddsen_playwright — scrape NT Oddsen 1X2 odds (Playwright headless)
+      1. scrape_nt_oddsen_playwright — scrape NT Oddsen 1X2 + BTTS + O/U 2.5 (Playwright headless)
       2. scan_af_market_odds — fetch fixtures + bookmaker odds for 27 leagues (72h window)
-      3. generate_global_bet_candidates — run model; 1X2 uses NT odds, BTTS/O/U uses AF
+      3. generate_global_bet_candidates — run model; all markets prefer NT odds, fall back to AF
 
     Tiers: A ≥ 8pp | B 5–8pp | C 3–5pp.  Min edge 5pp.  Min odds 1.50.
     1X2 bets only generated when NT Oddsen has matching odds.
+    BTTS/O/U: NT odds preferred; AF odds_markets used as fallback.
     NT public percentages are never used in model probability.
     """
     import time as _time

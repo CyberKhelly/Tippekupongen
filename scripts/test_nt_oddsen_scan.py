@@ -1,30 +1,29 @@
 """
-NT Oddsen Playwright scan test + bet generation report.
+NT Oddsen full pipeline scan test.
+
+Runs:
+  1. Scrape NT Oddsen (1X2 + BTTS + O/U 2.5) via Playwright
+  2. Show snapshot contents (fixtures + market coverage)
+  3. Run generate_global_bet_candidates()
+  4. Print full report
 
 Usage:
     python scripts/test_nt_oddsen_scan.py
     python scripts/test_nt_oddsen_scan.py --commit   # actually store bets
-
-Runs the full pipeline:
-  1. Scrape NT Oddsen 1X2 odds via Playwright
-  2. Show which fixtures are in the NT snapshot
-  3. Run generate_global_bet_candidates() (dry run by default)
-  4. Show full rejection breakdown with NT-specific counters
-
-Does NOT commit bets unless --commit is passed.
 """
 import sys
 
 sys.path.insert(0, ".")
-commit = "--commit" in sys.argv
 
-print("=" * 62)
-print("  NT Oddsen Scan Test  (Playwright)")
-print("=" * 62)
+SEP = "=" * 62
 
-# 1: Scrape NT Oddsen
-print("\n[1/4] Scraping NT Oddsen via Playwright...")
+# ── 1: Scrape NT Oddsen ───────────────────────────────────────────────
+print(SEP)
+print("  NT Oddsen Full Pipeline Scan Test")
+print(SEP)
+print("\n[1/4] Scraping NT Oddsen via Playwright (1X2 + BTTS + O/U)...")
 from ingestion.nt_oddsen_playwright import scrape_nt_oddsen_playwright
+
 nt = scrape_nt_oddsen_playwright(verbose=True)
 
 if nt.get("error") and not nt.get("n_matches"):
@@ -32,46 +31,70 @@ if nt.get("error") and not nt.get("n_matches"):
     print("  Message:", nt.get("message", ""))
     sys.exit(1)
 
-print(f"\n  NT matches extracted : {nt['n_matches']}")
-print(f"  Rows stored          : {nt['n_rows_stored']}")
+print(f"\n  NT fixtures scraped   : {nt['n_matches']}")
+print(f"  BTTS odds found       : {nt.get('n_btts', 0)}/{nt['n_matches']}")
+print(f"  O/U 2.5 odds found    : {nt.get('n_ou25', 0)}/{nt['n_matches']}")
+print(f"  Rows stored           : {nt['n_rows_stored']}")
 if nt.get("error"):
-    print(f"  Warning              : {nt['error']}")
+    print(f"  Warning               : {nt['error']}")
 
 if nt["n_matches"] > 0:
-    print("\n  Scraped matches:")
+    print("\n  Scraped matches (1X2):")
     for m in nt["matches"][:20]:
         print(
             f"    {m['home_team'][:20]:20} vs {m['away_team'][:20]:20}"
             f"  H={m['odds_h']:.2f}  U={m['odds_u']:.2f}  B={m['odds_b']:.2f}"
-            f"  {m.get('kickoff_raw',''):18}  key={m['fixture_key']}"
+            f"  key={m['fixture_key']}"
         )
     if len(nt["matches"]) > 20:
-        print(f"    ... and {len(nt['matches'])-20} more")
+        print(f"    ... and {len(nt['matches']) - 20} more")
 
-# 2: Show NT snapshot in DB
-print("\n[2/4] NT Oddsen fixture keys in snapshot (last 6h):")
+# ── 2: Show snapshot market coverage ─────────────────────────────────
+print("\n[2/4] NT Oddsen snapshot (last 6h) — market coverage:")
 from db.connection import get_conn
+
 conn = get_conn()
-rows = conn.execute(
-    """SELECT DISTINCT fixture_key, home_team, away_team, kickoff_iso, league
+
+snapshot_rows = conn.execute(
+    """SELECT fixture_key, home_team, away_team, market, COUNT(*) AS n
        FROM nt_oddsen_odds_snapshot
        WHERE scraped_at >= datetime('now', '-6 hours')
-       ORDER BY kickoff_iso""",
+       GROUP BY fixture_key, market
+       ORDER BY fixture_key, market"""
 ).fetchall()
-print(f"  {len(rows)} unique fixtures:")
-for r in rows[:20]:
-    print(f"    {r['fixture_key']:55}  kickoff={r['kickoff_iso'] or '?':16}  {r['league'] or ''}")
-if len(rows) > 20:
-    print(f"    ... and {len(rows)-20} more")
-conn.close()
 
-# 3: Show model fixtures (from odds table) to see potential matches
-print("\n[3/4] Model fixtures in DB (upcoming, with 1X2 odds):")
-from db.connection import get_conn
-from ingestion.nt_oddsen_playwright import normalize_team_name, load_nt_odds_bulk
-conn2 = get_conn()
-nt_map = load_nt_odds_bulk(conn2)
-model_rows = conn2.execute(
+from collections import defaultdict
+coverage: dict[str, dict] = defaultdict(dict)
+for r in snapshot_rows:
+    coverage[r["fixture_key"]][r["market"]] = r["n"]
+
+fixtures_1x2  = sum(1 for v in coverage.values() if "1x2" in v)
+fixtures_btts = sum(1 for v in coverage.values() if "BTTS" in v)
+fixtures_ou   = sum(1 for v in coverage.values() if "OVER_UNDER_2_5" in v)
+
+print(f"\n  Unique fixtures in snapshot : {len(coverage)}")
+print(f"  With 1X2 odds               : {fixtures_1x2}")
+print(f"  With BTTS odds              : {fixtures_btts}")
+print(f"  With O/U 2.5 odds           : {fixtures_ou}")
+
+print(f"\n  Per-fixture market coverage:")
+for fk, mkts in list(coverage.items())[:20]:
+    has_1x2  = "Y" if "1x2" in mkts else "-"
+    has_btts = "Y" if "BTTS" in mkts else "-"
+    has_ou   = "Y" if "OVER_UNDER_2_5" in mkts else "-"
+    print(f"    {fk[:55]:55}  1X2={has_1x2}  BTTS={has_btts}  O/U={has_ou}")
+if len(coverage) > 20:
+    print(f"    ... and {len(coverage) - 20} more")
+
+# ── 3: Model fixture matching ─────────────────────────────────────────
+print("\n[3/4] Model fixtures (upcoming, with 1X2 odds) vs NT snapshot:")
+from ingestion.nt_oddsen_playwright import normalize_team_name, load_nt_odds_bulk, load_nt_market_bulk
+
+nt_1x2_map  = load_nt_odds_bulk(conn)
+nt_btts_map = load_nt_market_bulk(conn, "BTTS",           {"YES", "NO"})
+nt_ou_map   = load_nt_market_bulk(conn, "OVER_UNDER_2_5", {"OVER", "UNDER"})
+
+model_rows = conn.execute(
     """SELECT DISTINCT o.fixture_id,
               COALESCE(ht.name_local, ht2.name_local, f.home_name) AS home_name,
               COALESCE(at.name_local, at2.name_local, f.away_name) AS away_name,
@@ -86,59 +109,72 @@ model_rows = conn2.execute(
        WHERE f.kickoff_utc > datetime('now')
        ORDER BY f.kickoff_utc LIMIT 30""",
 ).fetchall()
-conn2.close()
+conn.close()
 
-n_matched = 0
-n_unmatched = 0
-print(f"  {len(model_rows)} upcoming fixtures:")
+n_matched_1x2 = n_matched_btts = n_matched_ou = 0
+print(f"\n  {len(model_rows)} upcoming model fixtures:")
 for r in model_rows:
     ko_date = (r["kickoff_utc"] or "")[:10]
     fk = f"{normalize_team_name(r['home_name'])}|{normalize_team_name(r['away_name'])}|{ko_date}"
-    matched = fk in nt_map
-    if matched:
-        n_matched += 1
-        nt_odds = nt_map[fk]
-        print(
-            f"    [OK] {r['home_name'][:18]:18} vs {r['away_name'][:18]:18}"
-            f"  {ko_date}  NT: H={nt_odds['H']:.2f} U={nt_odds['U']:.2f} B={nt_odds['B']:.2f}"
-        )
-    else:
-        n_unmatched += 1
-        print(f"    [--] {r['home_name'][:18]:18} vs {r['away_name'][:18]:18}  {ko_date}  (no NT odds)")
+    has_1x2  = fk in nt_1x2_map;  n_matched_1x2  += has_1x2
+    has_btts = fk in nt_btts_map; n_matched_btts += has_btts
+    has_ou   = fk in nt_ou_map;   n_matched_ou   += has_ou
+    tag = f"{'1X2' if has_1x2 else '---'} {'BTTS' if has_btts else '----'} {'O/U' if has_ou else '---'}"
+    print(f"    [{tag}]  {r['home_name'][:18]:18} vs {r['away_name'][:18]:18}  {ko_date}")
 
-print(f"\n  Matched: {n_matched}  Unmatched: {n_unmatched}")
+print(f"\n  NT match rate -- 1X2: {n_matched_1x2}/{len(model_rows)}  "
+      f"BTTS: {n_matched_btts}/{len(model_rows)}  "
+      f"O/U: {n_matched_ou}/{len(model_rows)}")
 
-# 4: Generate bet candidates
+# ── 4: Generate bet candidates ────────────────────────────────────────
 print(f"\n[4/4] Running generate_global_bet_candidates()...")
-print("  (runs live -- bets are created in DB if edge >= 5pp)")
-
 from backend.main import generate_global_bet_candidates
+
 result = generate_global_bet_candidates()
 
-print(f"\n  Evaluated       : {result['n_evaluated']}")
-print(f"  Created         : {result['n_created']}")
-print(f"  Min edge        : {result['min_edge_pp']}pp")
+bm = result.get("bets_by_market", {})
+rb = result["rejection_breakdown"]
+
+print(f"\n{'-'*50}")
+print(f"  SCAN RESULTS")
+print(f"{'-'*50}")
+print(f"  Fixtures evaluated       : {result['n_evaluated']}")
+print(f"  Total bets created       : {result['n_created']}")
+print(f"  Min edge                 : {result['min_edge_pp']}pp")
+print(f"\n  Bets by market:")
+print(f"    1X2                    : {bm.get('1x2', 0)}")
+print(f"    BTTS                   : {bm.get('btts', 0)}")
+print(f"    O/U 2.5                : {bm.get('over_2.5', 0)}")
 print(f"\n  Rejection breakdown:")
-for k, v in result["rejection_breakdown"].items():
-    tag = ""
-    if k == "no_nt_odds_1x2" and v > 0:
-        tag = "  <-- model fixtures without NT match"
-    print(f"    {k:25}: {v}{tag}")
-print(f"\n  Tiers: A={result['tiers']['a']}  B={result['tiers']['b']}  C={result['tiers']['c']}")
+print(f"    No NT 1X2 odds         : {rb.get('no_nt_odds_1x2', 0)}")
+print(f"    No BTTS/O/U odds       : {rb.get('no_btts_ou_odds', 0)}")
+print(f"    Edge < {result['min_edge_pp']}pp           : {rb.get('edge_too_small', 0)}")
+print(f"    Duplicate              : {rb.get('duplicate', 0)}")
+print(f"    Generic prior          : {rb.get('generic_prior', 0)}")
+print(f"    No enrichment (1X2)    : {rb.get('no_enr_1x2', 0)}")
+print(f"    AF 1X2 skipped         : {rb.get('af_1x2_skipped', 0)}")
+print(f"    Odds too low           : {rb.get('odds_too_low', 0)}")
+print(f"    Contradictory          : {rb.get('contradictory', 0)}")
+print(f"    Error                  : {rb.get('error', 0)}")
+print(f"  Tiers: A={result['tiers']['a']}  B={result['tiers']['b']}  C={result['tiers']['c']}")
 
 if result["n_created"] > 0:
-    print("\n  New 1X2 bets (NT Oddsen):")
-    conn3 = get_conn()
-    bets = conn3.execute(
+    conn2 = get_conn()
+    bets = conn2.execute(
         """SELECT match_name, market, outcome, bookmaker, ref_odds, edge_pp, model_quality, reason
            FROM model_bets
-           WHERE status = 'pending' AND market = '1x2'
-           ORDER BY created_at DESC LIMIT 20""",
+           WHERE status = 'pending'
+           ORDER BY created_at DESC LIMIT 30""",
     ).fetchall()
-    conn3.close()
-    for b in bets:
-        print(
-            f"    {b['match_name'][:35]:35} {b['outcome']:4}"
-            f"  odds={b['ref_odds']:.2f}  edge={b['edge_pp']:+.1f}pp"
-            f"  [{b['model_quality']}]  via {b['bookmaker']}"
-        )
+    conn2.close()
+
+    if bets:
+        print(f"\n  Pending bets (all markets):")
+        for b in bets:
+            print(
+                f"    {b['match_name'][:32]:32}  {b['market']:10}  {b['outcome']:5}"
+                f"  odds={b['ref_odds']:.2f}  edge={b['edge_pp']:+.1f}pp"
+                f"  [{b['model_quality']}]  via {b['bookmaker']}"
+            )
+
+print(f"\n{SEP}")
