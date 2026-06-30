@@ -4,6 +4,10 @@ Reset Modellspill ledger and generate fresh NT-only bets.
 Steps:
   1. Count + hard-delete ALL model_bets (all statuses)
   2. Scrape NT Oddsen: 1X2 + BTTS + O/U 2.5 (Playwright headless)
+  2.5. Enrich all NT Oddsen fixtures missing fixture_stat_enrichment rows.
+       - Fixtures outside the 72h scan window (Canada, Colombia) are fetched
+         from AF API and inserted into fixtures + api_football_fixture_links.
+       - Cape Verde normalization fix: "cape verde islands" -> "cape verde".
   3. Generate candidates with nt_only=True:
        - no AF/Bet365 fallback for BTTS or O/U
        - no generic_prior
@@ -66,6 +70,24 @@ print(f"    NT fixtures scraped  : {n_fix}")
 print(f"    1X2 rows stored      : {n_1x2}")
 print(f"    BTTS rows stored     : {n_btts}")
 print(f"    O/U 2.5 rows stored  : {n_ou25}")
+
+# ── Step 2.5: enrich NT Oddsen fixtures missing enrichment rows ──────────────
+print(f"\n  Enriching NT Oddsen fixtures (API-Football standings + form + goals)...")
+from ingestion.enrich_fixtures import enrich_nt_oddsen_fixtures
+enr_result = enrich_nt_oddsen_fixtures(verbose=True, max_snapshot_age_hours=12)
+
+enr_err = enr_result.get("error")
+if enr_err:
+    print(f"  ERROR in enrichment: {enr_err}")
+    sys.exit(1)
+
+print(f"\n  Enrichment summary:")
+print(f"    NT fixture keys          : {enr_result.get('n_nt_keys', 0)}")
+print(f"    Already enriched (skip)  : {enr_result.get('n_already_enriched', 0)}")
+print(f"    Newly enriched           : {enr_result.get('n_newly_enriched', 0)}")
+print(f"    Fetched from AF (new fix): {enr_result.get('n_fetched_new', 0)}")
+print(f"    No AF link (skip)        : {enr_result.get('n_no_af_link', 0)}")
+print(f"    Errors                   : {enr_result.get('n_failed', 0)}")
 
 # ── Step 3: generate NT-only candidates ─────────────────────────────────────
 print(f"\n  Generating NT-only candidates (edge >= 5pp, no AF fallback)...")

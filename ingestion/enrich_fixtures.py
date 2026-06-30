@@ -9,7 +9,7 @@ Usage:
     summary = enrich_active_fixtures(week=24, year=2026)
 """
 from __future__ import annotations
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import json
 
@@ -724,4 +724,283 @@ def enrich_active_fixtures(
         "n_stored":      n_stored,
         "n_failed":      n_failed,
         "avg_confidence": avg_conf,
+    }
+
+
+def _fetch_and_insert_wc_fixture(
+    conn, nt_home: str, nt_away: str, nt_date: str, verbose: bool = False
+) -> dict | None:
+    """
+    For an NT Oddsen fixture not yet in the DB, try to find it in the WC 2026
+    via API-Football and insert it (fixture + AF link + bookmaker odds if available).
+    Returns a dict with fixture info (matching model_map format) or None.
+    """
+    import uuid
+    import time as _time
+    from ingestion.api_football import get_fixtures as af_get_fixtures
+
+    try:
+        d0 = date.fromisoformat(nt_date)
+    except (ValueError, TypeError):
+        return None
+
+    from_d = (d0 - timedelta(days=1)).isoformat()
+    to_d   = (d0 + timedelta(days=1)).isoformat()
+
+    try:
+        af_fixtures = af_get_fixtures(league_id=1, season=2026, from_date=from_d, to_date=to_d)
+    except Exception as exc:
+        if verbose:
+            print(f"    [ERR] WC AF fixtures fetch for {nt_date}: {exc}")
+        return None
+
+    if not af_fixtures:
+        if verbose:
+            print(f"    [MISS] No WC AF fixtures found for date {nt_date}")
+        return None
+
+    matched_af, confidence = _match_to_af(nt_home, nt_away, af_fixtures)
+    if not matched_af:
+        if verbose:
+            print(f"    [MISS] No AF match for '{nt_home}' vs '{nt_away}' in WC fixtures")
+        return None
+
+    af_id     = matched_af["fixture"]["id"]
+    kickoff   = matched_af["fixture"].get("date", "")
+    home_name = matched_af["teams"]["home"]["name"]
+    away_name = matched_af["teams"]["away"]["name"]
+    af_home   = matched_af["teams"]["home"]["id"]
+    af_away   = matched_af["teams"]["away"]["id"]
+
+    if verbose:
+        print(f"    [FOUND] {home_name} vs {away_name}  af_id={af_id}  conf={confidence:.2f}")
+
+    # Insert fixture + AF link (idempotent via CONFLICT/IGNORE)
+    fid = str(uuid.uuid4())
+    conn.execute(
+        """INSERT INTO fixtures
+               (fixture_id, kickoff_utc, external_id, home_name, away_name, created_at)
+           VALUES (?,?,?,?,?,datetime('now'))
+           ON CONFLICT(external_id) DO UPDATE
+               SET home_name=excluded.home_name, away_name=excluded.away_name""",
+        (fid, kickoff, af_id, home_name, away_name),
+    )
+    existing = conn.execute(
+        "SELECT fixture_id FROM fixtures WHERE external_id=?", (af_id,)
+    ).fetchone()
+    real_fid = existing[0] if existing else fid
+
+    conn.execute(
+        """INSERT OR IGNORE INTO api_football_fixture_links
+               (fixture_id, api_football_fixture_id, api_football_league_id,
+                api_football_season, api_football_home_team_id,
+                api_football_away_team_id, match_confidence)
+           VALUES (?,?,?,?,?,?,?)""",
+        (real_fid, af_id, 1, 2026, af_home, af_away, confidence),
+    )
+    conn.commit()
+
+    # Try to fetch and store bookmaker odds for this new fixture
+    try:
+        from ingestion.api_football_odds import fetch_af_all_markets, _store_market_odds
+        _time.sleep(2.1)
+        best = fetch_af_all_markets(af_id)
+        if best:
+            if "1X2" in best:
+                bkm, rows = best["1X2"]
+                sel_map = {r["selection"]: r["odds"] for r in rows}
+                try:
+                    h_o = sel_map["HOME"]
+                    u_o = sel_map["DRAW"]
+                    b_o = sel_map["AWAY"]
+                    conn.execute(
+                        "INSERT OR IGNORE INTO odds (fixture_id, source, odds_h, odds_u, odds_b)"
+                        " VALUES (?,?,?,?,?)",
+                        (real_fid, f"api_football:{bkm}", h_o, u_o, b_o),
+                    )
+                    conn.commit()
+                    if verbose:
+                        print(f"    [ODDS]  1X2 {bkm}: H={h_o} U={u_o} B={b_o}")
+                except KeyError:
+                    pass
+            _store_market_odds(conn, real_fid, af_id, best, verbose=False)
+            conn.commit()
+    except Exception as exc:
+        if verbose:
+            print(f"    [WARN]  Odds fetch failed for af_id={af_id}: {exc}")
+
+    return {
+        "fixture_id":                real_fid,
+        "kickoff_utc":               kickoff,
+        "home_name":                 home_name,
+        "away_name":                 away_name,
+        "api_football_fixture_id":   af_id,
+        "api_football_league_id":    1,
+        "api_football_season":       2026,
+        "api_football_home_team_id": af_home,
+        "api_football_away_team_id": af_away,
+        "has_api_football_data":     0,
+    }
+
+
+def enrich_nt_oddsen_fixtures(
+    verbose: bool = True,
+    max_snapshot_age_hours: int = 12,
+) -> dict:
+    """
+    Ensure every NT Oddsen fixture has a fixture_stat_enrichment row.
+    Called before generate_global_bet_candidates() to maximise full_model coverage.
+
+    1. Load NT fixture keys from nt_oddsen_odds_snapshot (recent snapshot only).
+    2. For each key, find the matching internal fixture_id using normalized team
+       names + date (±1 day tolerance).
+    3. If no match: try to fetch the WC fixture from AF API and insert it.
+    4. If match found but enrichment is missing: run _fetch_enrichment() and upsert.
+    """
+    from config import API_FOOTBALL_KEY
+    if not API_FOOTBALL_KEY:
+        return {"error": "API_FOOTBALL_KEY not set"}
+
+    from db.connection import get_conn
+    from db.enrichment import upsert_stat_enrichment
+    from ingestion.nt_oddsen_playwright import normalize_team_name as nt_norm
+
+    conn = get_conn()
+    age_threshold = (
+        datetime.now(timezone.utc) - timedelta(hours=max_snapshot_age_hours)
+    ).isoformat()
+
+    # 1. NT fixture keys from recent snapshot
+    nt_rows = conn.execute(
+        """SELECT DISTINCT fixture_key
+           FROM nt_oddsen_odds_snapshot
+           WHERE scraped_at >= ?""",
+        (age_threshold,),
+    ).fetchall()
+
+    if not nt_rows:
+        conn.close()
+        return {
+            "n_nt_keys": 0, "n_newly_enriched": 0,
+            "message": f"No NT snapshot within last {max_snapshot_age_hours}h",
+        }
+
+    nt_keys = [r["fixture_key"] for r in nt_rows]
+    n_nt_keys = len(nt_keys)
+
+    # 2. Build model_map: normalized_key -> fixture row (with ±1 day date variants)
+    existing = conn.execute(
+        """SELECT f.fixture_id, f.kickoff_utc, f.home_name, f.away_name,
+                  lnk.api_football_fixture_id,
+                  lnk.api_football_league_id,
+                  lnk.api_football_season,
+                  lnk.api_football_home_team_id,
+                  lnk.api_football_away_team_id,
+                  e.has_api_football_data
+           FROM fixtures f
+           JOIN api_football_fixture_links lnk ON lnk.fixture_id = f.fixture_id
+           LEFT JOIN fixture_stat_enrichment e ON e.fixture_id = f.fixture_id
+           WHERE f.kickoff_utc > datetime('now', '-2 days')""",
+    ).fetchall()
+
+    model_map: dict[str, dict] = {}
+    for row in existing:
+        ko = (row["kickoff_utc"] or "")[:10]
+        h  = nt_norm(row["home_name"])
+        a  = nt_norm(row["away_name"])
+        base = f"{h}|{a}|{ko}"
+        model_map[base] = dict(row)
+        try:
+            d0 = date.fromisoformat(ko)
+            for delta in (1, -1):
+                alt = f"{h}|{a}|{(d0 + timedelta(days=delta)).isoformat()}"
+                if alt not in model_map:
+                    model_map[alt] = dict(row)
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Shared caches for this enrichment session
+    standings_cache: dict = {}
+    stats_cache: dict = {}
+    recent_cache: dict = {}
+    fix_stats_cache: dict = {}
+
+    n_already_enriched = 0
+    n_newly_enriched   = 0
+    n_fetched_new      = 0
+    n_no_af_link       = 0
+    n_failed           = 0
+
+    for nt_key in nt_keys:
+        parts = nt_key.split("|")
+        if len(parts) < 3:
+            continue
+        nt_h, nt_a, nt_date = parts[0], parts[1], parts[2]
+
+        mf = model_map.get(nt_key)
+
+        if mf is None:
+            if verbose:
+                print(f"  [MISS]  {nt_h} vs {nt_a} ({nt_date}) — not in DB, trying AF WC fetch...")
+            mf = _fetch_and_insert_wc_fixture(conn, nt_h, nt_a, nt_date, verbose=verbose)
+            if mf:
+                n_fetched_new += 1
+                ko = (mf["kickoff_utc"] or "")[:10]
+                h_n = nt_norm(mf["home_name"])
+                a_n = nt_norm(mf["away_name"])
+                model_map[f"{h_n}|{a_n}|{ko}"] = mf
+            else:
+                n_no_af_link += 1
+                continue
+
+        # Skip if already has full enrichment data
+        if mf.get("has_api_football_data") == 1:
+            n_already_enriched += 1
+            if verbose:
+                print(f"  [SKIP]  {nt_h} vs {nt_a} — enrichment already present")
+            continue
+
+        af_fix_id = mf.get("api_football_fixture_id")
+        af_lid    = mf.get("api_football_league_id")
+        af_season = mf.get("api_football_season")
+        af_home   = mf.get("api_football_home_team_id")
+        af_away   = mf.get("api_football_away_team_id")
+
+        if not all([af_fix_id, af_lid, af_season, af_home, af_away]):
+            n_no_af_link += 1
+            if verbose:
+                print(f"  [SKIP]  {nt_h} vs {nt_a} — AF link incomplete")
+            continue
+
+        if verbose:
+            print(f"  [ENRICH] {nt_h} vs {nt_a}  (af_fix={af_fix_id}, league={af_lid}/{af_season})")
+
+        try:
+            enrichment = _fetch_enrichment(
+                af_fix_id, af_lid, af_season, af_home, af_away,
+                standings_cache, stats_cache, recent_cache, fix_stats_cache,
+                fetch_predictions=False,
+            )
+            upsert_stat_enrichment(mf["fixture_id"], **enrichment)
+            n_newly_enriched += 1
+            if verbose:
+                pos_h  = enrichment.get("home_position") or "?"
+                pos_a  = enrichment.get("away_position") or "?"
+                form_h = enrichment.get("home_last_5") or "—"
+                form_a = enrichment.get("away_last_5") or "—"
+                print(f"    -> pos={pos_h}/{pos_a}  form={form_h}/{form_a}")
+        except Exception as exc:
+            n_failed += 1
+            if verbose:
+                print(f"  [ERR]   {nt_h} vs {nt_a}: {exc}")
+
+    conn.close()
+
+    return {
+        "n_nt_keys":          n_nt_keys,
+        "n_already_enriched": n_already_enriched,
+        "n_newly_enriched":   n_newly_enriched,
+        "n_fetched_new":      n_fetched_new,
+        "n_no_af_link":       n_no_af_link,
+        "n_failed":           n_failed,
     }

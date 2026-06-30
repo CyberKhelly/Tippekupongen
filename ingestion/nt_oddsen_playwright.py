@@ -88,8 +88,11 @@ _NO_TO_EN: dict[str, str] = {
     "bosniahercegovina":      "bosnia and herzegovina",
     "bosnia herzegovina":     "bosnia and herzegovina",
     "bosnia and hercegovina": "bosnia and herzegovina",
-    # Cape Verde: NT "Kapp Verde"
-    "kapp verde":      "cape verde",
+    # Cape Verde: NT "Kapp Verde"; AF "Cape Verde Islands"
+    "kapp verde":          "cape verde",
+    "cape verde islands":  "cape verde",
+    # Austria: NT "Østerrike" → strip Ø → "sterrike" (already have "osterrike" for O-version)
+    "sterrike":            "austria",
 }
 
 _SUFFIX_RE = re.compile(r"\b(fc|fk|if|bk|sk|aik|ik|il|cf|sc|ss)\b")
