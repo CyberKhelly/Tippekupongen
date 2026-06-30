@@ -172,6 +172,21 @@ export async function settleBets(fixtureId: string): Promise<{ settled: number }
   return apiFetch<{ settled: number }>(`/v1/bets/settle/${encodeURIComponent(fixtureId)}`, { method: "POST" });
 }
 
+export interface SettleAllResponse {
+  checked: number;
+  results_fetched: number;
+  fetch_errors: number;
+  settled: number;
+  won: number;
+  lost: number;
+  void: number;
+  profit_nok: number;
+}
+
+export async function settleAllBets(): Promise<SettleAllResponse> {
+  return apiFetch<SettleAllResponse>(`/v1/bets/settle`, { method: "POST" });
+}
+
 export interface ScanResponse {
   scan: {
     n_leagues: number;
@@ -192,6 +207,9 @@ export interface ScanResponse {
     rejection_breakdown: {
       bad_odds: number;
       no_enr_1x2: number;
+      af_1x2_skipped: number;
+      generic_prior: number;
+      contradictory: number;
       edge_too_small: number;
       duplicate: number;
       error: number;

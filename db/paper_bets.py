@@ -44,6 +44,10 @@ def get_risk_level(edge_pp: float, model_prob: float) -> str:
 
 # ── Write ──────────────────────────────────────────────────────────────────────
 
+# Quality ranking for contradictory-bet resolution (higher = better)
+_QUALITY_RANK: dict[str, int] = {"full_model": 3, "af_supported": 2, "generic_prior": 1}
+
+
 def create_bet(
     *,
     fixture_id: str,
@@ -52,15 +56,16 @@ def create_bet(
     outcome: str,
     bookmaker: str,
     ref_odds: float,
-    implied_prob: float,   # fraction 0–1
-    model_prob: float,     # fraction 0–1
-    edge_pp: float,        # (model_prob – implied_prob) × 100
+    implied_prob: float,   # fraction 0-1
+    model_prob: float,     # fraction 0-1
+    edge_pp: float,        # (model_prob - implied_prob) * 100
     insight_type: str | None = None,
     reason: str | None = None,
     league: str | None = None,
     kickoff_utc: str | None = None,
     coupon_id: str | None = None,
-    model_quality: str | None = None,  # full_model | partial_model | af_supported | generic_prior
+    model_quality: str | None = None,
+    debug_json: str | None = None,
 ) -> str:
     risk_level = get_risk_level(edge_pp, model_prob)
     stake = tier_stake(edge_pp, model_prob, insight_type or "")
@@ -72,11 +77,12 @@ def create_bet(
                (id, coupon_id, fixture_id, match_name, league, kickoff_utc,
                 market, outcome, bookmaker, ref_odds, implied_prob, model_prob,
                 edge_pp, stake_nok, expected_value, insight_type, risk_level,
-                reason, model_quality, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                reason, model_quality, debug_json, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (bet_id, coupon_id, fixture_id, match_name, league, kickoff_utc,
              market, outcome, bookmaker, ref_odds, implied_prob, model_prob,
-             edge_pp, stake, ev, insight_type, risk_level, reason, model_quality, _now()),
+             edge_pp, stake, ev, insight_type, risk_level, reason, model_quality,
+             debug_json, _now()),
         )
     return bet_id
 
@@ -98,6 +104,85 @@ def bet_exists(fixture_id: str, market: str, outcome: str, coupon_id: str | None
                 (fixture_id, market, outcome),
             ).fetchone()
     return row is not None
+
+
+def get_conflicting_bet(fixture_id: str, market: str, outcome: str) -> dict | None:
+    """
+    Return a pending bet that would conflict with the proposed bet.
+    - btts: yes <-> no
+    - over_2.5: over <-> under
+    - 1x2: any other pending outcome on the same fixture+market
+    Returns None if no conflict found.
+    """
+    with get_conn() as conn:
+        if market == "1x2":
+            row = conn.execute(
+                """SELECT id, model_quality, edge_pp, expected_value FROM model_bets
+                   WHERE fixture_id=? AND market=? AND outcome != ? AND status='pending'
+                   ORDER BY edge_pp DESC LIMIT 1""",
+                (fixture_id, market, outcome),
+            ).fetchone()
+        elif market == "btts":
+            opposite = "no" if outcome == "yes" else "yes"
+            row = conn.execute(
+                """SELECT id, model_quality, edge_pp, expected_value FROM model_bets
+                   WHERE fixture_id=? AND market=? AND outcome=? AND status='pending'""",
+                (fixture_id, market, opposite),
+            ).fetchone()
+        elif market == "over_2.5":
+            opposite = "under" if outcome == "over" else "over"
+            row = conn.execute(
+                """SELECT id, model_quality, edge_pp, expected_value FROM model_bets
+                   WHERE fixture_id=? AND market=? AND outcome=? AND status='pending'""",
+                (fixture_id, market, opposite),
+            ).fetchone()
+        else:
+            return None
+    return dict(row) if row else None
+
+
+def void_bet(bet_id: str) -> None:
+    """Void a pending bet (superseded by a higher-quality conflicting bet)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE model_bets SET status='void' WHERE id=? AND status='pending'",
+            (bet_id,),
+        )
+
+
+def resolve_contradictory_bets() -> int:
+    """
+    Void the weaker bet in each contradictory pending pair.
+    Contradictory = same fixture+market but different outcomes.
+    Quality ordering: full_model > af_supported > generic_prior.
+    Tiebreaker: higher edge_pp wins.
+    Returns number of bets voided.
+    """
+    voided = 0
+    with get_conn() as conn:
+        pairs = conn.execute("""
+            SELECT a.id AS a_id, a.model_quality AS a_mq, a.edge_pp AS a_ep,
+                   b.id AS b_id, b.model_quality AS b_mq, b.edge_pp AS b_ep
+            FROM model_bets a
+            JOIN model_bets b
+              ON a.fixture_id = b.fixture_id
+             AND a.market = b.market
+             AND a.outcome != b.outcome
+             AND a.id < b.id
+            WHERE a.status = 'pending' AND b.status = 'pending'
+        """).fetchall()
+
+        for p in pairs:
+            a_rank = _QUALITY_RANK.get(p["a_mq"] or "", 0)
+            b_rank = _QUALITY_RANK.get(p["b_mq"] or "", 0)
+            a_ep   = p["a_ep"] or 0.0
+            b_ep   = p["b_ep"] or 0.0
+            if a_rank > b_rank or (a_rank == b_rank and a_ep >= b_ep):
+                conn.execute("UPDATE model_bets SET status='void' WHERE id=?", (p["b_id"],))
+            else:
+                conn.execute("UPDATE model_bets SET status='void' WHERE id=?", (p["a_id"],))
+            voided += 1
+    return voided
 
 
 # ── Read ───────────────────────────────────────────────────────────────────────
@@ -186,6 +271,131 @@ def settle_pending_bets(fixture_id: str) -> int:
             n_settled += 1
 
     return n_settled
+
+
+def _fetch_af_result_for_bet(fixture_id: str, af_fixture_id: int) -> tuple[int, int] | None:
+    """
+    Fetch final 90-minute score from API-Football.
+    Accepts FT, AET, PEN statuses (all indicate the match is fully finished).
+    Returns (home_score, away_score) using score.fulltime (90-min result).
+    """
+    try:
+        from ingestion.api_football import get_fixtures
+        results = get_fixtures(fixture_id=af_fixture_id)
+        if not results:
+            return None
+        fix = results[0]
+        short = fix.get("fixture", {}).get("status", {}).get("short", "")
+        if short not in ("FT", "AET", "PEN"):
+            return None
+        # Use fulltime score (90 min) — consistent with standard bookmaker settlement
+        score = fix.get("score", {})
+        ft = score.get("fulltime", {})
+        home_g = ft.get("home")
+        away_g = ft.get("away")
+        if home_g is None or away_g is None:
+            # Fall back to goals field if fulltime breakdown unavailable
+            goals = fix.get("goals", {})
+            home_g = goals.get("home")
+            away_g = goals.get("away")
+        if home_g is None or away_g is None:
+            return None
+        return int(home_g), int(away_g)
+    except Exception:
+        return None
+
+
+def fetch_and_settle_all_expired(buffer_minutes: int = 100) -> dict:
+    """
+    Fetch results from API-Football for all expired pending bets, then settle.
+
+    - Only processes fixtures where kickoff_utc + buffer_minutes < now
+    - Skips fixtures that already have a result in match_results
+    - Stores results via db.history.save_result (upsert, idempotent)
+    - Returns a summary dict with counts
+
+    Safe to call repeatedly (idempotent).
+    """
+    from datetime import datetime, timezone, timedelta
+    from db.history import save_result
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=buffer_minutes)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    with get_conn() as conn:
+        # Find pending-bet fixtures that are past the buffer window and have an AF link
+        rows = conn.execute(
+            """SELECT DISTINCT mb.fixture_id, mb.kickoff_utc,
+                      lnk.api_football_fixture_id
+               FROM model_bets mb
+               JOIN api_football_fixture_links lnk ON lnk.fixture_id = mb.fixture_id
+               LEFT JOIN match_results mr ON mr.fixture_id = mb.fixture_id
+               WHERE mb.status = 'pending'
+                 AND mb.kickoff_utc < ?
+                 AND mr.fixture_id IS NULL""",
+            (cutoff,),
+        ).fetchall()
+
+    results_fetched = 0
+    settled = 0
+    won = 0
+    lost = 0
+    profit = 0.0
+    fetch_errors = 0
+
+    for row in rows:
+        fid   = row["fixture_id"]
+        af_id = row["api_football_fixture_id"]
+
+        score = _fetch_af_result_for_bet(fid, af_id)
+        if score is None:
+            fetch_errors += 1
+            continue
+
+        save_result(fid, score[0], score[1], source="api_football")
+        results_fetched += 1
+
+    # Now settle all fixtures that have results (covers both newly fetched and pre-existing)
+    with get_conn() as conn:
+        settle_rows = conn.execute(
+            """SELECT DISTINCT mb.fixture_id FROM model_bets mb
+               JOIN match_results mr ON mr.fixture_id = mb.fixture_id
+               WHERE mb.status = 'pending' AND mb.kickoff_utc < ?""",
+            (cutoff,),
+        ).fetchall()
+
+    for row in settle_rows:
+        n = settle_pending_bets(row["fixture_id"])
+        settled += n
+
+    # Tally results from the settled bets
+    with get_conn() as conn:
+        tally = conn.execute(
+            """SELECT status, SUM(profit_nok) as total_profit, COUNT(*) as cnt
+               FROM model_bets
+               WHERE settled_at >= ?
+               GROUP BY status""",
+            (cutoff,),
+        ).fetchall()
+        for t in tally:
+            if t["status"] == "won":
+                won = t["cnt"]
+                profit += t["total_profit"] or 0
+            elif t["status"] == "lost":
+                lost = t["cnt"]
+                profit += t["total_profit"] or 0
+
+    return {
+        "checked":         len(rows),
+        "results_fetched": results_fetched,
+        "fetch_errors":    fetch_errors,
+        "settled":         settled,
+        "won":             won,
+        "lost":            lost,
+        "void":            settled - won - lost,
+        "profit_nok":      round(profit, 2),
+    }
 
 
 def update_closing_odds(fixture_id: str) -> None:

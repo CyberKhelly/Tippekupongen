@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { getBets, getBetSummary, getBankroll, getInsights, generateBets, settleBets, scanAndGenerateBets } from "@/lib/api";
+import { getBets, getBetSummary, getBankroll, getInsights, generateBets, settleBets, scanAndGenerateBets, settleAllBets } from "@/lib/api";
 import { deriveOddstips, type InsightItem, type MarketKey } from "@/lib/insights";
 import type { PaperBet, BankrollPoint, BetSummary } from "@/lib/types";
 
@@ -707,6 +707,15 @@ export default function ModellspillPage() {
     },
   });
 
+  const settleAllMutation = useMutation({
+    mutationFn: () => settleAllBets(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bets"] });
+      qc.invalidateQueries({ queryKey: ["bet-summary"] });
+      qc.invalidateQueries({ queryKey: ["bankroll"] });
+    },
+  });
+
   const startBankroll = summary?.starting_bankroll ?? 10_000;
   const filteredPts   = useMemo(() => filterByRange(bankrollPts, timeRange), [bankrollPts, timeRange]);
 
@@ -792,6 +801,25 @@ export default function ModellspillPage() {
                   }}>{r}</button>
                 ))}
               </div>
+
+              {/* Settle all — fetch results + settle expired bets */}
+              <button
+                onClick={() => settleAllMutation.mutate()}
+                disabled={settleAllMutation.isPending}
+                title="Hent resultater fra API-Football og gjør opp utløpte spill"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 14px", borderRadius: 8,
+                  border: "1px solid rgba(123,146,255,0.25)",
+                  background: "rgba(123,146,255,0.07)",
+                  color: "var(--indigo)",
+                  fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                  opacity: settleAllMutation.isPending ? 0.5 : 1,
+                  transition: "opacity 0.15s", whiteSpace: "nowrap",
+                }}
+              >
+                {settleAllMutation.isPending ? "Henter…" : "Gjør opp alle"}
+              </button>
 
               {/* Scan button — global league scan, not coupon-limited */}
               <button
@@ -912,6 +940,29 @@ export default function ModellspillPage() {
               : "Ingen nye kupong-spill — alle er allerede registrert."}
           </div>
         )}
+        {settleAllMutation.isSuccess && (() => {
+          const d = settleAllMutation.data;
+          return (
+            <div style={{
+              margin: "12px 40px 0", padding: "10px 16px", borderRadius: 8,
+              fontFamily: "var(--font-mono)", fontSize: 10,
+              background: "rgba(123,146,255,0.06)", border: "1px solid rgba(123,146,255,0.18)",
+            }}>
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap", color: "var(--indigo)" }}>
+                {d.settled === 0
+                  ? <span>Ingen utløpte spill å gjøre opp.</span>
+                  : <span>Gjort opp {d.settled} spill — {d.won} vunnet · {d.lost} tapt · {d.profit_nok >= 0 ? "+" : ""}{d.profit_nok.toLocaleString("nb-NO")} kr P/L</span>
+                }
+                {d.results_fetched > 0 && (
+                  <span style={{ color: "var(--tx-4)" }}>{d.results_fetched} resultat{d.results_fetched !== 1 ? "er" : ""} hentet</span>
+                )}
+                {d.fetch_errors > 0 && (
+                  <span style={{ color: "var(--tx-4)" }}>{d.fetch_errors} feil ved henting</span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── Bet section ── */}
         <div style={{ padding: "28px 40px 0" }}>

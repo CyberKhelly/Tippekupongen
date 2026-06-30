@@ -693,6 +693,21 @@ def _migrate_phase14_odds_markets(conn) -> None:
         conn.execute("DROP INDEX IF EXISTS idx_odds_markets_fixture")
 
 
+# model_bets calibration columns — model_quality (idempotent) + debug_json audit blob
+_MODELBETS_CALIBRATION_COLUMNS: list[tuple[str, str]] = [
+    ("model_bets", "model_quality TEXT"),
+    ("model_bets", "debug_json    TEXT"),
+]
+
+
+def _add_modelbets_calibration_columns(conn) -> None:
+    for table, col_def in _MODELBETS_CALIBRATION_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_DDL_BASE)
@@ -716,3 +731,4 @@ def init_db() -> None:
         _migrate_phase14_odds_markets(conn)
         conn.executescript(_DDL_PHASE14_TABLES)
         conn.executescript(_DDL_PREDICTIONS)
+        _add_modelbets_calibration_columns(conn)

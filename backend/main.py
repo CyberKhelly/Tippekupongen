@@ -1456,6 +1456,17 @@ def generate_bets(coupon_id: str | None = None):
     )
 
 
+@app.post("/v1/bets/settle")
+def settle_all_bets():
+    """
+    Fetch API-Football results for all expired pending bets, then settle them.
+    Returns a summary of what was checked, fetched, and settled.
+    Idempotent — safe to call multiple times.
+    """
+    from db.paper_bets import fetch_and_settle_all_expired
+    return fetch_and_settle_all_expired(buffer_minutes=100)
+
+
 @app.post("/v1/bets/settle/{fixture_id}")
 def settle_bets(fixture_id: str):
     """Settle pending paper bets for a fixture using match_results."""
@@ -1482,7 +1493,10 @@ def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
     """
     import json as _json
     from db.connection import get_conn
-    from db.paper_bets import create_bet, bet_exists
+    from db.paper_bets import (
+        create_bet, bet_exists,
+        get_conflicting_bet, void_bet, resolve_contradictory_bets, _QUALITY_RANK,
+    )
     from db.odds_movement import _devig
     from models.match import Match
     from analysis.probability import process_match
@@ -1560,8 +1574,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
 
     conn.close()
 
-    # Parse last_5 goal averages from AF prediction raw JSON → xG estimate
-    def _pred_xg(raw_json: str | None) -> tuple[float, float] | None:
+    # Minimum played games required to trust AF predictions xG
+    _MIN_AF_PLAYED = 5
+
+    # Parse last_5 goal averages from AF prediction raw JSON -> xG estimate.
+    # Requires played >= _MIN_AF_PLAYED and applies Bayesian shrinkage (k=6).
+    # Returns (xg_h, xg_a, raw_xg_h, raw_xg_a, n_eff, w) or None.
+    # Callers that only use pxg[0] and pxg[1] are unaffected by the extra fields.
+    def _pred_xg(raw_json: str | None) -> tuple[float, float, float, float, int, float] | None:
         if not raw_json:
             return None
         try:
@@ -1570,46 +1590,69 @@ def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
             a5 = raw["teams"]["away"]["last_5"]["goals"]
             h_played = int(raw["teams"]["home"]["last_5"].get("played") or 0)
             a_played = int(raw["teams"]["away"]["last_5"].get("played") or 0)
-            if h_played < 1 or a_played < 1:
+            if h_played < _MIN_AF_PLAYED or a_played < _MIN_AF_PLAYED:
                 return None
             hf = float(h5["for"]["average"])
             ha = float(h5["against"]["average"])
             af = float(a5["for"]["average"])
             aa = float(a5["against"]["average"])
-            xg_h = max((hf + aa) / 2, 0.1)
-            xg_a = max((af + ha) / 2, 0.05)
-            return xg_h, xg_a
+            raw_xg_h = max((hf + aa) / 2, 0.1)
+            raw_xg_a = max((af + ha) / 2, 0.05)
+            # Bayesian shrinkage toward EU average
+            n_eff = min(h_played, a_played)
+            w = n_eff / (n_eff + 6)
+            xg_h = max(w * raw_xg_h + (1 - w) * _EU_HOME_XG, 0.1)
+            xg_a = max(w * raw_xg_a + (1 - w) * _EU_AWAY_XG, 0.05)
+            return xg_h, xg_a, raw_xg_h, raw_xg_a, n_eff, round(w, 3)
         except Exception:
             return None
 
+    # Resolve existing contradictory bets before generating new ones
+    resolve_contradictory_bets()
+
     # Rejection counters
-    reject_bad_odds    = 0
-    reject_no_enr_1x2  = 0
-    reject_edge_small  = 0
-    reject_duplicate   = 0
-    reject_error       = 0
-    n_evaluated        = 0
-    tier_counts        = {"a": 0, "b": 0, "c": 0}
+    reject_bad_odds       = 0
+    reject_no_enr_1x2     = 0
+    reject_af_1x2         = 0
+    reject_generic_prior  = 0
+    reject_edge_small     = 0
+    reject_duplicate      = 0
+    reject_contradictory  = 0
+    reject_error          = 0
+    n_evaluated           = 0
+    tier_counts           = {"a": 0, "b": 0, "c": 0}
 
     def _tier(ep: float) -> str:
         return "tier_a" if ep >= 8 else ("tier_b" if ep >= 5 else "tier_c")
 
     def _make_bet(fid, match_name, market, outcome, bookmaker, ref_odds,
-                  impl_p, model_p, ep, reason, league, kickoff, model_quality):
-        nonlocal reject_edge_small, reject_duplicate
+                  impl_p, model_p, ep, reason, league, kickoff, model_quality,
+                  debug_json=None):
+        nonlocal reject_edge_small, reject_duplicate, reject_contradictory
         if ep < min_edge_pp:
             reject_edge_small += 1
             return
         if bet_exists(fid, market, outcome):
             reject_duplicate += 1
             return
+        # Prevent contradictory bets (e.g. btts yes + btts no on same fixture)
+        conflict = get_conflicting_bet(fid, market, outcome)
+        if conflict:
+            existing_rank = _QUALITY_RANK.get(conflict["model_quality"] or "", 0)
+            new_rank      = _QUALITY_RANK.get(model_quality or "", 0)
+            existing_ep   = conflict["edge_pp"] or 0.0
+            if new_rank > existing_rank or (new_rank == existing_rank and ep > existing_ep):
+                void_bet(conflict["id"])
+            else:
+                reject_contradictory += 1
+                return
         t = _tier(ep)
         create_bet(
             fixture_id=fid, match_name=match_name, market=market, outcome=outcome,
             bookmaker=bookmaker, ref_odds=ref_odds, implied_prob=impl_p,
             model_prob=model_p, edge_pp=ep, insight_type=t, reason=reason,
             league=league, kickoff_utc=kickoff, coupon_id=None,
-            model_quality=model_quality,
+            model_quality=model_quality, debug_json=debug_json,
         )
         tier_counts[t.split("_")[1]] += 1
 
@@ -1648,51 +1691,52 @@ def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
         ih, iu, ib = _devig(odds_h, odds_u, odds_b)
 
         # ── 1X2 ────────────────────────────────────────────────────────────────
-        # Level 1: enrichment → run_model produced adjusted probs
-        # Level 3: no enrichment + AF predictions → Poisson from last_5 goal data
-        # Level 4: no enrichment, no predictions → model = bookmaker → skip
+        # Only generated when enrichment data exists (full_model).
+        # af_supported 1X2 is skipped: Poisson-only WDL without bookmaker anchor
+        # produces unreliable edges. No enrichment → no bet.
         try:
             if enr:
-                probs_1x2 = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
+                probs_1x2   = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
                 quality_1x2 = "full_model"
             elif pxg:
-                ph, pu, pb = win_draw_loss_probability(pxg[0], pxg[1])
-                probs_1x2 = {"H": ph, "U": pu, "B": pb}
-                quality_1x2 = "af_supported"
+                reject_af_1x2 += 1
+                probs_1x2 = None
+                quality_1x2 = None
             else:
                 reject_no_enr_1x2 += 1
                 probs_1x2 = None
                 quality_1x2 = None
 
             if probs_1x2:
-                rec        = max(probs_1x2, key=probs_1x2.get)
-                model_p    = probs_1x2[rec]
-                implied_p  = {"H": ih, "U": iu, "B": ib}[rec]
-                ep         = round((model_p - implied_p) * 100, 1)
-                ref_odds   = {"H": odds_h, "U": odds_u, "B": odds_b}[rec]
-                utfall     = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
-
-                if quality_1x2 == "af_supported":
-                    reason = (
-                        f"AF-støttet: Poisson fra kampstatistikk "
-                        f"(xG {pxg[0]:.1f}–{pxg[1]:.1f}) → modell {model_p*100:.1f}% "
-                        f"vs marked {implied_p*100:.1f}% (+{ep:.1f}pp). "
-                        f"{utfall} til odds {ref_odds:.2f}."
-                    )
-                else:
-                    reason = (
-                        f"Modell {model_p*100:.1f}% vs marked {implied_p*100:.1f}% "
-                        f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} ({bookmaker})."
-                    )
+                rec       = max(probs_1x2, key=probs_1x2.get)
+                model_p   = probs_1x2[rec]
+                implied_p = {"H": ih, "U": iu, "B": ib}[rec]
+                ep        = round((model_p - implied_p) * 100, 1)
+                ref_odds  = {"H": odds_h, "U": odds_u, "B": odds_b}[rec]
+                utfall    = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
+                reason    = (
+                    f"Modell {model_p*100:.1f}% vs marked {implied_p*100:.1f}% "
+                    f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} ({bookmaker})."
+                )
+                dbg = _json.dumps({
+                    "model_quality":     quality_1x2,
+                    "model_prob":        round(model_p, 4),
+                    "implied_prob":      round(implied_p, 4),
+                    "bookmaker_prior_h": round(ih, 4),
+                    "bookmaker_prior_u": round(iu, 4),
+                    "bookmaker_prior_b": round(ib, 4),
+                    # 1x2 uses bookmaker prior blend — xG shrinkage not applicable
+                })
                 _make_bet(fid, match_name, "1x2", rec, bookmaker, ref_odds,
-                          implied_p, model_p, ep, reason, league, kickoff, quality_1x2)
+                          implied_p, model_p, ep, reason, league, kickoff,
+                          quality_1x2, debug_json=dbg)
         except Exception:
             reject_error += 1
 
         # ── BTTS / O/U ─────────────────────────────────────────────────────────
-        # Level 1: enrichment with real goal data (has_data=True)
-        # Level 3: AF predictions last_5 xG
-        # Level 4: European-average prior
+        # Level 1: enrichment with real goal data + Bayesian-shrunk xG (full_model)
+        # Level 2: AF predictions last_5 xG, played >= 5 + shrinkage (af_supported)
+        # Level 3: European-average prior (generic_prior) — NO BETS generated
         try:
             btts_mkt = mkt.get("BTTS", {})
             ou_mkt   = mkt.get("OVER_UNDER", {})
@@ -1704,77 +1748,104 @@ def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
                     qual_ou    = "full_model"
                     btts_yes_p = poisson["btts_yes"]
                     over_p     = poisson["over_2_5"]
-                    xg_label   = f"xG {poisson['xg_home']}–{poisson['xg_away']}"
+                    xg_label   = f"xG {poisson['xg_home']}-{poisson['xg_away']}"
+                    dbg_ou     = _json.dumps({
+                        "model_quality":    "full_model",
+                        "xg_home_raw":      poisson.get("xg_home_raw"),
+                        "xg_away_raw":      poisson.get("xg_away_raw"),
+                        "xg_home_adjusted": poisson["xg_home"],
+                        "xg_away_adjusted": poisson["xg_away"],
+                        "sample_size_home": poisson.get("sample_size_home"),
+                        "sample_size_away": poisson.get("sample_size_away"),
+                        "shrinkage_weight": poisson.get("shrinkage_weight"),
+                    })
                 elif pxg:
                     qual_ou    = "af_supported"
                     btts_yes_p = btts_probability(pxg[0], pxg[1])
                     over_p, _  = over_under_probability(pxg[0], pxg[1])
-                    xg_label   = f"xG {pxg[0]:.1f}–{pxg[1]:.1f} (AF)"
+                    xg_label   = f"xG {pxg[0]:.2f}-{pxg[1]:.2f} (AF)"
+                    dbg_ou     = _json.dumps({
+                        "model_quality":    "af_supported",
+                        "xg_home_raw":      round(pxg[2], 2),
+                        "xg_away_raw":      round(pxg[3], 2),
+                        "xg_home_adjusted": round(pxg[0], 2),
+                        "xg_away_adjusted": round(pxg[1], 2),
+                        "sample_size_home": pxg[4],
+                        "sample_size_away": pxg[4],
+                        "shrinkage_weight": pxg[5],
+                    })
                 else:
-                    qual_ou    = "generic_prior"
-                    btts_yes_p = _eu_btts_yes
-                    over_p     = _eu_over_25
-                    xg_label   = None
+                    qual_ou = "generic_prior"
             elif pxg:
                 qual_ou    = "af_supported"
                 btts_yes_p = btts_probability(pxg[0], pxg[1])
                 over_p, _  = over_under_probability(pxg[0], pxg[1])
-                xg_label   = f"xG {pxg[0]:.1f}–{pxg[1]:.1f} (AF)"
+                xg_label   = f"xG {pxg[0]:.2f}-{pxg[1]:.2f} (AF)"
+                dbg_ou     = _json.dumps({
+                    "model_quality":    "af_supported",
+                    "xg_home_raw":      round(pxg[2], 2),
+                    "xg_away_raw":      round(pxg[3], 2),
+                    "xg_home_adjusted": round(pxg[0], 2),
+                    "xg_away_adjusted": round(pxg[1], 2),
+                    "sample_size_home": pxg[4],
+                    "sample_size_away": pxg[4],
+                    "shrinkage_weight": pxg[5],
+                })
             else:
-                qual_ou    = "generic_prior"
-                btts_yes_p = _eu_btts_yes
-                over_p     = _eu_over_25
-                xg_label   = None
+                qual_ou = "generic_prior"
 
-            btts_no_p = round(1 - btts_yes_p, 4)
-            under_p   = round(1 - over_p, 4)
-            xg_str    = f" {xg_label}." if xg_label else ""
-            qual_tag  = " (AF-støttet)" if qual_ou == "af_supported" else \
-                        " (eurosnitt-prior)" if qual_ou == "generic_prior" else ""
+            # Skip bet generation when only a generic prior is available
+            if qual_ou == "generic_prior":
+                reject_generic_prior += 1
+            else:
+                btts_no_p = round(1 - btts_yes_p, 4)
+                under_p   = round(1 - over_p, 4)
+                xg_str    = f" {xg_label}." if xg_label else ""
+                qual_tag  = " (AF-støttet)" if qual_ou == "af_supported" else ""
 
-            ba = btts_mkt.get("YES")
-            bb = btts_mkt.get("NO")
-            if ba and bb and ba > 1 and bb > 1:
-                total_inv     = 1/ba + 1/bb
-                btts_impl_yes = 1/ba / total_inv
-                btts_impl_no  = 1/bb / total_inv
-                bkm_btts      = btts_mkt.get("bookmaker", bookmaker)
+                ba = btts_mkt.get("YES")
+                bb = btts_mkt.get("NO")
+                if ba and bb and ba > 1 and bb > 1:
+                    total_inv     = 1/ba + 1/bb
+                    btts_impl_yes = 1/ba / total_inv
+                    btts_impl_no  = 1/bb / total_inv
+                    bkm_btts      = btts_mkt.get("bookmaker", bookmaker)
 
-                mep_yes = round((btts_yes_p - btts_impl_yes) * 100, 1)
-                _make_bet(fid, match_name, "btts", "yes", bkm_btts, ba,
-                          btts_impl_yes, btts_yes_p, mep_yes,
-                          f"Poisson begge scorer {btts_yes_p*100:.1f}% vs marked {btts_impl_yes*100:.1f}% "
-                          f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
-                          league, kickoff, qual_ou)
+                    mep_yes = round((btts_yes_p - btts_impl_yes) * 100, 1)
+                    _make_bet(fid, match_name, "btts", "yes", bkm_btts, ba,
+                              btts_impl_yes, btts_yes_p, mep_yes,
+                              f"Poisson begge scorer {btts_yes_p*100:.1f}% vs marked {btts_impl_yes*100:.1f}% "
+                              f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
+                              league, kickoff, qual_ou, debug_json=dbg_ou)
 
-                mep_no = round((btts_no_p - btts_impl_no) * 100, 1)
-                _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
-                          btts_impl_no, btts_no_p, mep_no,
-                          f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs marked {btts_impl_no*100:.1f}% "
-                          f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
-                          league, kickoff, qual_ou)
+                    mep_no = round((btts_no_p - btts_impl_no) * 100, 1)
+                    _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
+                              btts_impl_no, btts_no_p, mep_no,
+                              f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs marked {btts_impl_no*100:.1f}% "
+                              f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
+                              league, kickoff, qual_ou, debug_json=dbg_ou)
 
-            oa = ou_mkt.get("OVER")
-            ob = ou_mkt.get("UNDER")
-            if oa and ob and oa > 1 and ob > 1:
-                total_inv_ou = 1/oa + 1/ob
-                over_impl    = 1/oa / total_inv_ou
-                under_impl   = 1/ob / total_inv_ou
-                bkm_ou       = ou_mkt.get("bookmaker", bookmaker)
+                oa = ou_mkt.get("OVER")
+                ob = ou_mkt.get("UNDER")
+                if oa and ob and oa > 1 and ob > 1:
+                    total_inv_ou = 1/oa + 1/ob
+                    over_impl    = 1/oa / total_inv_ou
+                    under_impl   = 1/ob / total_inv_ou
+                    bkm_ou       = ou_mkt.get("bookmaker", bookmaker)
 
-                mep_over = round((over_p - over_impl) * 100, 1)
-                _make_bet(fid, match_name, "over_2.5", "over", bkm_ou, oa,
-                          over_impl, over_p, mep_over,
-                          f"Poisson over 2,5 mål {over_p*100:.1f}% vs marked {over_impl*100:.1f}% "
-                          f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
-                          league, kickoff, qual_ou)
+                    mep_over = round((over_p - over_impl) * 100, 1)
+                    _make_bet(fid, match_name, "over_2.5", "over", bkm_ou, oa,
+                              over_impl, over_p, mep_over,
+                              f"Poisson over 2,5 mal {over_p*100:.1f}% vs marked {over_impl*100:.1f}% "
+                              f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
+                              league, kickoff, qual_ou, debug_json=dbg_ou)
 
-                mep_under = round((under_p - under_impl) * 100, 1)
-                _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
-                          under_impl, under_p, mep_under,
-                          f"Poisson under 2,5 mål {under_p*100:.1f}% vs marked {under_impl*100:.1f}% "
-                          f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
-                          league, kickoff, qual_ou)
+                    mep_under = round((under_p - under_impl) * 100, 1)
+                    _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
+                              under_impl, under_p, mep_under,
+                              f"Poisson under 2,5 mal {under_p*100:.1f}% vs marked {under_impl*100:.1f}% "
+                              f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
+                              league, kickoff, qual_ou, debug_json=dbg_ou)
 
         except Exception:
             reject_error += 1
@@ -1785,11 +1856,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 3.0) -> dict:
         "n_created":       n_created,
         "n_skipped":       reject_edge_small + reject_duplicate,
         "rejection_breakdown": {
-            "bad_odds":         reject_bad_odds,
-            "no_enr_1x2":      reject_no_enr_1x2,
-            "edge_too_small":   reject_edge_small,
-            "duplicate":        reject_duplicate,
-            "error":            reject_error,
+            "bad_odds":          reject_bad_odds,
+            "no_enr_1x2":        reject_no_enr_1x2,
+            "af_1x2_skipped":    reject_af_1x2,
+            "generic_prior":     reject_generic_prior,
+            "contradictory":     reject_contradictory,
+            "edge_too_small":    reject_edge_small,
+            "duplicate":         reject_duplicate,
+            "error":             reject_error,
         },
         "tiers": tier_counts,
         "min_edge_pp": min_edge_pp,

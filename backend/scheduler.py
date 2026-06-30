@@ -400,29 +400,24 @@ def _market_scan_job() -> None:
 
 def _auto_settle_job() -> None:
     """
-    Every hour: settle pending model_bets for fixtures that have finished
-    (kickoff_utc + 100 min in the past) and have a result in match_results.
+    Every hour: fetch API-Football results for expired pending bets, then settle.
+    Uses fetch_and_settle_all_expired() which handles both fetching and settling
+    in one idempotent pass.
     """
     try:
-        from db.connection import get_conn
-        from db.paper_bets import settle_pending_bets
-        from datetime import datetime, timezone, timedelta
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=100)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
-        conn = get_conn()
-        rows = conn.execute(
-            """SELECT DISTINCT mb.fixture_id FROM model_bets mb
-               JOIN match_results mr ON mr.fixture_id = mb.fixture_id
-               WHERE mb.status = 'pending' AND mb.kickoff_utc < ?""",
-            (cutoff,),
-        ).fetchall()
-        conn.close()
-        n_settled = 0
-        for r in rows:
-            n_settled += settle_pending_bets(r["fixture_id"])
-        if n_settled:
-            logger.info("Auto-settle: %d bet(s) settled", n_settled)
+        from db.paper_bets import fetch_and_settle_all_expired
+        summary = fetch_and_settle_all_expired(buffer_minutes=100)
+        if summary["results_fetched"] or summary["settled"]:
+            logger.info(
+                "Auto-settle: fetched=%d settled=%d won=%d lost=%d P/L=%.0f NOK",
+                summary["results_fetched"],
+                summary["settled"],
+                summary["won"],
+                summary["lost"],
+                summary["profit_nok"],
+            )
+        if summary["fetch_errors"]:
+            logger.warning("Auto-settle: %d fixture(s) had fetch errors", summary["fetch_errors"])
     except Exception as exc:
         logger.exception("Auto-settle job failed: %s", exc)
 
