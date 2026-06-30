@@ -119,6 +119,29 @@ All generated Modellspill candidates are stored in the `model_bets` table (via `
 
 ---
 
+## NT Oddsen Odds Source
+
+`scrape_nt_oddsen()` in `ingestion/nt_oddsen_scraper.py`:
+
+- Scrapes `s5.sir.sportradar.com/norsktipping/no/sport/1` via Firecrawl LLM extract (5s JS wait)
+- Extracts 1X2, BTTS yes/no, Over/Under 2.5 odds from Sportradar SIR widget
+- Stores each selection as a row in `nt_oddsen_odds_snapshot` table
+- Requires `FIRECRAWL_API_KEY` in environment or `.env`; returns `{error: "no_api_key"}` gracefully if unset
+- Team name normalization: strips diacritics, removes org suffixes (FC/FK/BK/SK/IL), maps Norwegian national team names to English equivalents
+- Fixture key: `normalize(home)|normalize(away)|YYYY-MM-DD` — used for bulk lookup in `generate_global_bet_candidates`
+
+**NT Oddsen as sole odds source for Modellspill:**
+- `generate_global_bet_candidates(nt_odds_only=True)` (default) requires matching NT Oddsen odds in snapshot
+- Hard filters: NT odds < 1.50 → skip; edge < 5pp → skip; no NT match → skip
+- Model is run against NT odds (NT-calibrated bookmaker prior) rather than AF/Bet365 odds
+- Edge = model_probability − NT_implied_probability (de-vigged from NT 1X2 odds)
+- `bookmaker` field in `model_bets` is set to `"NT Oddsen"` for all NT-sourced bets
+- API-Football odds (`odds` table) remain in DB as model-input reference; not used for recommendations
+- `POST /v1/bets/scan` now runs: `scan_af_market_odds` → `scrape_nt_oddsen` → `generate_global_bet_candidates`
+- `debug_json` per 1X2 bet includes: `nt_odds_h/u/b`, `nt_fixture_key`, `bookmaker_prior_h/u/b`, `model_prob`, `implied_prob`
+
+---
+
 ## Design Semantics
 
 | Color | Role | Use |
@@ -209,6 +232,7 @@ Do not assume prior conversation context carries over. Always re-derive current 
 
 **Milestone: Premium TippeIQ redesign + global Modellspill intelligence.** (2026-06-29)
 
+- **NT Oddsen as sole Modellspill odds source (complete, 2026-06-30):** `ingestion/nt_oddsen_scraper.py` uses Firecrawl LLM extract (5s JS wait) on `s5.sir.sportradar.com/norsktipping/no/sport/1`. Extracts 1X2/BTTS/O/U odds. Stores in `nt_oddsen_odds_snapshot` table (created in `db/schema.py`). `generate_global_bet_candidates(nt_odds_only=True)` now requires matching NT Oddsen odds — no NT match → reject. Model is run against NT odds (NT-calibrated prior). Hard filters: NT odds < 1.50 → skip, edge < 5pp → skip. `bookmaker = "NT Oddsen"` on all generated bets. `debug_json` includes `nt_odds_h/u/b` + `nt_fixture_key`. `POST /v1/bets/scan` now runs scrape before generation. API-Football odds remain in DB for model reference only. Scheduler `_market_scan_job` updated. Frontend `oddstips` shows "Norsk Tipping" as odds source. Requires `FIRECRAWL_API_KEY` in `.env`. Test with `python scripts/test_nt_oddsen_scan.py`.
 - **Modellspill odds model calibration (complete, 2026-06-30):** Bayesian xG shrinkage (`weight = n/(n+6)`) in `analysis/market_models.py` and `generate_global_bet_candidates()`. Minimum sample gates: venue-specific Phase 13 stats require n_home ≥ 5 AND n_away ≥ 5; AF predictions require played ≥ 5. `generic_prior` bets (EU-average constants) removed — no bets generated without match-specific data. Contradictory bets prevented: `get_conflicting_bet()` + `void_bet()` in `db/paper_bets.py`; `resolve_contradictory_bets()` runs at scan start. af_supported 1X2 bets removed (Poisson WDL without bookmaker anchor is unreliable). Every bet now stores `debug_json` with `xg_home_raw`, `xg_away_raw`, `xg_home_adjusted`, `xg_away_adjusted`, `sample_size_home`, `sample_size_away`, `shrinkage_weight` (Poisson bets) or `bookmaker_prior_h/u/b` (1x2 bets). **Pre-calibration Modellspill bets were cleared because they were generated before Bayesian xG shrinkage, sample-size gates, generic_prior blocking and contradiction prevention. These were test bets only and not valid launch history.** Modellspill history starts clean from 2026-06-30.
 - **Modellspill / Odds-intelligens (complete):** Global odds scanner (`scan_af_market_odds`) fetches 27 leagues, 72h window. `generate_global_bet_candidates()` runs the full model pipeline on every fixture with 1X2 odds. Edge tiers: A ≥ 8pp, B 5–8pp, C 3–5pp. Poisson model for BTTS/O/U uses `full_model` → `af_supported` quality hierarchy (generic_prior suppressed). `/oddstips` page shows bankroll chart, active/settled bets, market signals.
 - **Modellspill scheduler jobs (complete):** `_market_scan_job()` runs every 2h. `_auto_settle_job()` runs every 60min. Both run inside FastAPI lifespan alongside existing NT and odds jobs.
@@ -406,6 +430,7 @@ Never assume the UI is good without visual verification.
 - **Do not add new strategies or change strategy parameters** without explicit instruction.
 - **Do not implement Elo, xG, or additional AI models** without explicit instruction.
 - **estimated_prior is not bookmaker odds** — never write to `odds` or `odds_snapshots`. Validate check 24 enforces zero overlap.
+- **NT Oddsen is the only Modellspill odds source** — `generate_global_bet_candidates(nt_odds_only=True)` (the default) only creates bets when NT Oddsen odds exist in `nt_oddsen_odds_snapshot`. API-Football / Bet365 / Pinnacle odds must never be used as `ref_odds` for Modellspill recommendations. They remain in the `odds` and `odds_markets` tables as model-calibration inputs only. The `scrape_nt_oddsen()` call in `scan_and_generate` must always precede `generate_global_bet_candidates`. Do not pass `nt_odds_only=False` in production.
 - **CLV uses real bookmaker odds only** — `odds_snapshots` must only contain real bookmaker (Pinnacle etc.) data.
 - **Model probabilities in `Match` are read-only** — strategy and optimizer never write to them.
 - **Evaluation uses frozen snapshot only** — `evaluate_coupon()` reads `pub_prob_*`, `value_*`, `crowd_disagreement_score` from `coupon_predictions` (frozen at save time). Never read live `coupon_fixtures.public_h/u/b` for historical evaluation. Old coupons with NULL snapshot fields show "—" — they are never backfilled.

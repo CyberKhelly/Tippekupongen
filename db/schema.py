@@ -732,3 +732,6 @@ def init_db() -> None:
         conn.executescript(_DDL_PHASE14_TABLES)
         conn.executescript(_DDL_PREDICTIONS)
         _add_modelbets_calibration_columns(conn)
+        # NT Oddsen odds snapshot table (idempotent — also created by scraper on first run)
+        from ingestion.nt_oddsen_scraper import _DDL_NT_ODDSEN
+        conn.executescript(_DDL_NT_ODDSEN)
