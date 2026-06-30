@@ -627,4 +627,5 @@ class GenerateBetsResponse(BaseModel):
 class ScanResponse(BaseModel):
     scan: dict
     candidates: dict
+    nt_scrape: dict | None = None
     duration_s: float

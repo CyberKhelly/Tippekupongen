@@ -379,21 +379,26 @@ def _market_scan_job() -> None:
     if _secs_since(state.get("last_market_scan_at")) < 2 * 3600:
         return
     try:
+        from ingestion.nt_oddsen_playwright import scrape_nt_oddsen_playwright
         from ingestion.api_football_odds import scan_af_market_odds
         from backend.main import generate_global_bet_candidates
+        nt_summary   = scrape_nt_oddsen_playwright(verbose=False)
         scan_summary = scan_af_market_odds(lookahead_hours=72, verbose=False)
         cand_summary = generate_global_bet_candidates()
         now_iso = _iso(_now())
         patch_state(last_market_scan_at=now_iso)
         tiers = cand_summary.get("tiers", {})
         logger.info(
-            "Market scan: %d leagues, %d fixtures, %d new | candidates created: %d (A=%d B=%d C=%d)",
+            "Market scan: NT=%d matches | %d leagues, %d fixtures, %d new | candidates: %d (A=%d B=%d C=%d)",
+            nt_summary.get("n_matches", 0),
             scan_summary.get("n_leagues", 0),
             scan_summary.get("n_fixtures_found", 0),
             scan_summary.get("n_fixtures_new", 0),
             cand_summary.get("n_created", 0),
             tiers.get("a", 0), tiers.get("b", 0), tiers.get("c", 0),
         )
+        if nt_summary.get("error"):
+            logger.warning("NT Playwright scraper error: %s", nt_summary["error"])
     except Exception as exc:
         logger.exception("Market scan job failed: %s", exc)
 

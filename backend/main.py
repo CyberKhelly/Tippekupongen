@@ -1584,6 +1584,16 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             if mk not in mkt_map[fid]: mkt_map[fid][mk] = {"bookmaker": mr["bookmaker"]}
             mkt_map[fid][mk][sel] = mr["odds"]
 
+    # Load NT Oddsen 1X2 snapshot (Playwright scraper, max 6h old)
+    _nt_map: dict[str, dict[str, float]] = {}
+    _nt_norm = None
+    try:
+        from ingestion.nt_oddsen_playwright import load_nt_odds_bulk, normalize_team_name as _nt_norm_fn
+        _nt_map = load_nt_odds_bulk(conn)
+        _nt_norm = _nt_norm_fn
+    except Exception:
+        pass
+
     conn.close()
 
     # Minimum played games required to trust AF predictions xG
@@ -1632,6 +1642,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     reject_contradictory  = 0
     reject_error          = 0
     reject_odds_too_low   = 0
+    reject_no_nt_odds     = 0
     n_evaluated           = 0
     tier_counts           = {"a": 0, "b": 0, "c": 0}
 
@@ -1706,9 +1717,11 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
         ih, iu, ib = _devig(odds_h, odds_u, odds_b)
 
         # ── 1X2 ────────────────────────────────────────────────────────────────
-        # Only generated when enrichment data exists (full_model).
-        # af_supported 1X2 is skipped: Poisson-only WDL without bookmaker anchor
-        # produces unreliable edges. No enrichment → no bet.
+        # Only generated when:
+        #   1. enrichment data exists (full_model) — bookmaker prior is the anchor
+        #   2. NT Oddsen has matching 1X2 odds — odds and implied prob come from NT
+        # af_supported 1X2 skipped: Poisson WDL without bookmaker anchor unreliable.
+        # No enrichment → no bet. No NT odds → no bet.
         try:
             if enr:
                 probs_1x2   = {"H": m.prob_h, "U": m.prob_u, "B": m.prob_b}
@@ -1723,30 +1736,62 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 quality_1x2 = None
 
             if probs_1x2:
-                rec       = max(probs_1x2, key=probs_1x2.get)
-                model_p   = probs_1x2[rec]
-                implied_p = {"H": ih, "U": iu, "B": ib}[rec]
-                ep        = round((model_p - implied_p) * 100, 1)
-                ref_odds  = {"H": odds_h, "U": odds_u, "B": odds_b}[rec]
-                if ref_odds < _min_odds:
-                    reject_odds_too_low += 1
+                # Require NT Oddsen 1X2 odds — look up by normalised team names + date
+                _nt_fix = None
+                if _nt_norm and _nt_map:
+                    _ko_date = (kickoff or "")[:10]
+                    _fk_exact = f"{_nt_norm(home_name)}|{_nt_norm(away_name)}|{_ko_date}"
+                    if _fk_exact in _nt_map:
+                        _nt_fix = _nt_map[_fk_exact]
+                    elif _ko_date:
+                        # Adjacent-day fallback for UTC/local timezone mismatch
+                        try:
+                            from datetime import timedelta as _td
+                            _d0 = datetime.strptime(_ko_date, "%Y-%m-%d")
+                            for _delta in (1, -1):
+                                _adj = (_d0 + _td(days=_delta)).strftime("%Y-%m-%d")
+                                _fk = f"{_nt_norm(home_name)}|{_nt_norm(away_name)}|{_adj}"
+                                if _fk in _nt_map:
+                                    _nt_fix = _nt_map[_fk]
+                                    break
+                        except Exception:
+                            pass
+
+                if _nt_fix is None:
+                    reject_no_nt_odds += 1
                 else:
-                    utfall = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
-                    reason = (
-                        f"Modell {model_p*100:.1f}% vs marked {implied_p*100:.1f}% "
-                        f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} ({bookmaker})."
-                    )
-                    dbg = _json.dumps({
-                        "model_quality":     quality_1x2,
-                        "model_prob":        round(model_p, 4),
-                        "implied_prob":      round(implied_p, 4),
-                        "bookmaker_prior_h": round(ih, 4),
-                        "bookmaker_prior_u": round(iu, 4),
-                        "bookmaker_prior_b": round(ib, 4),
-                    })
-                    _make_bet(fid, match_name, "1x2", rec, bookmaker, ref_odds,
-                              implied_p, model_p, ep, reason, league, kickoff,
-                              quality_1x2, debug_json=dbg)
+                    nt_h = _nt_fix["H"]
+                    nt_u = _nt_fix["U"]
+                    nt_b = _nt_fix["B"]
+                    nt_ih, nt_iu, nt_ib = _devig(nt_h, nt_u, nt_b)
+
+                    rec       = max(probs_1x2, key=probs_1x2.get)
+                    model_p   = probs_1x2[rec]
+                    implied_p = {"H": nt_ih, "U": nt_iu, "B": nt_ib}[rec]
+                    ep        = round((model_p - implied_p) * 100, 1)
+                    ref_odds  = {"H": nt_h, "U": nt_u, "B": nt_b}[rec]
+                    if ref_odds < _min_odds:
+                        reject_odds_too_low += 1
+                    else:
+                        utfall = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
+                        reason = (
+                            f"Modell {model_p*100:.1f}% vs NT Oddsen {implied_p*100:.1f}% "
+                            f"(+{ep:.1f}pp). {utfall} til NT-odds {ref_odds:.2f}."
+                        )
+                        dbg = _json.dumps({
+                            "model_quality":     quality_1x2,
+                            "model_prob":        round(model_p, 4),
+                            "implied_prob":      round(implied_p, 4),
+                            "nt_odds_h":         nt_h,
+                            "nt_odds_u":         nt_u,
+                            "nt_odds_b":         nt_b,
+                            "bookmaker_prior_h": round(ih, 4),
+                            "bookmaker_prior_u": round(iu, 4),
+                            "bookmaker_prior_b": round(ib, 4),
+                        })
+                        _make_bet(fid, match_name, "1x2", rec, "NT Oddsen", ref_odds,
+                                  implied_p, model_p, ep, reason, league, kickoff,
+                                  quality_1x2, debug_json=dbg)
         except Exception:
             reject_error += 1
 
@@ -1878,6 +1923,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             "odds_too_low":      reject_odds_too_low,
             "no_enr_1x2":        reject_no_enr_1x2,
             "af_1x2_skipped":    reject_af_1x2,
+            "no_nt_odds_1x2":    reject_no_nt_odds,
             "generic_prior":     reject_generic_prior,
             "contradictory":     reject_contradictory,
             "edge_too_small":    reject_edge_small,
@@ -1895,20 +1941,25 @@ def scan_and_generate(lookahead_hours: int = 72):
     Trigger a global odds scan then generate Modellspill candidates.
 
     Flow:
-      1. scan_af_market_odds — fetch fixtures + bookmaker odds for 27 leagues (72h window)
-      2. generate_global_bet_candidates — run model against all fixtures with AF/Bet365 odds
+      1. scrape_nt_oddsen_playwright — scrape NT Oddsen 1X2 odds (Playwright headless)
+      2. scan_af_market_odds — fetch fixtures + bookmaker odds for 27 leagues (72h window)
+      3. generate_global_bet_candidates — run model; 1X2 uses NT odds, BTTS/O/U uses AF
 
     Tiers: A ≥ 8pp | B 5–8pp | C 3–5pp.  Min edge 5pp.  Min odds 1.50.
-    Fully independent of NT coupons and NT public percentages.
+    1X2 bets only generated when NT Oddsen has matching odds.
+    NT public percentages are never used in model probability.
     """
     import time as _time
     from ingestion.api_football_odds import scan_af_market_odds
+    from ingestion.nt_oddsen_playwright import scrape_nt_oddsen_playwright
     t0 = _time.monotonic()
+    nt_summary = scrape_nt_oddsen_playwright(verbose=False)
     scan_summary = scan_af_market_odds(lookahead_hours=lookahead_hours, verbose=False)
     cand_summary = generate_global_bet_candidates()
     duration = round(_time.monotonic() - t0, 2)
     return ScanResponse(
         scan=scan_summary,
         candidates=cand_summary,
+        nt_scrape=nt_summary,
         duration_s=duration,
     )

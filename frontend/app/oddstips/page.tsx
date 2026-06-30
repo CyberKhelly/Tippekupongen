@@ -413,6 +413,13 @@ function BetRow({ bet, isLast, delay }: { bet: PaperBet; isLast: boolean; delay:
                 borderRadius: 3, padding: "1px 4px",
               }}>SCAN</span>
             )}
+            {bet.bookmaker === "NT Oddsen" && (
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 8, letterSpacing: "0.06em",
+                color: "#F5C542", background: "rgba(245,197,66,0.12)",
+                borderRadius: 3, padding: "1px 4px",
+              }}>NT</span>
+            )}
             {bet.insight_type?.startsWith("tier_") && (() => {
               const tier = bet.insight_type.replace("tier_", "").toUpperCase();
               const cfg: Record<string, { bg: string; color: string }> = {
@@ -1081,7 +1088,7 @@ export default function ModellspillPage() {
             background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
           }}>
             <p style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: "var(--tx-4)", margin: 0, lineHeight: 1.6 }}>
-              <strong style={{ color: "var(--tx-3)" }}>Om Modellspill:</strong> Kant = modellsannsynlighet − implisert sannsynlighet (de-vigget fra bookmaker-odds). NT folkeprosenter brukes aldri i modellen. Odds er fra tilgjengelige bookmaker-markeder (API-Football/Bet365) — ingen ekte penger er involvert.
+              <strong style={{ color: "var(--tx-3)" }}>Om Modellspill:</strong> Kant = modellsannsynlighet − implisert sannsynlighet (de-vigget fra bookmaker-odds). NT folkeprosenter brukes aldri i modellen. 1X2-odds er fra NT Oddsen (Norsk Tipping). BTTS/O/U er fra tilgjengelige bookmaker-markeder (API-Football/Bet365). Ingen ekte penger er involvert.
             </p>
           </div>
         </div>
