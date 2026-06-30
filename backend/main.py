@@ -1475,7 +1475,7 @@ def settle_bets(fixture_id: str):
     return {"settled": n, "fixture_id": fixture_id}
 
 
-def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
+def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = False) -> dict:
     """
     Evaluate ALL upcoming fixtures with 1X2 odds using available bookmaker market odds.
 
@@ -1674,6 +1674,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     reject_no_nt_odds        = 0
     reject_no_btts_ou_odds   = 0
     reject_nt_placeholder    = 0
+    reject_no_nt_btts_ou     = 0  # nt_only mode: no NT odds found for BTTS/O/U
     n_evaluated              = 0
     tier_counts              = {"a": 0, "b": 0, "c": 0}
     bets_by_market           = {"1x2": 0, "btts": 0, "over_2.5": 0}
@@ -1914,12 +1915,16 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                 xg_str    = f" {xg_label}." if xg_label else ""
                 qual_tag  = " (AF-støttet)" if qual_ou == "af_supported" else ""
 
-                # ── BTTS ── prefer NT Oddsen; fall back to AF odds_markets
+                # ── BTTS ── prefer NT Oddsen; fall back to AF odds_markets (unless nt_only)
                 _nt_btts = _nt_find(_nt_btts_map, home_name, away_name, kickoff)
                 if _nt_btts:
                     ba, bb   = _nt_btts["YES"], _nt_btts["NO"]
                     bkm_btts = "NT Oddsen"
                     n_nt_matched["btts"] += 1
+                elif nt_only:
+                    reject_no_nt_btts_ou += 1
+                    ba = bb = None
+                    bkm_btts = None
                 else:
                     ba = btts_mkt.get("YES")
                     bb = btts_mkt.get("NO")
@@ -1965,15 +1970,21 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                                   f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs {_src_btts} {btts_impl_no*100:.1f}% "
                                   f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
                                   league, kickoff, qual_ou, debug_json=dbg_btts)
-                elif not (ba and bb):
+                elif not (ba and bb) and bkm_btts is not None:
+                    # Only count when we actually tried AF fallback and got no odds
+                    # (bkm_btts=None means nt_only skip — already counted above)
                     reject_no_btts_ou_odds += 1
 
-                # ── O/U 2.5 ── prefer NT Oddsen; fall back to AF odds_markets
+                # ── O/U 2.5 ── prefer NT Oddsen; fall back to AF odds_markets (unless nt_only)
                 _nt_ou = _nt_find(_nt_ou_map, home_name, away_name, kickoff)
                 if _nt_ou:
                     oa, ob = _nt_ou["OVER"], _nt_ou["UNDER"]
                     bkm_ou = "NT Oddsen"
                     n_nt_matched["over_2.5"] += 1
+                elif nt_only:
+                    reject_no_nt_btts_ou += 1
+                    oa = ob = None
+                    bkm_ou = None
                 else:
                     oa = ou_mkt.get("OVER")
                     ob = ou_mkt.get("UNDER")
@@ -2014,7 +2025,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
                                   f"Poisson under 2,5 mal {under_p*100:.1f}% vs {_src_ou} {under_impl*100:.1f}% "
                                   f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
                                   league, kickoff, qual_ou, debug_json=dbg_ou25)
-                elif not (oa and ob):
+                elif not (oa and ob) and bkm_ou is not None:
                     reject_no_btts_ou_odds += 1
 
         except Exception:
@@ -2051,6 +2062,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
             "af_1x2_skipped":     reject_af_1x2,
             "no_nt_odds_1x2":     reject_no_nt_odds,
             "no_btts_ou_odds":    reject_no_btts_ou_odds,
+            "no_nt_btts_ou":      reject_no_nt_btts_ou,
             "nt_placeholder_odds": reject_nt_placeholder,
             "generic_prior":      reject_generic_prior,
             "contradictory":      reject_contradictory,

@@ -150,6 +150,17 @@ def void_bet(bet_id: str) -> None:
         )
 
 
+def delete_all_model_bets() -> int:
+    """
+    Hard-delete every row in model_bets — all statuses.
+    Used to reset the Modellspill ledger before a clean launch.
+    Returns the number of rows deleted.
+    """
+    with get_conn() as conn:
+        n = conn.execute("DELETE FROM model_bets").rowcount
+    return n
+
+
 def resolve_contradictory_bets() -> int:
     """
     Void the weaker bet in each contradictory pending pair.

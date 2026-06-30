@@ -72,6 +72,7 @@ for label, key in [
     (f"Edge < {min_ep}pp",      "edge_too_small"),
     ("Odds < 1.50",             "odds_too_low"),
     ("NT placeholder odds",     "nt_placeholder_odds"),
+    ("No NT BTTS/O/U (NT-only)","no_nt_btts_ou"),
     ("No NT 1X2 odds",          "no_nt_odds_1x2"),
     ("No BTTS/O/U odds",        "no_btts_ou_odds"),
     ("Generic prior",           "generic_prior"),
