@@ -294,7 +294,7 @@ function ExpandedBetDetail({ bet }: { bet: PaperBet }) {
             SPILL-DETALJER
           </div>
           {[
-            { k: "Oddskilde", v: bet.bookmaker === "NT Oddsen" ? "Norsk Tipping" : bet.bookmaker },
+            { k: "Bookmaker", v: bet.bookmaker },
             { k: "Innsats", v: fmtNok(bet.stake_nok) },
             { k: "EV", v: fmtNok(bet.expected_value) },
             bet.kickoff_utc ? { k: "Avspark", v: new Date(bet.kickoff_utc).toLocaleString("nb-NO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) } : null,
@@ -597,7 +597,7 @@ function SignalRow({ item, isLast, delay }: { item: InsightItem; isLast: boolean
                 </p>
                 {item.bookmaker && (
                   <p style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--tx-4)", marginTop: 6 }}>
-                    Kilde: {item.bookmaker === "NT Oddsen" ? "Norsk Tipping" : item.bookmaker}
+                    {item.bookmaker}
                   </p>
                 )}
               </div>
@@ -1081,7 +1081,7 @@ export default function ModellspillPage() {
             background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
           }}>
             <p style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: "var(--tx-4)", margin: 0, lineHeight: 1.6 }}>
-              <strong style={{ color: "var(--tx-3)" }}>Om Modellspill:</strong> Kant = modellsannsynlighet − NT-implisert sannsynlighet (de-vigget). NT-prosentene brukes aldri. Alle odds er hentet fra Norsk Tipping Oddsen (Sportradar) — ingen ekte penger er involvert.
+              <strong style={{ color: "var(--tx-3)" }}>Om Modellspill:</strong> Kant = modellsannsynlighet − implisert sannsynlighet (de-vigget fra bookmaker-odds). NT folkeprosenter brukes aldri i modellen. Odds er fra tilgjengelige bookmaker-markeder (API-Football/Bet365) — ingen ekte penger er involvert.
             </p>
           </div>
         </div>

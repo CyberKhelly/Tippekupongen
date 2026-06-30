@@ -1475,23 +1475,23 @@ def settle_bets(fixture_id: str):
     return {"settled": n, "fixture_id": fixture_id}
 
 
-def generate_global_bet_candidates(
-    min_edge_pp: float = 3.0,
-    nt_odds_only: bool = True,
-) -> dict:
+def generate_global_bet_candidates(min_edge_pp: float = 5.0) -> dict:
     """
-    Evaluate ALL upcoming fixtures with 1X2 odds.
+    Evaluate ALL upcoming fixtures with 1X2 odds using available bookmaker market odds.
 
-    When nt_odds_only=True (default): bets are only created when the fixture
-    has matching NT Oddsen odds in nt_oddsen_odds_snapshot (scraped via Firecrawl).
-    NT odds are used as ref_odds and for implied_prob / edge calculation.
-    Hard filters: NT odds < 1.50 → skip; effective min_edge_pp raised to 5pp.
-    API-Football odds remain used for model calibration when no NT odds are found.
+    Calibration rules (all preserved from 2026-06-30):
+      • min_edge_pp = 5.0 — only bets with ≥ 5pp model edge
+      • min_odds    = 1.50 — skip recommended outcomes with odds < 1.50
+      • Bayesian xG shrinkage (k=6) applied to Poisson BTTS/O/U models
+      • Minimum sample gates: venue Phase 13 requires n ≥ 5; AF predictions require played ≥ 5
+      • generic_prior bets suppressed — no bet without match-specific data
+      • Contradictory bets prevented via resolve_contradictory_bets()
+      • af_supported 1X2 suppressed — bookmaker prior required for WDL edge
 
     Model quality hierarchy:
       full_model    — enrichment with real goal data → Poisson from seasonal stats
-      af_supported  — no enrichment (or no goal data), but AF Predictions last_5 available
-      generic_prior — no enrichment, no AF predictions → European-average Poisson
+      af_supported  — no enrichment, but AF Predictions last_5 available (Poisson only)
+      generic_prior — no enrichment, no AF predictions (suppressed — no bets)
 
     Tier system (edge_pp stored in insight_type):
       tier_a — edge ≥ 8pp | tier_b — 5–8pp | tier_c — 3–5pp
@@ -1514,14 +1514,10 @@ def generate_global_bet_candidates(
         market_probs_from_enrichment, btts_probability, over_under_probability,
         win_draw_loss_probability,
     )
-    from ingestion.nt_oddsen_scraper import (
-        make_fixture_key, load_nt_odds_bulk, NT_BOOKMAKER_LABEL,
-    )
     from datetime import datetime, timezone
 
-    # NT odds mode hard limits
-    _min_edge = max(min_edge_pp, 5.0) if nt_odds_only else min_edge_pp
-    _min_nt_odds = 1.50
+    _min_edge = min_edge_pp   # 5.0 by default
+    _min_odds = 1.50          # skip heavy favourites with tiny edges
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1532,9 +1528,6 @@ def generate_global_bet_candidates(
     _eu_over_25, _eu_under_25 = over_under_probability(_EU_HOME_XG, _EU_AWAY_XG)
 
     conn = get_conn()
-
-    # Load NT Oddsen odds snapshot into memory for bulk fixture lookup
-    nt_map = load_nt_odds_bulk(conn) if nt_odds_only else {}
 
     rows = conn.execute(
         """SELECT DISTINCT o.fixture_id, o.odds_h, o.odds_u, o.odds_b, o.source,
@@ -1638,8 +1631,7 @@ def generate_global_bet_candidates(
     reject_duplicate      = 0
     reject_contradictory  = 0
     reject_error          = 0
-    reject_no_nt_odds     = 0
-    reject_nt_odds_low    = 0
+    reject_odds_too_low   = 0
     n_evaluated           = 0
     tier_counts           = {"a": 0, "b": 0, "c": 0}
 
@@ -1692,36 +1684,7 @@ def generate_global_bet_candidates(
             reject_bad_odds += 1
             continue
 
-        # ── NT Oddsen lookup ────────────────────────────────────────────────────
-        ko_date = (kickoff or "")[:10]
-        nt_key  = make_fixture_key(home_name, away_name, ko_date)
-        nt_fix  = nt_map.get(nt_key, {})  # {"1x2": {H,U,B}, "btts": {...}, "over_2.5": {...}}
-        nt_1x2  = nt_fix.get("1x2", {})
-        nt_has_1x2 = bool(nt_1x2.get("H") and nt_1x2.get("U") and nt_1x2.get("B"))
-
-        if nt_odds_only and not nt_has_1x2:
-            reject_no_nt_odds += 1
-            continue
-
-        # When NT odds are available, check the minimum odds threshold
-        if nt_has_1x2:
-            nt_best = max(nt_1x2["H"], nt_1x2["U"], nt_1x2["B"])
-            if nt_best < _min_nt_odds:
-                reject_nt_odds_low += 1
-                continue
-
-        # Use NT odds to run the model (NT-calibrated bookmaker prior) when available;
-        # fall back to AF odds only when nt_odds_only=False and no NT match found.
-        if nt_has_1x2:
-            model_odds_h = nt_1x2["H"]
-            model_odds_u = nt_1x2["U"]
-            model_odds_b = nt_1x2["B"]
-            bookmaker = NT_BOOKMAKER_LABEL
-        else:
-            model_odds_h = odds_h
-            model_odds_u = odds_u
-            model_odds_b = odds_b
-            bookmaker = odds_src.split(":")[-1] if ":" in odds_src else odds_src
+        bookmaker = odds_src.split(":")[-1] if ":" in odds_src else odds_src
 
         enr    = enr_map.get(fid)
         league = enr.get("league_name") if enr else None
@@ -1730,8 +1693,8 @@ def generate_global_bet_candidates(
 
         try:
             m = Match(number=0, home_team=home_name, away_team=away_name,
-                      odds_h=model_odds_h, odds_u=model_odds_u, odds_b=model_odds_b,
-                      odds_source="nt_oddsen" if nt_has_1x2 else odds_src)
+                      odds_h=odds_h, odds_u=odds_u, odds_b=odds_b,
+                      odds_source=odds_src)
             m.fixture_id = fid
             process_match(m)
             run_model(m, enr)
@@ -1740,7 +1703,7 @@ def generate_global_bet_candidates(
             continue
 
         n_evaluated += 1
-        ih, iu, ib = _devig(model_odds_h, model_odds_u, model_odds_b)
+        ih, iu, ib = _devig(odds_h, odds_u, odds_b)
 
         # ── 1X2 ────────────────────────────────────────────────────────────────
         # Only generated when enrichment data exists (full_model).
@@ -1760,40 +1723,30 @@ def generate_global_bet_candidates(
                 quality_1x2 = None
 
             if probs_1x2:
-                rec         = max(probs_1x2, key=probs_1x2.get)
-                model_p     = probs_1x2[rec]
-                implied_p   = {"H": ih, "U": iu, "B": ib}[rec]
-                ep          = round((model_p - implied_p) * 100, 1)
-                # ref_odds: use NT Oddsen odds when available, else AF odds
-                ref_odds_map = (
-                    {"H": nt_1x2["H"], "U": nt_1x2["U"], "B": nt_1x2["B"]}
-                    if nt_has_1x2 else
-                    {"H": model_odds_h, "U": model_odds_u, "B": model_odds_b}
-                )
-                ref_odds  = ref_odds_map[rec]
-                utfall    = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
-                reason    = (
-                    f"Modell {model_p*100:.1f}% vs NT-marked {implied_p*100:.1f}% "
-                    f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} (NT Oddsen)."
-                    if nt_has_1x2 else
-                    f"Modell {model_p*100:.1f}% vs marked {implied_p*100:.1f}% "
-                    f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} ({bookmaker})."
-                )
-                dbg = _json.dumps({
-                    "model_quality":     quality_1x2,
-                    "model_prob":        round(model_p, 4),
-                    "implied_prob":      round(implied_p, 4),
-                    "bookmaker_prior_h": round(ih, 4),
-                    "bookmaker_prior_u": round(iu, 4),
-                    "bookmaker_prior_b": round(ib, 4),
-                    "nt_odds_h":         round(nt_1x2.get("H", 0), 2) if nt_has_1x2 else None,
-                    "nt_odds_u":         round(nt_1x2.get("U", 0), 2) if nt_has_1x2 else None,
-                    "nt_odds_b":         round(nt_1x2.get("B", 0), 2) if nt_has_1x2 else None,
-                    "nt_fixture_key":    nt_key if nt_has_1x2 else None,
-                })
-                _make_bet(fid, match_name, "1x2", rec, bookmaker, ref_odds,
-                          implied_p, model_p, ep, reason, league, kickoff,
-                          quality_1x2, debug_json=dbg)
+                rec       = max(probs_1x2, key=probs_1x2.get)
+                model_p   = probs_1x2[rec]
+                implied_p = {"H": ih, "U": iu, "B": ib}[rec]
+                ep        = round((model_p - implied_p) * 100, 1)
+                ref_odds  = {"H": odds_h, "U": odds_u, "B": odds_b}[rec]
+                if ref_odds < _min_odds:
+                    reject_odds_too_low += 1
+                else:
+                    utfall = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
+                    reason = (
+                        f"Modell {model_p*100:.1f}% vs marked {implied_p*100:.1f}% "
+                        f"(+{ep:.1f}pp). {utfall} til odds {ref_odds:.2f} ({bookmaker})."
+                    )
+                    dbg = _json.dumps({
+                        "model_quality":     quality_1x2,
+                        "model_prob":        round(model_p, 4),
+                        "implied_prob":      round(implied_p, 4),
+                        "bookmaker_prior_h": round(ih, 4),
+                        "bookmaker_prior_u": round(iu, 4),
+                        "bookmaker_prior_b": round(ib, 4),
+                    })
+                    _make_bet(fid, match_name, "1x2", rec, bookmaker, ref_odds,
+                              implied_p, model_p, ep, reason, league, kickoff,
+                              quality_1x2, debug_json=dbg)
         except Exception:
             reject_error += 1
 
@@ -1803,24 +1756,8 @@ def generate_global_bet_candidates(
         # Level 2: AF predictions last_5 xG, played >= 5 + shrinkage (af_supported)
         # Level 3: European-average prior (generic_prior) — NO BETS generated
         try:
-            nt_btts = nt_fix.get("btts", {})
-            nt_ou   = nt_fix.get("over_2.5", {})
-            # Prefer NT Oddsen BTTS/O/U odds; fall back to AF odds_markets
-            btts_mkt = (
-                {"YES": nt_btts["yes"], "NO": nt_btts["no"], "bookmaker": NT_BOOKMAKER_LABEL}
-                if nt_btts.get("yes") and nt_btts.get("no")
-                else mkt.get("BTTS", {})
-            )
-            ou_mkt = (
-                {"OVER": nt_ou["over"], "UNDER": nt_ou["under"], "bookmaker": NT_BOOKMAKER_LABEL}
-                if nt_ou.get("over") and nt_ou.get("under")
-                else mkt.get("OVER_UNDER", {})
-            )
-            # When nt_odds_only, skip BTTS/O/U if no NT odds available for those markets
-            if nt_odds_only and not btts_mkt.get("YES"):
-                btts_mkt = {}
-            if nt_odds_only and not ou_mkt.get("OVER"):
-                ou_mkt = {}
+            btts_mkt = mkt.get("BTTS", {})
+            ou_mkt   = mkt.get("OVER_UNDER", {})
 
             if enr:
                 poisson  = market_probs_from_enrichment(enr)
@@ -1936,12 +1873,9 @@ def generate_global_bet_candidates(
         "n_evaluated":     n_evaluated,
         "n_created":       n_created,
         "n_skipped":       reject_edge_small + reject_duplicate,
-        "nt_odds_only":    nt_odds_only,
-        "nt_fixtures_matched": n_evaluated,
         "rejection_breakdown": {
             "bad_odds":          reject_bad_odds,
-            "no_nt_odds":        reject_no_nt_odds,
-            "nt_odds_too_low":   reject_nt_odds_low,
+            "odds_too_low":      reject_odds_too_low,
             "no_enr_1x2":        reject_no_enr_1x2,
             "af_1x2_skipped":    reject_af_1x2,
             "generic_prior":     reject_generic_prior,
@@ -1961,23 +1895,20 @@ def scan_and_generate(lookahead_hours: int = 72):
     Trigger a global odds scan then generate Modellspill candidates.
 
     Flow:
-      1. scan_af_market_odds — fetch fixtures + AF model-input odds for 27 leagues
-      2. scrape_nt_oddsen    — scrape NT Oddsen sportsbook via Firecrawl (5s JS wait)
-      3. generate_global_bet_candidates(nt_odds_only=True) — bets only where NT odds exist
+      1. scan_af_market_odds — fetch fixtures + bookmaker odds for 27 leagues (72h window)
+      2. generate_global_bet_candidates — run model against all fixtures with AF/Bet365 odds
 
-    Tiers: A ≥ 8pp | B 5–8pp | C 3–5pp.  Min edge 5pp.  Min NT odds 1.50.
+    Tiers: A ≥ 8pp | B 5–8pp | C 3–5pp.  Min edge 5pp.  Min odds 1.50.
     Fully independent of NT coupons and NT public percentages.
     """
     import time as _time
     from ingestion.api_football_odds import scan_af_market_odds
-    from ingestion.nt_oddsen_scraper import scrape_nt_oddsen
     t0 = _time.monotonic()
     scan_summary = scan_af_market_odds(lookahead_hours=lookahead_hours, verbose=False)
-    nt_summary   = scrape_nt_oddsen(wait_ms=5000, verbose=False)
-    cand_summary = generate_global_bet_candidates(nt_odds_only=True)
+    cand_summary = generate_global_bet_candidates()
     duration = round(_time.monotonic() - t0, 2)
     return ScanResponse(
-        scan={**scan_summary, "nt_oddsen": nt_summary},
+        scan=scan_summary,
         candidates=cand_summary,
         duration_s=duration,
     )

@@ -380,11 +380,9 @@ def _market_scan_job() -> None:
         return
     try:
         from ingestion.api_football_odds import scan_af_market_odds
-        from ingestion.nt_oddsen_scraper import scrape_nt_oddsen
         from backend.main import generate_global_bet_candidates
         scan_summary = scan_af_market_odds(lookahead_hours=72, verbose=False)
-        scrape_nt_oddsen(wait_ms=5000, verbose=False)
-        cand_summary = generate_global_bet_candidates(nt_odds_only=True)
+        cand_summary = generate_global_bet_candidates()
         now_iso = _iso(_now())
         patch_state(last_market_scan_at=now_iso)
         tiers = cand_summary.get("tiers", {})

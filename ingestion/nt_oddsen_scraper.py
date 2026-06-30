@@ -1,6 +1,16 @@
 """
-NT Oddsen odds scraper — uses Firecrawl to extract 1X2/BTTS/O/U odds
-from the Sportradar SIR widget at s5.sir.sportradar.com/norsktipping/no.
+NT Oddsen odds scraper — EXPERIMENTAL / DEV-ONLY.  Not used in production.
+
+Tested via Firecrawl on 2026-06-30: match metadata renders from SSR, but
+odds never load.  The Sportradar SIR widget fetches odds via an authenticated
+WebSocket to feed.mapi.sportradar.com (Sportradar commercial feed, not public).
+All match rows carry the CSS class "sh-match__matchList-wrapper--no-odds" when
+the feed is inaccessible.  NT does not expose a public odds API.
+
+NT Oddsen direct ingestion is parked until a stable odds source exists.
+This module must NOT be imported by production code paths (backend/main.py,
+backend/scheduler.py, sync.py).  Use it only for local experiments:
+    python scripts/test_nt_oddsen_scan.py
 
 Stores each scraped selection as a row in nt_oddsen_odds_snapshot.
 Reads FIRECRAWL_API_KEY from environment or .env.
@@ -358,12 +368,12 @@ def scrape_nt_oddsen(wait_ms: int = 5000, verbose: bool = True) -> dict:
         return {"error": "no_api_key", "message": msg, "n_matches": 0, "n_rows_stored": 0}
 
     try:
-        from firecrawl import FirecrawlApp
+        from firecrawl import V1FirecrawlApp, V1JsonConfig
     except ImportError:
         msg = "firecrawl-py not installed — run: pip install firecrawl-py"
         return {"error": "firecrawl_not_installed", "message": msg, "n_matches": 0, "n_rows_stored": 0}
 
-    app = FirecrawlApp(api_key=api_key)
+    app = V1FirecrawlApp(api_key=api_key)
     scraped_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     if verbose:
@@ -372,20 +382,23 @@ def scrape_nt_oddsen(wait_ms: int = 5000, verbose: bool = True) -> dict:
     try:
         result = app.scrape_url(
             NT_FOOTBALL_URL,
-            params={
-                "formats": ["extract"],
-                "waitFor": wait_ms,
-                "extract": {
-                    "prompt": _EXTRACTION_PROMPT,
-                    "schema": _EXTRACTION_SCHEMA,
-                },
-            },
+            formats=["json"],
+            wait_for=wait_ms,
+            timeout=120000,  # 120s Firecrawl job timeout → 125s HTTP read timeout
+            json_options=V1JsonConfig(
+                prompt=_EXTRACTION_PROMPT,
+                schema_field=_EXTRACTION_SCHEMA,
+            ),
         )
     except Exception as exc:
         return {"error": "scrape_failed", "message": str(exc), "n_matches": 0, "n_rows_stored": 0}
 
-    extracted = result.get("extract") or {}
-    matches = extracted.get("matches") or []
+    # v4 SDK: structured data in result.json_field (aliased from "json" in response)
+    extracted = result.json_field or result.extract or {}
+    if isinstance(extracted, dict):
+        matches = extracted.get("matches") or []
+    else:
+        matches = []
 
     if verbose:
         print(f"[NT Oddsen] LLM extracted {len(matches)} matches")
