@@ -372,6 +372,9 @@ def _market_scan_job() -> None:
     Every 2h: scan tracked leagues for upcoming fixtures + odds,
     then generate Modellspill candidates for any fixture with model edge ≥ 5pp.
     Independent of NT coupons and NT public percentages.
+
+    nt_only=True: validation phase — only NT Oddsen bets generated.
+    Re-enable AF fallback (nt_only=False) after enough NT history exists.
     """
     state = load_state()
     if state.get("is_running"):
@@ -384,18 +387,22 @@ def _market_scan_job() -> None:
         from backend.main import generate_global_bet_candidates
         nt_summary   = scrape_nt_oddsen_playwright(verbose=False)
         scan_summary = scan_af_market_odds(lookahead_hours=72, verbose=False)
-        cand_summary = generate_global_bet_candidates()
+        cand_summary = generate_global_bet_candidates(nt_only=True)
         now_iso = _iso(_now())
         patch_state(last_market_scan_at=now_iso)
         tiers = cand_summary.get("tiers", {})
         logger.info(
-            "Market scan: NT=%d matches | %d leagues, %d fixtures, %d new | candidates: %d (A=%d B=%d C=%d)",
+            "Market scan (NT-only): NT=%d matches | %d leagues, %d fixtures, %d new | "
+            "candidates: %d (A=%d B=%d C=%d) | NT-matched: 1x2=%d btts=%d ou=%d | AF-fallback: 0",
             nt_summary.get("n_matches", 0),
             scan_summary.get("n_leagues", 0),
             scan_summary.get("n_fixtures_found", 0),
             scan_summary.get("n_fixtures_new", 0),
             cand_summary.get("n_created", 0),
             tiers.get("a", 0), tiers.get("b", 0), tiers.get("c", 0),
+            cand_summary.get("nt_matched", {}).get("1x2", 0),
+            cand_summary.get("nt_matched", {}).get("btts", 0),
+            cand_summary.get("nt_matched", {}).get("over_2.5", 0),
         )
         if nt_summary.get("error"):
             logger.warning("NT Playwright scraper error: %s", nt_summary["error"])
