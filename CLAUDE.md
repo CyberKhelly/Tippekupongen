@@ -224,6 +224,18 @@ python evaluate.py --week 24 --year 2026   # evaluate one week
 python evaluate.py --all                   # evaluate all saved coupons
 python evaluate.py --status                # show which coupons have/need results
 python evaluate.py --week 24 --year 2026 --fetch   # also pull results from API-Football
+
+# Evidence-based analysis pipeline (Phase 16)
+# Run after: python evaluate.py --week XX --year YYYY --fetch
+python analysis.py                          # all 5 reports (all weeks)
+python analysis.py --week 27 --year 2026    # filter by week
+python analysis.py --report calibration     # single report
+python analysis.py --report model_vs_public
+python analysis.py --report coverage
+python analysis.py --report strategy
+python analysis.py --report pvr
+python analysis.py --strategy balanced      # filter by strategy
+python analysis.py --min-n 5               # min picks per bucket (default: 3)
 ```
 
 > **Python path:** `python` is not in PATH on this machine. Use `C:\Users\kimme\anaconda3\python.exe` or activate the Anaconda environment.
@@ -243,6 +255,12 @@ Log output goes to `logs/`. Streamlit is installed via Anaconda (`C:\Users\kimme
 Do not assume prior conversation context carries over. Always re-derive current state from the code and database.
 
 ## Current Phase
+
+**Milestone: Coupon snapshots, evaluation pipeline and evidence-based analysis.** (2026-07-01)
+
+- **Phase 15 — User-saved coupon snapshots (complete, 2026-07-01):** Immutable per-strategy snapshots created on user demand. Tables: `saved_coupons` (snapshot header — strategy, budget, total_rows, cost_nok, p_win, pvr, avg_cds, avg_vi, week/year/label) + `saved_coupon_picks` (12 frozen picks per snapshot — model_prob_h/u/b, public_prob_h/u/b, picked_prob, cds, vi, coverage_type, selected_outcomes, value_h/u/b). Multiple strategy/budget combinations coexist per coupon (e.g. Balanced/192 + Jackpot/192 + Balanced/384 simultaneously). Implemented in `db/saved_coupons.py`. Frontend: save button in ShapeStrip, `SavedSnapshotsSection` table, `SaveToast` in `app/coupon/page.tsx`. After matches play, `match_results` JOIN auto-evaluates `covered` (result in selected_outcomes) and `pick_correct` (exact H/U/B) per pick. Workflow: save snapshot → `evaluate.py --fetch` → snapshot is fully evaluated.
+- **Phase 16 — Evidensbasert analysepipeline (complete, 2026-07-01):** `analysis.py` reads evaluated snapshots and produces 5 modular reports. Each report is a standalone function; `main()` dispatches via `--report` flag. Reports: (1) Calibration — model probabilities vs actual win rates per bucket, Brier score vs public Brier score; (2) Model vs Public — head-to-head accuracy, CDS-split breakdown, VI-split breakdown; (3) Coverage Audit — coverage rate per dekningstype, halvdekk secondary-mark rescue rate, pick distribution; (4) Strategy Performance — balanced/jackpot/safe comparison across weeks, shape-level breakdown; (5) PVR Audit — all snapshots sorted by PVR, Pearson correlation PVR ↔ coverage_rate, P(12) calibration check. Runs after `evaluate.py --fetch`. No model or formula changes — read-only analysis only.
+- **Enrichment UNIQUE constraint fix (2026-07-01):** `upsert_fixture_link()` in `db/enrichment.py` now checks whether `api_football_fixture_id` is already owned by a different fixture before inserting. If the af_id belongs to a shadow fixture (created by the odds scanner), the link insert is skipped but enrichment (`fixture_stat_enrichment`) is still written for the NT fixture. Prevents `UNIQUE constraint failed: api_football_fixture_links.api_football_fixture_id` from crashing `sync.py --daily` enrichment step. Fix is backward-compatible — does not affect fixtures that already have correct links.
 
 **Milestone: Premium TippeIQ redesign + global Modellspill intelligence.** (2026-06-29)
 
@@ -325,8 +343,12 @@ decimal odds
 | `POST /v1/bets/scan` | Global 72h odds scan + candidate generation (edge ≥ 3pp) |
 | `POST /v1/bets/settle/{fixture_id}` | Manually settle bets for a fixture |
 | `GET /health` | Health check |
+| `POST /v1/coupons/save` | Save immutable coupon snapshot (strategy + budget) |
+| `GET /v1/snapshots` | List saved snapshots (optional `coupon_id`, `week`, `year` filters) |
+| `GET /v1/snapshots/{snapshot_id}` | Full snapshot with 12 picks + evaluation if results available |
+| `DELETE /v1/snapshots/{snapshot_id}` | Hard-delete snapshot and picks (CASCADE) |
 
-**Database:** SQLite via `db/connection.py`. Key tables: `fixtures`, `coupons`, `coupon_fixtures`, `odds`, `odds_snapshots`, `odds_markets`, `coupon_predictions`, `match_results`, `coupon_evaluations`, `fixture_stat_enrichment`, `fixture_estimated_prior`, `coupon_save_snapshot`, `pick_evaluations`, `model_bets`. Phase 9 tables: `coupon_generations`, `generation_picks`, `generation_results` (auto-populated by `/v1/optimize`; managed by `db/generation.py`). Phase 12 columns on `fixture_stat_enrichment`: `home_recent_fixture_stats TEXT`, `away_recent_fixture_stats TEXT` (JSON). Phase 13 columns on `fixture_stat_enrichment`: `league_size INTEGER`, `home_avg_goals_for_home REAL`, `home_avg_goals_against_home REAL`, `away_avg_goals_for_away REAL`, `away_avg_goals_against_away REAL`, `home_clean_sheets_home INTEGER`, `away_clean_sheets_away INTEGER`.
+**Database:** SQLite via `db/connection.py`. Key tables: `fixtures`, `coupons`, `coupon_fixtures`, `odds`, `odds_snapshots`, `odds_markets`, `coupon_predictions`, `match_results`, `coupon_evaluations`, `fixture_stat_enrichment`, `fixture_estimated_prior`, `coupon_save_snapshot`, `pick_evaluations`, `model_bets`. Phase 9 tables: `coupon_generations`, `generation_picks`, `generation_results` (auto-populated by `/v1/optimize`; managed by `db/generation.py`). Phase 12 columns on `fixture_stat_enrichment`: `home_recent_fixture_stats TEXT`, `away_recent_fixture_stats TEXT` (JSON). Phase 13 columns on `fixture_stat_enrichment`: `league_size INTEGER`, `home_avg_goals_for_home REAL`, `home_avg_goals_against_home REAL`, `away_avg_goals_for_away REAL`, `away_avg_goals_against_away REAL`, `home_clean_sheets_home INTEGER`, `away_clean_sheets_away INTEGER`. Phase 15 tables: `saved_coupons` (snapshot header — strategy, budget_nok, total_rows, cost_nok, p_win, pvr, avg_cds, avg_vi, week, year, saved_at), `saved_coupon_picks` (12 picks per snapshot — model/public probs, picked_prob, cds, vi, coverage_type, selected_outcomes; UNIQUE on snapshot_id+match_number; CASCADE DELETE with parent).
 
 `coupons` table columns include: `omsetning REAL` (NT turnover in NOK, added 2026-06-19), `nt_game_day_id TEXT`, `day_type TEXT`, `deadline_utc TEXT`.
 
@@ -468,6 +490,8 @@ Never assume the UI is good without visual verification.
 - **Phase 13 — league size from standings, not position:** `league_size` in `fixture_stat_enrichment` is the real team count from `/standings`, not estimated from positions. For multi-group tournaments (WC), use the size of the group containing the home or away team (4 for WC group stage, not 48 total teams). Logic is in `_fetch_enrichment()` in `ingestion/enrich_fixtures.py`. `PositionBar` in `MatchTable.tsx` takes `total: number | null` — when null (no standings data), the denominator is hidden rather than showing a misleading "av X".
 - **Phase 13 — venue-specific stats only shown when games played > 0:** `home_avg_goals_for_home` and related columns can be 0.0 when a WC team was always listed as "away" in the API fixture (no home games played). The frontend guards these rows with `hHomeGames > 0` / `aAwayGames > 0` (derived by parsing the W/D/L counts in `home_home_record` / `away_away_record`). Do not remove this guard — showing "0.0 | MÅL/KAMP | X.X" for a team with 0 home games misleads the user.
 - **Systemspill — Category A is Cartesian product, not an NT reduction matrix:** `generateRows()` produces all combinations of selected sign sets (3^n_full × 2^n_half = rows). The row count matches the NT system name, but the mathematical coverage guarantee does not — NT's named systems are combinatorial covering codes, not Cartesian products. Never represent Category A as "NT-compatible" or claim it has the same guarantees as the official system. Category B systems (32 of 42) require NT's proprietary reduction tables and are disabled. `n_full` and `n_half` in `systemLibrary.ts` are the unique factorization of `rows` into 3^a × 2^b — do not change them without re-verifying the row count formula.
+- **Saved snapshots are immutable:** Never update `saved_coupon_picks` after creation. Evaluation (covered/pick_correct) is computed at read time via JOIN with `match_results` — it is never written back to the picks table. `POST /v1/coupons/save` always creates a new snapshot; there is no update path. Use `DELETE /v1/snapshots/{id}` + re-save if a snapshot must be replaced.
+- **analysis.py is read-only:** `analysis.py` must never write to the database, modify model weights, or change any formula. It is a reporting tool only. All analysis is derived post-hoc from saved picks and match results.
 - **Systemspill — rank-forced coverage for Category A:** `buildSystemProposal` with `system.category === "A"` must NEVER use `minCoverageThreshold` — it must always force-assign exactly `n_full` full-cover slots and `n_half` half-cover slots by coverage score rank, regardless of how confident the model is. Any threshold gating would break the row count (3^n_full × 2^n_half only holds when ALL slots are filled).
 - **Modellspill — model quality tags are informational only:** `model_quality` stored in `model_bets` records which Poisson data source was used. It does not affect edge calculation or bet generation logic. Do not use it as a filter gate.
 - **Red is for losses and errors only:** Never use red color for "model disagrees with crowd" or CDS signals. Crowd mispricing signals use indigo or gold. Red is reserved for: negative profit, negative ROI, losses, errors, drawdown.

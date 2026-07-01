@@ -26,6 +26,17 @@ def upsert_fixture_link(
     match_confidence:   float,
 ) -> None:
     with get_conn() as conn:
+        # If this af_fixture_id is already owned by a different fixture (e.g. a shadow
+        # fixture created by the odds scanner), skip the link insert — the enrichment
+        # data can still be written to fixture_stat_enrichment for the NT fixture.
+        existing = conn.execute(
+            "SELECT fixture_id FROM api_football_fixture_links"
+            " WHERE api_football_fixture_id=? AND fixture_id!=?",
+            (af_fixture_id, fixture_id),
+        ).fetchone()
+        if existing:
+            return
+
         conn.execute(
             """INSERT INTO api_football_fixture_links
                (fixture_id, api_football_fixture_id, api_football_league_id,
