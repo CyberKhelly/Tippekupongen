@@ -106,7 +106,46 @@ def win_draw_loss_probability(xg_home: float, xg_away: float) -> tuple[float, fl
     return round(p_h / total, 4), round(p_d / total, 4), round(p_a / total, 4)
 
 
-def market_probs_from_enrichment(e: dict) -> dict:
+def bookmaker_implied_xg(
+    p_h: float,
+    p_d: float,
+    p_a: float,
+    step: float = 0.05,
+) -> tuple[float, float]:
+    """
+    Numerically infer (lambda_h, lambda_a) that best reproduces vig-free 1X2
+    probabilities under independent Poisson.  Grid search over
+    [0.25, 3.50] × [0.15, 2.80] at `step` increments (~3 600 evaluations).
+
+    Used as a match-specific prior for BTTS/O/U Poisson shrinkage,
+    replacing the fixed EU-average constants (1.40 / 1.10).
+
+    Returns (lambda_h, lambda_a); falls back to EU average constants
+    if the inputs are degenerate.
+    """
+    if not (0 < p_h < 1 and 0 < p_d < 1 and 0 < p_a < 1):
+        return _EU_HOME_XG, _EU_AWAY_XG
+    best_err = float("inf")
+    best = (_EU_HOME_XG, _EU_AWAY_XG)
+    lh = 0.25
+    while lh <= 3.51:
+        la = 0.15
+        while la <= 2.81:
+            ph, pd, pa = win_draw_loss_probability(lh, la)
+            err = (ph - p_h) ** 2 + (pd - p_d) ** 2 + (pa - p_a) ** 2
+            if err < best_err:
+                best_err = err
+                best = (lh, la)
+            la += step
+        lh += step
+    return best
+
+
+def market_probs_from_enrichment(
+    e: dict,
+    prior_xg_home: float = _EU_HOME_XG,
+    prior_xg_away: float = _EU_AWAY_XG,
+) -> dict:
     """
     Derive BTTS and O/U 2.5 model probabilities from enrichment data.
 
@@ -143,20 +182,20 @@ def market_probs_from_enrichment(e: dict) -> dict:
     has_data = any(v is not None and v > 0 for v in [hgf_raw, hga_raw, agf_raw, aga_raw])
 
     if has_data:
-        # Compute raw Dixon-Coles xG then shrink toward EU average
+        # Compute raw Dixon-Coles xG then shrink toward caller-supplied prior
         raw_xg_home = (
-            ((hgf_raw or _EU_HOME_XG) + (aga_raw or _EU_HOME_XG)) / 2
+            ((hgf_raw or prior_xg_home) + (aga_raw or prior_xg_home)) / 2
         )
         raw_xg_away = (
-            ((agf_raw or _EU_AWAY_XG) + (hga_raw or _EU_AWAY_XG)) / 2
+            ((agf_raw or prior_xg_away) + (hga_raw or prior_xg_away)) / 2
         )
         w = n_eff / (n_eff + _SHRINK_K)
-        xg_home = max(w * raw_xg_home + (1 - w) * _EU_HOME_XG, 0.1)
-        xg_away = max(w * raw_xg_away + (1 - w) * _EU_AWAY_XG, 0.05)
+        xg_home = max(w * raw_xg_home + (1 - w) * prior_xg_home, 0.1)
+        xg_away = max(w * raw_xg_away + (1 - w) * prior_xg_away, 0.05)
     else:
         raw_xg_home = raw_xg_away = None
         w = 0.0
-        xg_home, xg_away = _EU_HOME_XG, _EU_AWAY_XG
+        xg_home, xg_away = prior_xg_home, prior_xg_away
 
     btts = btts_probability(xg_home, xg_away)
     p_over, p_under = over_under_probability(xg_home, xg_away)

@@ -192,12 +192,14 @@ def _compute_stats_signal(enrichment: dict) -> tuple[float, list[str]]:
         components.append((0.35, hf - af))
         signals.append("form")
 
-    # ── Home/Away record ──────────────────────────────────────────────────────
-    hha = _record_score(enrichment.get("home_home_record"))
-    aaw = _record_score(enrichment.get("away_away_record"))
-    if hha is not None and aaw is not None:
-        components.append((0.30, hha - aaw))
-        signals.append("h_a_record")
+    # ── Home/Away record (disabled for WC — neutral venues, API scheduling artifact) ──
+    _is_wc = int(enrichment.get("api_football_league_id") or 0) == 1
+    if not _is_wc:
+        hha = _record_score(enrichment.get("home_home_record"))
+        aaw = _record_score(enrichment.get("away_away_record"))
+        if hha is not None and aaw is not None:
+            components.append((0.30, hha - aaw))
+            signals.append("h_a_record")
 
     # ── Standings ─────────────────────────────────────────────────────────────
     h_pos = enrichment.get("home_position")

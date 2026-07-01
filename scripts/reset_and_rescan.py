@@ -155,6 +155,7 @@ for label, key in [
     ("Generic prior",             "generic_prior"),
     ("No enrichment (1X2)",       "no_enr_1x2"),
     ("AF 1X2 skipped",            "af_1x2_skipped"),
+    ("Small-sample edge < 10pp",  "small_sample_edge_too_low"),
     ("Cross-market conflict",     "cross_market_conflict"),
     ("Duplicate",                 "duplicate"),
     ("Contradictory",             "contradictory"),

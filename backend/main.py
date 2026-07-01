@@ -1512,7 +1512,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
     from analysis.model import run_model
     from analysis.market_models import (
         market_probs_from_enrichment, btts_probability, over_under_probability,
-        win_draw_loss_probability,
+        win_draw_loss_probability, bookmaker_implied_xg,
     )
     from datetime import datetime, timezone
 
@@ -1683,6 +1683,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
     reject_no_btts_ou_odds   = 0
     reject_nt_placeholder    = 0
     reject_no_nt_btts_ou     = 0  # nt_only mode: no NT odds found for BTTS/O/U
+    reject_small_sample      = 0  # n_eff < 5 and edge < 10pp
     n_evaluated              = 0
     tier_counts              = {"a": 0, "b": 0, "c": 0}
     bets_by_market           = {"1x2": 0, "btts": 0, "over_1.5": 0, "over_2.5": 0, "over_3.5": 0}
@@ -1734,10 +1735,17 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
 
     def _make_bet(fid, match_name, market, outcome, bookmaker, ref_odds,
                   impl_p, model_p, ep, reason, league, kickoff, model_quality,
-                  debug_json=None):
+                  debug_json=None, n_eff=None):
         """Filter candidate and buffer it for cross-market conflict resolution."""
-        nonlocal reject_edge_small, reject_duplicate, reject_odds_too_low
+        nonlocal reject_edge_small, reject_duplicate, reject_odds_too_low, reject_small_sample
         _market_edge_data.setdefault(market, []).append(ep)
+        # Small-sample caution: n_eff < 5 requires ≥10pp edge for BTTS/O/U
+        if n_eff is not None and n_eff < 5 and ep < 10.0:
+            reject_small_sample += 1
+            _reject_candidate(match_name, market, outcome, bookmaker, ref_odds,
+                              impl_p, model_p, ep, "small_sample_edge_too_low",
+                              model_quality, league, kickoff)
+            return
         if ep < _min_edge:
             reject_edge_small += 1
             _reject_candidate(match_name, market, outcome, bookmaker, ref_odds,
@@ -1878,6 +1886,8 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
 
         n_evaluated += 1
         ih, iu, ib = _devig(odds_h, odds_u, odds_b)
+        # Match-specific Poisson prior inferred from bookmaker 1X2 vig-free probs
+        bk_xg_h, bk_xg_a = bookmaker_implied_xg(ih, iu, ib)
 
         # ── 1X2 ────────────────────────────────────────────────────────────────
         # Only generated when:
@@ -1948,9 +1958,11 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
             ou_mkt   = mkt.get("OVER_UNDER", {})
 
             xg_h = xg_a = None   # set in each quality branch; used for all O/U lines
+            _n_eff_ou = 0         # effective sample size; drives small-sample caution
 
             if enr:
-                poisson  = market_probs_from_enrichment(enr)
+                poisson  = market_probs_from_enrichment(enr,
+                               prior_xg_home=bk_xg_h, prior_xg_away=bk_xg_a)
                 has_data = poisson.get("has_data", False)
                 if has_data:
                     qual_ou    = "full_model"
@@ -1958,15 +1970,18 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                     btts_yes_p = poisson["btts_yes"]
                     over_p     = poisson["over_2_5"]
                     xg_label   = f"xG {poisson['xg_home']}-{poisson['xg_away']}"
+                    _n_eff_ou  = poisson.get("n_eff", 0)
                     dbg_ou     = _json.dumps({
-                        "model_quality":    "full_model",
-                        "xg_home_raw":      poisson.get("xg_home_raw"),
-                        "xg_away_raw":      poisson.get("xg_away_raw"),
-                        "xg_home_adjusted": poisson["xg_home"],
-                        "xg_away_adjusted": poisson["xg_away"],
-                        "sample_size_home": poisson.get("sample_size_home"),
-                        "sample_size_away": poisson.get("sample_size_away"),
-                        "shrinkage_weight": poisson.get("shrinkage_weight"),
+                        "model_quality":      "full_model",
+                        "xg_home_raw":        poisson.get("xg_home_raw"),
+                        "xg_away_raw":        poisson.get("xg_away_raw"),
+                        "xg_home_adjusted":   poisson["xg_home"],
+                        "xg_away_adjusted":   poisson["xg_away"],
+                        "bk_xg_home_prior":   round(bk_xg_h, 3),
+                        "bk_xg_away_prior":   round(bk_xg_a, 3),
+                        "sample_size_home":   poisson.get("sample_size_home"),
+                        "sample_size_away":   poisson.get("sample_size_away"),
+                        "shrinkage_weight":   poisson.get("shrinkage_weight"),
                     })
                 elif pxg:
                     qual_ou    = "af_supported"
@@ -1974,15 +1989,18 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                     btts_yes_p = btts_probability(pxg[0], pxg[1])
                     over_p, _  = over_under_probability(pxg[0], pxg[1])
                     xg_label   = f"xG {pxg[0]:.2f}-{pxg[1]:.2f} (AF)"
+                    _n_eff_ou  = int(pxg[4])
                     dbg_ou     = _json.dumps({
-                        "model_quality":    "af_supported",
-                        "xg_home_raw":      round(pxg[2], 2),
-                        "xg_away_raw":      round(pxg[3], 2),
-                        "xg_home_adjusted": round(pxg[0], 2),
-                        "xg_away_adjusted": round(pxg[1], 2),
-                        "sample_size_home": pxg[4],
-                        "sample_size_away": pxg[4],
-                        "shrinkage_weight": pxg[5],
+                        "model_quality":      "af_supported",
+                        "xg_home_raw":        round(pxg[2], 2),
+                        "xg_away_raw":        round(pxg[3], 2),
+                        "xg_home_adjusted":   round(pxg[0], 2),
+                        "xg_away_adjusted":   round(pxg[1], 2),
+                        "bk_xg_home_prior":   round(bk_xg_h, 3),
+                        "bk_xg_away_prior":   round(bk_xg_a, 3),
+                        "sample_size_home":   pxg[4],
+                        "sample_size_away":   pxg[4],
+                        "shrinkage_weight":   pxg[5],
                     })
                 else:
                     qual_ou = "generic_prior"
@@ -1992,15 +2010,18 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                 btts_yes_p = btts_probability(pxg[0], pxg[1])
                 over_p, _  = over_under_probability(pxg[0], pxg[1])
                 xg_label   = f"xG {pxg[0]:.2f}-{pxg[1]:.2f} (AF)"
+                _n_eff_ou  = int(pxg[4])
                 dbg_ou     = _json.dumps({
-                    "model_quality":    "af_supported",
-                    "xg_home_raw":      round(pxg[2], 2),
-                    "xg_away_raw":      round(pxg[3], 2),
-                    "xg_home_adjusted": round(pxg[0], 2),
-                    "xg_away_adjusted": round(pxg[1], 2),
-                    "sample_size_home": pxg[4],
-                    "sample_size_away": pxg[4],
-                    "shrinkage_weight": pxg[5],
+                    "model_quality":      "af_supported",
+                    "xg_home_raw":        round(pxg[2], 2),
+                    "xg_away_raw":        round(pxg[3], 2),
+                    "xg_home_adjusted":   round(pxg[0], 2),
+                    "xg_away_adjusted":   round(pxg[1], 2),
+                    "bk_xg_home_prior":   round(bk_xg_h, 3),
+                    "bk_xg_away_prior":   round(bk_xg_a, 3),
+                    "sample_size_home":   pxg[4],
+                    "sample_size_away":   pxg[4],
+                    "shrinkage_weight":   pxg[5],
                 })
             else:
                 qual_ou = "generic_prior"
@@ -2063,12 +2084,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                                   btts_impl_yes, btts_yes_p, mep_yes,
                                   f"Poisson begge scorer {btts_yes_p*100:.1f}% vs {_src_btts} {btts_impl_yes*100:.1f}% "
                                   f"(+{mep_yes:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_btts)
+                                  league, kickoff, qual_ou, debug_json=dbg_btts,
+                                  n_eff=_n_eff_ou)
                         _make_bet(fid, match_name, "btts", "no", bkm_btts, bb,
                                   btts_impl_no, btts_no_p, mep_no,
                                   f"Poisson ikke begge scorer {btts_no_p*100:.1f}% vs {_src_btts} {btts_impl_no*100:.1f}% "
                                   f"(+{mep_no:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_btts)
+                                  league, kickoff, qual_ou, debug_json=dbg_btts,
+                                  n_eff=_n_eff_ou)
                 elif not (ba and bb) and bkm_btts is not None:
                     # Only count when we actually tried AF fallback and got no odds
                     # (bkm_btts=None means nt_only skip — already counted above)
@@ -2117,12 +2140,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                                   over_impl, over_p, mep_over,
                                   f"Poisson over 2,5 mal {over_p*100:.1f}% vs {_src_ou} {over_impl*100:.1f}% "
                                   f"(+{mep_over:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_ou25)
+                                  league, kickoff, qual_ou, debug_json=dbg_ou25,
+                                  n_eff=_n_eff_ou)
                         _make_bet(fid, match_name, "over_2.5", "under", bkm_ou, ob,
                                   under_impl, under_p, mep_under,
                                   f"Poisson under 2,5 mal {under_p*100:.1f}% vs {_src_ou} {under_impl*100:.1f}% "
                                   f"(+{mep_under:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_ou25)
+                                  league, kickoff, qual_ou, debug_json=dbg_ou25,
+                                  n_eff=_n_eff_ou)
                 elif not (oa and ob) and bkm_ou is not None:
                     reject_no_btts_ou_odds += 1
 
@@ -2157,12 +2182,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                                   over15_impl, over_15_p, ep_o15,
                                   f"Poisson over 1,5 mal {over_15_p*100:.1f}% vs NT Oddsen {over15_impl*100:.1f}% "
                                   f"(+{ep_o15:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_ou15)
+                                  league, kickoff, qual_ou, debug_json=dbg_ou15,
+                                  n_eff=_n_eff_ou)
                         _make_bet(fid, match_name, "over_1.5", "under", "NT Oddsen", o15b,
                                   under15_impl, under_15_p, ep_u15,
                                   f"Poisson under 1,5 mal {under_15_p*100:.1f}% vs NT Oddsen {under15_impl*100:.1f}% "
                                   f"(+{ep_u15:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_ou15)
+                                  league, kickoff, qual_ou, debug_json=dbg_ou15,
+                                  n_eff=_n_eff_ou)
                 elif nt_only:
                     reject_no_nt_btts_ou += 1
 
@@ -2197,12 +2224,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                                   over35_impl, over_35_p, ep_o35,
                                   f"Poisson over 3,5 mal {over_35_p*100:.1f}% vs NT Oddsen {over35_impl*100:.1f}% "
                                   f"(+{ep_o35:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_ou35)
+                                  league, kickoff, qual_ou, debug_json=dbg_ou35,
+                                  n_eff=_n_eff_ou)
                         _make_bet(fid, match_name, "over_3.5", "under", "NT Oddsen", o35b,
                                   under35_impl, under_35_p, ep_u35,
                                   f"Poisson under 3,5 mal {under_35_p*100:.1f}% vs NT Oddsen {under35_impl*100:.1f}% "
                                   f"(+{ep_u35:.1f}pp).{xg_str}{qual_tag}",
-                                  league, kickoff, qual_ou, debug_json=dbg_ou35)
+                                  league, kickoff, qual_ou, debug_json=dbg_ou35,
+                                  n_eff=_n_eff_ou)
                 elif nt_only:
                     reject_no_nt_btts_ou += 1
 
@@ -2246,11 +2275,12 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
             "no_nt_btts_ou":      reject_no_nt_btts_ou,
             "nt_placeholder_odds": reject_nt_placeholder,
             "generic_prior":      reject_generic_prior,
-            "contradictory":      reject_contradictory,
-            "edge_too_small":       reject_edge_small,
-            "duplicate":            reject_duplicate,
+            "contradictory":         reject_contradictory,
+            "edge_too_small":        reject_edge_small,
+            "small_sample_edge_too_low": reject_small_sample,
+            "duplicate":             reject_duplicate,
             "cross_market_conflict": n_cross_conflict_rejected,
-            "error":                reject_error,
+            "error":                 reject_error,
         },
         "cross_conflict_log": cross_conflict_log,
         "tiers": tier_counts,
