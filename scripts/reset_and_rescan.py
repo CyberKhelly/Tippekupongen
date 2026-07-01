@@ -155,6 +155,7 @@ for label, key in [
     ("Generic prior",             "generic_prior"),
     ("No enrichment (1X2)",       "no_enr_1x2"),
     ("AF 1X2 skipped",            "af_1x2_skipped"),
+    ("Cross-market conflict",     "cross_market_conflict"),
     ("Duplicate",                 "duplicate"),
     ("Contradictory",             "contradictory"),
     ("Bad/missing odds",          "bad_odds"),
@@ -163,6 +164,14 @@ for label, key in [
     v = rb.get(key, 0)
     if v:
         print(f"    {label:<30}: {v}")
+
+ccl = result.get("cross_conflict_log", [])
+if ccl:
+    print(f"\n  Cross-market conflicts resolved ({len(ccl)}):")
+    for entry in ccl:
+        print(f"    {entry['fixture']}")
+        print(f"      KEPT    : {entry['kept']}")
+        print(f"      DROPPED : {entry['rejected']}")
 
 n_show = min(10, len(cands))
 print(f"\n  Top {n_show} rejected candidates by EV (of {len(cands)} captured):")

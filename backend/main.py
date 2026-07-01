@@ -1692,6 +1692,24 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
     _market_edge_data:   dict[str, list]  = {}
     n_nt_matched         = {"1x2": 0, "btts": 0, "over_1.5": 0, "over_2.5": 0, "over_3.5": 0}
 
+    # Cross-market conflict rules: (market, outcome) → incompatible (market, outcome) pairs.
+    # e.g. if BTTS-yes lands, Under 1.5 is impossible (needs ≥2 goals vs ≤1 goal).
+    _CROSS_CONFLICTS: dict[tuple, list] = {
+        ("btts",     "yes"):  [("over_1.5", "under")],
+        ("over_1.5", "over"): [("over_1.5", "under")],
+        ("over_2.5", "over"): [("over_1.5", "under"), ("over_2.5", "under")],
+        ("over_3.5", "over"): [("over_1.5", "under"), ("over_2.5", "under"), ("over_3.5", "under")],
+        ("over_1.5", "under"): [("btts", "yes"), ("over_1.5", "over"), ("over_2.5", "over"), ("over_3.5", "over")],
+        ("over_2.5", "under"): [("over_2.5", "over"), ("over_3.5", "over")],
+        ("over_3.5", "under"): [("over_3.5", "over")],
+    }
+
+    # Per-fixture candidate buffer: candidates queue here; _flush_fixture() resolves
+    # cross-market conflicts before any create_bet() call.
+    _fixture_buf:          list[dict] = []
+    cross_conflict_log:    list[dict] = []
+    n_cross_conflict_rejected         = 0
+
     def _tier(ep: float) -> str:
         return "tier_a" if ep >= 8 else ("tier_b" if ep >= 5 else "tier_c")
 
@@ -1717,8 +1735,8 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
     def _make_bet(fid, match_name, market, outcome, bookmaker, ref_odds,
                   impl_p, model_p, ep, reason, league, kickoff, model_quality,
                   debug_json=None):
-        nonlocal reject_edge_small, reject_duplicate, reject_contradictory, reject_odds_too_low
-        # Track every evaluated edge value regardless of outcome
+        """Filter candidate and buffer it for cross-market conflict resolution."""
+        nonlocal reject_edge_small, reject_duplicate, reject_odds_too_low
         _market_edge_data.setdefault(market, []).append(ep)
         if ep < _min_edge:
             reject_edge_small += 1
@@ -1735,26 +1753,84 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
         if bet_exists(fid, market, outcome):
             reject_duplicate += 1
             return
-        conflict = get_conflicting_bet(fid, market, outcome)
-        if conflict:
-            existing_rank = _QUALITY_RANK.get(conflict["model_quality"] or "", 0)
-            new_rank      = _QUALITY_RANK.get(model_quality or "", 0)
-            existing_ep   = conflict["edge_pp"] or 0.0
-            if new_rank > existing_rank or (new_rank == existing_rank and ep > existing_ep):
-                void_bet(conflict["id"])
-            else:
-                reject_contradictory += 1
-                return
-        t = _tier(ep)
-        create_bet(
-            fixture_id=fid, match_name=match_name, market=market, outcome=outcome,
-            bookmaker=bookmaker, ref_odds=ref_odds, implied_prob=impl_p,
-            model_prob=model_p, edge_pp=ep, insight_type=t, reason=reason,
-            league=league, kickoff_utc=kickoff, coupon_id=None,
-            model_quality=model_quality, debug_json=debug_json,
-        )
-        tier_counts[t.split("_")[1]] += 1
-        bets_by_market[market] = bets_by_market.get(market, 0) + 1
+        _fixture_buf.append({
+            "fid": fid, "match_name": match_name, "market": market, "outcome": outcome,
+            "bookmaker": bookmaker, "ref_odds": ref_odds, "impl_p": impl_p,
+            "model_p": model_p, "ep": ep, "ev": round(model_p * ref_odds - 1, 4),
+            "reason": reason, "league": league, "kickoff": kickoff,
+            "model_quality": model_quality, "debug_json": debug_json,
+        })
+
+    def _flush_fixture():
+        """Resolve cross-market conflicts for buffered candidates, then insert survivors."""
+        nonlocal n_cross_conflict_rejected, reject_contradictory
+        if not _fixture_buf:
+            return
+
+        # Build key index: (market, outcome) → candidate
+        buf_idx: dict[tuple, dict] = {(c["market"], c["outcome"]): c for c in _fixture_buf}
+        dropped: set[tuple] = set()
+
+        for key, cand in list(buf_idx.items()):
+            if key in dropped:
+                continue
+            for conf_key in _CROSS_CONFLICTS.get(key, []):
+                if conf_key not in buf_idx or conf_key in dropped:
+                    continue
+                conf = buf_idx[conf_key]
+                # Keep higher EV; tie-break on edge
+                cand_score = (round(cand["ev"], 6), cand["ep"])
+                conf_score = (round(conf["ev"], 6), conf["ep"])
+                keep, drop = (cand, conf) if cand_score >= conf_score else (conf, cand)
+                drop_key   = (drop["market"], drop["outcome"])
+                dropped.add(drop_key)
+                cross_conflict_log.append({
+                    "fixture":  cand["match_name"],
+                    "kept":     f"{keep['market']} {keep['outcome']}  ev={keep['ev']:+.4f}  ep={keep['ep']:+.1f}pp",
+                    "rejected": f"{drop['market']} {drop['outcome']}  ev={drop['ev']:+.4f}  ep={drop['ep']:+.1f}pp",
+                    "reason":   "cross_market_conflict",
+                })
+                if drop_key == key:
+                    break  # this candidate is dropped; skip its remaining conflict checks
+
+        n_cross_conflict_rejected += len(dropped)
+
+        for cand in _fixture_buf:
+            key = (cand["market"], cand["outcome"])
+            if key in dropped:
+                _reject_candidate(
+                    cand["match_name"], cand["market"], cand["outcome"],
+                    cand["bookmaker"], cand["ref_odds"], cand["impl_p"],
+                    cand["model_p"], cand["ep"], "cross_market_conflict",
+                    cand["model_quality"], cand["league"], cand["kickoff"],
+                )
+                continue
+            # Same-market contradiction check (different fixture_id for same market/outcome)
+            conflict = get_conflicting_bet(cand["fid"], cand["market"], cand["outcome"])
+            if conflict:
+                existing_rank = _QUALITY_RANK.get(conflict["model_quality"] or "", 0)
+                new_rank      = _QUALITY_RANK.get(cand["model_quality"] or "", 0)
+                existing_ep   = conflict["edge_pp"] or 0.0
+                if new_rank > existing_rank or (new_rank == existing_rank and cand["ep"] > existing_ep):
+                    void_bet(conflict["id"])
+                else:
+                    reject_contradictory += 1
+                    continue
+            t = _tier(cand["ep"])
+            create_bet(
+                fixture_id=cand["fid"], match_name=cand["match_name"],
+                market=cand["market"], outcome=cand["outcome"],
+                bookmaker=cand["bookmaker"], ref_odds=cand["ref_odds"],
+                implied_prob=cand["impl_p"], model_prob=cand["model_p"],
+                edge_pp=cand["ep"], insight_type=t, reason=cand["reason"],
+                league=cand["league"], kickoff_utc=cand["kickoff"],
+                coupon_id=None, model_quality=cand["model_quality"],
+                debug_json=cand["debug_json"],
+            )
+            tier_counts[t.split("_")[1]] += 1
+            bets_by_market[cand["market"]] = bets_by_market.get(cand["market"], 0) + 1
+
+        _fixture_buf.clear()
 
     # Sort enriched fixtures before un-enriched ones so the deduplication guard
     # below retains the fixture with real data when two IDs share the same NT key.
@@ -2133,6 +2209,9 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
         except Exception:
             reject_error += 1
 
+        # Resolve cross-market conflicts for this fixture, then insert survivors.
+        _flush_fixture()
+
     n_created = sum(tier_counts.values())
 
     # Per-market edge statistics (all evaluated candidates, accepted + rejected)
@@ -2168,10 +2247,12 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
             "nt_placeholder_odds": reject_nt_placeholder,
             "generic_prior":      reject_generic_prior,
             "contradictory":      reject_contradictory,
-            "edge_too_small":     reject_edge_small,
-            "duplicate":          reject_duplicate,
-            "error":              reject_error,
+            "edge_too_small":       reject_edge_small,
+            "duplicate":            reject_duplicate,
+            "cross_market_conflict": n_cross_conflict_rejected,
+            "error":                reject_error,
         },
+        "cross_conflict_log": cross_conflict_log,
         "tiers": tier_counts,
         "min_edge_pp": _min_edge,
     }
