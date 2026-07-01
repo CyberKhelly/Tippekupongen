@@ -1717,13 +1717,19 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
     def _make_bet(fid, match_name, market, outcome, bookmaker, ref_odds,
                   impl_p, model_p, ep, reason, league, kickoff, model_quality,
                   debug_json=None):
-        nonlocal reject_edge_small, reject_duplicate, reject_contradictory
+        nonlocal reject_edge_small, reject_duplicate, reject_contradictory, reject_odds_too_low
         # Track every evaluated edge value regardless of outcome
         _market_edge_data.setdefault(market, []).append(ep)
         if ep < _min_edge:
             reject_edge_small += 1
             _reject_candidate(match_name, market, outcome, bookmaker, ref_odds,
                               impl_p, model_p, ep, "edge_too_small", model_quality,
+                              league, kickoff)
+            return
+        if ref_odds < _min_odds:
+            reject_odds_too_low += 1
+            _reject_candidate(match_name, market, outcome, bookmaker, ref_odds,
+                              impl_p, model_p, ep, "odds_too_low", model_quality,
                               league, kickoff)
             return
         if bet_exists(fid, market, outcome):
@@ -1834,32 +1840,25 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                     implied_p = {"H": nt_ih, "U": nt_iu, "B": nt_ib}[rec]
                     ep        = round((model_p - implied_p) * 100, 1)
                     ref_odds  = {"H": nt_h, "U": nt_u, "B": nt_b}[rec]
-                    if ref_odds < _min_odds:
-                        reject_odds_too_low += 1
-                        _market_edge_data.setdefault("1x2", []).append(ep)
-                        _reject_candidate(match_name, "1x2", rec, "NT Oddsen", ref_odds,
-                                          implied_p, model_p, ep, "odds_too_low",
-                                          quality_1x2, league, kickoff)
-                    else:
-                        utfall = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
-                        reason = (
-                            f"Modell {model_p*100:.1f}% vs NT Oddsen {implied_p*100:.1f}% "
-                            f"(+{ep:.1f}pp). {utfall} til NT-odds {ref_odds:.2f}."
-                        )
-                        dbg = _json.dumps({
-                            "model_quality":     quality_1x2,
-                            "model_prob":        round(model_p, 4),
-                            "implied_prob":      round(implied_p, 4),
-                            "nt_odds_h":         nt_h,
-                            "nt_odds_u":         nt_u,
-                            "nt_odds_b":         nt_b,
-                            "bookmaker_prior_h": round(ih, 4),
-                            "bookmaker_prior_u": round(iu, 4),
-                            "bookmaker_prior_b": round(ib, 4),
-                        })
-                        _make_bet(fid, match_name, "1x2", rec, "NT Oddsen", ref_odds,
-                                  implied_p, model_p, ep, reason, league, kickoff,
-                                  quality_1x2, debug_json=dbg)
+                    utfall = {"H": "Hjemmeseier", "U": "Uavgjort", "B": "Borteseier"}[rec]
+                    reason = (
+                        f"Modell {model_p*100:.1f}% vs NT Oddsen {implied_p*100:.1f}% "
+                        f"(+{ep:.1f}pp). {utfall} til NT-odds {ref_odds:.2f}."
+                    )
+                    dbg = _json.dumps({
+                        "model_quality":     quality_1x2,
+                        "model_prob":        round(model_p, 4),
+                        "implied_prob":      round(implied_p, 4),
+                        "nt_odds_h":         nt_h,
+                        "nt_odds_u":         nt_u,
+                        "nt_odds_b":         nt_b,
+                        "bookmaker_prior_h": round(ih, 4),
+                        "bookmaker_prior_u": round(iu, 4),
+                        "bookmaker_prior_b": round(ib, 4),
+                    })
+                    _make_bet(fid, match_name, "1x2", rec, "NT Oddsen", ref_odds,
+                              implied_p, model_p, ep, reason, league, kickoff,
+                              quality_1x2, debug_json=dbg)
         except Exception:
             reject_error += 1
 

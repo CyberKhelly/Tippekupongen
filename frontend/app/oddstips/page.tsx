@@ -11,13 +11,25 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 
 // ── Outcome labels ────────────────────────────────────────────────────────────
 
-const OUTCOME_LABEL: Record<string, string> = {
-  H: "Hjemme", U: "Uavgjort", B: "Borte",
-  yes: "Begge scr.", no: "Ingen scr.", over: "Over 2.5", under: "Under 2.5",
-};
+const OUTCOME_LABEL_1X2: Record<string, string> = { H: "Hjemme", U: "Uavgjort", B: "Borte" };
+const OUTCOME_LABEL_BTTS: Record<string, string> = { yes: "Begge scr.", no: "Ingen scr." };
 
-const MARKET_LABEL: Record<string, string> = { "1x2": "1X2", btts: "BTTS", "over_2.5": "O2.5" };
-const MARKET_COLOR: Record<string, string> = { "1x2": "#6098F2", btts: "#A78BFA", "over_2.5": "#F97316" };
+function getOutcomeLabel(market: string, outcome: string): string {
+  if (market === "1x2") return OUTCOME_LABEL_1X2[outcome] ?? outcome;
+  if (market === "btts") return OUTCOME_LABEL_BTTS[outcome] ?? outcome;
+  // O/U markets: market = "over_1.5" | "over_2.5" | "over_3.5"
+  const line = market.replace("over_", "").replace("_", ".");
+  return outcome === "over" ? `Over ${line}` : `Under ${line}`;
+}
+
+const MARKET_LABEL: Record<string, string> = {
+  "1x2": "1X2", btts: "BTTS",
+  "over_1.5": "O1.5", "over_2.5": "O2.5", "over_3.5": "O3.5",
+};
+const MARKET_COLOR: Record<string, string> = {
+  "1x2": "#6098F2", btts: "#A78BFA",
+  "over_1.5": "#34D399", "over_2.5": "#F97316", "over_3.5": "#F43F5E",
+};
 
 type TimeRange = "1W" | "1M" | "3M" | "ALL";
 type BetTab = "active" | "settled" | "signals";
@@ -463,7 +475,7 @@ function BetRow({ bet, isLast, delay }: { bet: PaperBet; isLast: boolean; delay:
 
         {/* Pick */}
         <div style={{ fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--tx-2)" }}>
-          {OUTCOME_LABEL[bet.outcome] ?? bet.outcome}
+          {getOutcomeLabel(bet.market, bet.outcome)}
         </div>
 
         {/* Odds */}
