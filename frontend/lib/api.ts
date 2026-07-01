@@ -16,6 +16,8 @@ import type {
   NtComparison,
   OptimizeResponse,
   PaperBet,
+  SavedCouponDetail,
+  SavedCouponSummary,
   SignalBoardResponse,
   StrategyPerformance,
   Strategy,
@@ -220,4 +222,43 @@ export interface ScanResponse {
 
 export async function scanAndGenerateBets(lookaheadHours = 72): Promise<ScanResponse> {
   return apiFetch<ScanResponse>(`/v1/bets/scan?lookahead_hours=${lookaheadHours}`, { method: "POST" });
+}
+
+// ── Phase 15 — User-saved coupon snapshots ────────────────────────────────────
+
+export async function saveCoupon(params: {
+  coupon_id: string;
+  strategy: string;
+  budget: number;
+  cost_per_row?: number;
+  omsetning?: number | null;
+}): Promise<SavedCouponSummary> {
+  return apiFetch<SavedCouponSummary>("/v1/coupons/save", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function listSavedSnapshots(params?: {
+  coupon_id?: string;
+  week?: number;
+  year?: number;
+}): Promise<SavedCouponSummary[]> {
+  const qs = new URLSearchParams();
+  if (params?.coupon_id) qs.set("coupon_id", params.coupon_id);
+  if (params?.week)      qs.set("week",      String(params.week));
+  if (params?.year)      qs.set("year",      String(params.year));
+  const q = qs.toString();
+  return apiFetch<SavedCouponSummary[]>(`/v1/snapshots${q ? "?" + q : ""}`);
+}
+
+export async function getSavedSnapshot(snapshotId: string): Promise<SavedCouponDetail> {
+  return apiFetch<SavedCouponDetail>(`/v1/snapshots/${snapshotId}`);
+}
+
+export async function deleteSavedSnapshot(snapshotId: string): Promise<{ deleted: boolean; snapshot_id: string }> {
+  return apiFetch<{ deleted: boolean; snapshot_id: string }>(
+    `/v1/snapshots/${snapshotId}`,
+    { method: "DELETE" }
+  );
 }

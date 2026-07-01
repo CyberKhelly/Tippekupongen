@@ -589,3 +589,70 @@ export interface SyncStatus {
   last_freeze_count: number;
   last_freeze_coupon_ids: string[];
 }
+
+// ── Phase 15 — User-saved coupon snapshots ────────────────────────────────────
+
+export interface SavedCouponPick {
+  pick_id: string;
+  snapshot_id: string;
+  fixture_id: string | null;
+  match_number: number;
+  home_team: string;
+  away_team: string;
+  pick: string;
+  coverage_type: string;
+  selected_outcomes: string[];
+  model_prob_h: number | null;
+  model_prob_u: number | null;
+  model_prob_b: number | null;
+  public_prob_h: number | null;
+  public_prob_u: number | null;
+  public_prob_b: number | null;
+  picked_prob: number | null;
+  conviction: number | null;
+  cds: number | null;
+  vi: number | null;
+  value_h: number | null;
+  value_u: number | null;
+  value_b: number | null;
+  result_1x2: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  covered: boolean | null;
+  pick_correct: boolean | null;
+}
+
+export interface SavedCouponSummary {
+  snapshot_id: string;
+  coupon_id: string;
+  strategy: string;
+  budget_nok: number;
+  total_rows: number;
+  cost_nok: number;
+  singles_count: number;
+  half_cover_count: number;
+  full_cover_count: number;
+  p_win: number | null;
+  pvr: number | null;
+  p_11_plus: number | null;
+  p_10_plus: number | null;
+  avg_cds: number | null;
+  avg_vi: number | null;
+  avg_public_deviation: number | null;
+  model_version: string;
+  optimizer_version: string | null;
+  data_snapshot_time: string | null;
+  saved_at: string;
+  week: number | null;
+  year: number | null;
+  day_type: string | null;
+  coupon_label: string | null;
+}
+
+export interface SavedCouponDetail extends SavedCouponSummary {
+  picks: SavedCouponPick[];
+  n_evaluated: number;
+  correct_picks: number | null;
+  all_covered: number | null;
+  pick_accuracy: number | null;
+}

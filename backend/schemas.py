@@ -629,3 +629,83 @@ class ScanResponse(BaseModel):
     candidates: dict
     nt_scrape: dict | None = None
     duration_s: float
+
+
+# ── /v1/coupons/save  /v1/coupons/snapshots  (Phase 15) ──────────────────────
+
+class SaveCouponRequest(BaseModel):
+    coupon_id: str
+    strategy: Literal["safe", "balanced", "jackpot"]
+    budget: float
+    cost_per_row: float = 1.0
+    omsetning: float | None = None
+
+
+class SavedCouponPick(BaseModel):
+    pick_id: str
+    snapshot_id: str
+    fixture_id: str | None
+    match_number: int
+    home_team: str
+    away_team: str
+    pick: str
+    coverage_type: str
+    selected_outcomes: list[str]
+    model_prob_h: float | None = None
+    model_prob_u: float | None = None
+    model_prob_b: float | None = None
+    public_prob_h: float | None = None
+    public_prob_u: float | None = None
+    public_prob_b: float | None = None
+    picked_prob: float | None = None
+    conviction: float | None = None
+    cds: float | None = None
+    vi: float | None = None
+    value_h: float | None = None
+    value_u: float | None = None
+    value_b: float | None = None
+    result_1x2: str | None = None
+    home_score: int | None = None
+    away_score: int | None = None
+    covered: bool | None = None
+    pick_correct: bool | None = None
+
+
+class SavedCouponSummary(BaseModel):
+    snapshot_id: str
+    coupon_id: str
+    strategy: str
+    budget_nok: float
+    total_rows: int
+    cost_nok: float
+    singles_count: int
+    half_cover_count: int
+    full_cover_count: int
+    p_win: float | None = None
+    pvr: float | None = None
+    p_11_plus: float | None = None
+    p_10_plus: float | None = None
+    avg_cds: float | None = None
+    avg_vi: float | None = None
+    avg_public_deviation: float | None = None
+    model_version: str
+    optimizer_version: str | None = None
+    data_snapshot_time: str | None = None
+    saved_at: str
+    week: int | None = None
+    year: int | None = None
+    day_type: str | None = None
+    coupon_label: str | None = None
+
+
+class SavedCouponDetail(SavedCouponSummary):
+    picks: list[SavedCouponPick] = []
+    n_evaluated: int = 0
+    correct_picks: int | None = None
+    all_covered: int | None = None
+    pick_accuracy: int | None = None
+
+
+class DeleteSnapshotResponse(BaseModel):
+    deleted: bool
+    snapshot_id: str

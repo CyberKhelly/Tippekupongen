@@ -708,6 +708,66 @@ def _add_modelbets_calibration_columns(conn) -> None:
             pass  # column already exists
 
 
+# Phase 15 — user-saved coupon snapshots (distinct from Phase 9 auto-saves)
+_DDL_PHASE15_TABLES = """
+CREATE TABLE IF NOT EXISTS saved_coupons (
+    snapshot_id          TEXT PRIMARY KEY,
+    coupon_id            TEXT NOT NULL REFERENCES coupons(coupon_id),
+    strategy             TEXT NOT NULL,
+    budget_nok           REAL NOT NULL,
+    total_rows           INTEGER NOT NULL,
+    cost_nok             REAL NOT NULL,
+    singles_count        INTEGER NOT NULL DEFAULT 0,
+    half_cover_count     INTEGER NOT NULL DEFAULT 0,
+    full_cover_count     INTEGER NOT NULL DEFAULT 0,
+    p_win                REAL,
+    pvr                  REAL,
+    p_11_plus            REAL,
+    p_10_plus            REAL,
+    avg_cds              REAL,
+    avg_vi               REAL,
+    avg_public_deviation REAL,
+    model_version        TEXT NOT NULL DEFAULT 'v5',
+    optimizer_version    TEXT NOT NULL DEFAULT 'v1',
+    data_snapshot_time   TEXT,
+    saved_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    week                 INTEGER,
+    year                 INTEGER,
+    day_type             TEXT,
+    coupon_label         TEXT
+);
+
+CREATE TABLE IF NOT EXISTS saved_coupon_picks (
+    pick_id              TEXT PRIMARY KEY,
+    snapshot_id          TEXT NOT NULL REFERENCES saved_coupons(snapshot_id) ON DELETE CASCADE,
+    fixture_id           TEXT NOT NULL,
+    match_number         INTEGER NOT NULL,
+    home_team            TEXT NOT NULL,
+    away_team            TEXT NOT NULL,
+    pick                 TEXT NOT NULL,
+    coverage_type        TEXT NOT NULL,
+    selected_outcomes    TEXT NOT NULL DEFAULT '[]',
+    model_prob_h         REAL,
+    model_prob_u         REAL,
+    model_prob_b         REAL,
+    public_prob_h        REAL,
+    public_prob_u        REAL,
+    public_prob_b        REAL,
+    picked_prob          REAL,
+    conviction           REAL,
+    cds                  REAL,
+    vi                   REAL,
+    value_h              REAL,
+    value_u              REAL,
+    value_b              REAL,
+    UNIQUE(snapshot_id, match_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_coupons_coupon
+    ON saved_coupons(coupon_id, saved_at DESC);
+""";
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(_DDL_BASE)
@@ -735,3 +795,5 @@ def init_db() -> None:
         # NT Oddsen odds snapshot table (idempotent — also created by scraper on first run)
         from ingestion.nt_oddsen_scraper import _DDL_NT_ODDSEN
         conn.executescript(_DDL_NT_ODDSEN)
+        # Phase 15 — user-saved coupon snapshots
+        conn.executescript(_DDL_PHASE15_TABLES)

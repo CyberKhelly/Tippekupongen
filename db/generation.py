@@ -440,6 +440,74 @@ def get_generation_detail(generation_id: str) -> dict | None:
     return result
 
 
+def get_calibration_picks() -> list[dict]:
+    """
+    Return all picks from frozen/evaluated generations that have a known result.
+
+    Each row is a dict with all generation_picks columns plus:
+        strategy, budget         — from coupon_generations
+        result_1x2               — actual outcome
+        pick_hit   (int 0/1)     — model primary pick == result
+        coverage_hit (int 0/1)   — result in selected_outcomes (coupon covered it)
+        vi         (float|None)  — model_prob_pick / pub_prob_pick
+        model_prob_pick (float)  — model prob for the recommended pick
+        pub_prob_pick   (float)  — public prob for the recommended pick
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT
+                   cg.generation_id, cg.strategy, CAST(cg.budget AS REAL) AS budget,
+                   gp.match_number, gp.fixture_id,
+                   gp.pick, gp.coverage_type, gp.selected_outcomes, gp.confidence,
+                   gp.model_prob_h, gp.model_prob_u, gp.model_prob_b,
+                   gp.pub_prob_h, gp.pub_prob_u, gp.pub_prob_b,
+                   gp.value_h, gp.value_u, gp.value_b,
+                   gp.crowd_disagreement_score,
+                   mr.result_1x2
+               FROM generation_picks gp
+               JOIN coupon_generations cg ON cg.generation_id = gp.generation_id
+               JOIN match_results mr ON mr.fixture_id = gp.fixture_id
+               WHERE cg.status IN ('frozen', 'evaluated')
+                 AND mr.result_1x2 IS NOT NULL
+               ORDER BY cg.strategy, cg.budget, gp.match_number""",
+        ).fetchall()
+
+    picks = []
+    for r in rows:
+        d = dict(r)
+        result = d["result_1x2"]
+        pick = d["pick"]
+
+        try:
+            selected = json.loads(d["selected_outcomes"])
+        except Exception:
+            selected = [pick]
+        d["selected_outcomes"] = selected
+
+        d["pick_hit"] = int(pick == result)
+        d["coverage_hit"] = int(result in selected)
+
+        mp_map = {
+            "H": d.get("model_prob_h"),
+            "U": d.get("model_prob_u"),
+            "B": d.get("model_prob_b"),
+        }
+        pp_map = {
+            "H": d.get("pub_prob_h"),
+            "U": d.get("pub_prob_u"),
+            "B": d.get("pub_prob_b"),
+        }
+        mp = mp_map.get(pick)
+        pp = pp_map.get(pick)
+        d["model_prob_pick"] = mp
+        d["pub_prob_pick"] = pp
+        d["vi"] = (mp / pp) if (mp and pp and pp > 0) else None
+
+        picks.append(d)
+
+    return picks
+
+
 def get_strategy_analytics() -> list[dict]:
     """
     Per-strategy summary over frozen and evaluated generations only.

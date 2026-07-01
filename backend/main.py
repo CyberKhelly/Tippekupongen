@@ -35,6 +35,7 @@ from backend.schemas import (
     CouponListItem,
     CouponMatchRaw,
     CouponShape,
+    DeleteSnapshotResponse,
     GenerateBetsResponse,
     GenerationAnalytics,
     GenerationDetail,
@@ -55,6 +56,10 @@ from backend.schemas import (
     PaperBet,
     PayoutSimulation,
     RecentMatch,
+    SaveCouponRequest,
+    SavedCouponDetail,
+    SavedCouponPick,
+    SavedCouponSummary,
     SignalBoardResponse,
     ScanResponse,
     StrategyPerformance,
@@ -2317,3 +2322,138 @@ def scan_and_generate(lookahead_hours: int = 72):
         nt_scrape=nt_summary,
         duration_s=duration,
     )
+
+
+# ── Phase 15 — User-saved coupon snapshots ────────────────────────────────────
+
+@app.post("/v1/coupons/save", response_model=SavedCouponSummary)
+def save_coupon_snapshot(req: SaveCouponRequest):
+    """
+    Run the optimizer for (coupon_id, strategy, budget) and save an immutable snapshot.
+    Multiple snapshots per combination are allowed — no overwrite.
+    Returns the created snapshot summary.
+    """
+    from db.saved_coupons import save_coupon_snapshot as _save, get_saved_snapshot as _get
+    from analysis.optimizer import optimize_coupon
+    from analysis.pool_value import compute_p_win, compute_pool_value_ratio
+    from datetime import datetime, timezone
+
+    try:
+        matches = build_matches(req.coupon_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pipeline error: {exc}")
+
+    cost_per_row = req.cost_per_row or 1.0
+    picks, total_rows = optimize_coupon(
+        matches,
+        req.budget,
+        cost_per_row=cost_per_row,
+        strategy=req.strategy,
+    )
+
+    total_cost = total_rows * cost_per_row
+    p_win = compute_p_win(matches, picks)
+    pvr_val = compute_pool_value_ratio(matches, picks)
+
+    n_singles  = sum(1 for m in matches if len(picks[m.number]) == 1)
+    n_halvdekk = sum(1 for m in matches if len(picks[m.number]) == 2)
+    n_heldekk  = sum(1 for m in matches if len(picks[m.number]) == 3)
+
+    picks_data: list[dict] = []
+    for m in matches:
+        m_picks = picks[m.number]
+        rec = m.recommendation or ""
+        picks_data.append({
+            "fixture_id":               m.fixture_id,
+            "match_number":             m.number,
+            "home_team":                m.home_team,
+            "away_team":                m.away_team,
+            "pick":                     rec,
+            "coverage_type":            _COVERAGE_TYPE[len(m_picks)],
+            "selected_outcomes":        m_picks,
+            "model_prob_h":             m.prob_h,
+            "model_prob_u":             m.prob_u,
+            "model_prob_b":             m.prob_b,
+            "pub_prob_h":               m.pub_prob_h,
+            "pub_prob_u":               m.pub_prob_u,
+            "pub_prob_b":               m.pub_prob_b,
+            "confidence":               m.confidence,
+            "crowd_disagreement_score": m.crowd_disagreement_score,
+            "value_h":                  m.value_h,
+            "value_u":                  m.value_u,
+            "value_b":                  m.value_b,
+        })
+
+    snapshot_id = _save(
+        coupon_id=req.coupon_id,
+        strategy=req.strategy,
+        budget=req.budget,
+        total_rows=total_rows,
+        cost_nok=total_cost,
+        p_win=p_win,
+        pvr=pvr_val,
+        singles_count=n_singles,
+        half_cover_count=n_halvdekk,
+        full_cover_count=n_heldekk,
+        picks_data=picks_data,
+        data_snapshot_time=datetime.now(timezone.utc).isoformat(),
+    )
+
+    detail = _get(snapshot_id)
+    if not detail:
+        raise HTTPException(status_code=500, detail="Snapshot saved but could not be retrieved")
+
+    return SavedCouponSummary(**{
+        k: detail[k]
+        for k in SavedCouponSummary.model_fields
+        if k in detail
+    })
+
+
+@app.get("/v1/snapshots", response_model=list[SavedCouponSummary])
+def list_coupon_snapshots(
+    coupon_id: str | None = None,
+    week:      int | None = None,
+    year:      int | None = None,
+):
+    """List saved coupon snapshots, newest first. Optionally filter by coupon_id or week/year."""
+    from db.saved_coupons import list_saved_snapshots as _list
+    rows = _list(coupon_id=coupon_id, week=week, year=year)
+    return [
+        SavedCouponSummary(**{k: r[k] for k in SavedCouponSummary.model_fields if k in r})
+        for r in rows
+    ]
+
+
+@app.get("/v1/snapshots/{snapshot_id}", response_model=SavedCouponDetail)
+def get_coupon_snapshot(snapshot_id: str):
+    """Return a single saved snapshot with all 12 frozen picks and live evaluation data."""
+    from db.saved_coupons import get_saved_snapshot as _get
+    detail = _get(snapshot_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    picks = [
+        SavedCouponPick(**{k: p[k] for k in SavedCouponPick.model_fields if k in p})
+        for p in detail.get("picks", [])
+    ]
+    summary_fields = {k: detail[k] for k in SavedCouponSummary.model_fields if k in detail}
+    return SavedCouponDetail(
+        **summary_fields,
+        picks=picks,
+        n_evaluated=detail.get("n_evaluated", 0),
+        correct_picks=detail.get("correct_picks"),
+        all_covered=detail.get("all_covered"),
+        pick_accuracy=detail.get("pick_accuracy"),
+    )
+
+
+@app.delete("/v1/snapshots/{snapshot_id}", response_model=DeleteSnapshotResponse)
+def delete_coupon_snapshot(snapshot_id: str):
+    """Delete a saved snapshot (and its picks). Irreversible."""
+    from db.saved_coupons import delete_saved_snapshot as _delete
+    deleted = _delete(snapshot_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return DeleteSnapshotResponse(deleted=True, snapshot_id=snapshot_id)

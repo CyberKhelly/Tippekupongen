@@ -216,6 +216,10 @@ def main() -> None:
     group.add_argument("--status",        action="store_true", help="Show evaluation status")
     group.add_argument("--freeze-active", action="store_true",
                        help="Freeze all active coupons (all 12 strategy×budget combos) immediately")
+    group.add_argument("--sweep", action="store_true",
+                       help="Sweep pending generation evaluations against match_results")
+    group.add_argument("--calibrate", action="store_true",
+                       help="Run calibration report (conviction/coverage/VI/CDS)")
     parser.add_argument("--year",      type=int, default=None, help="Year (required with --week)")
     parser.add_argument("--coupon-id", type=str, default=None,
                         help="With --freeze-active: force-freeze a specific coupon_id "
@@ -226,6 +230,34 @@ def main() -> None:
     args = parser.parse_args()
 
     init_db()
+
+    if args.sweep:
+        from db.generation import sweep_pending_evaluations
+        print("Sweeping pending generation evaluations...")
+        results = sweep_pending_evaluations()
+        n_complete = sum(1 for r in results if r.get("evaluation_status") == "complete")
+        n_partial  = sum(1 for r in results if r.get("evaluation_status") == "partial")
+        n_pending  = sum(1 for r in results if r.get("evaluation_status") == "pending")
+        print(f"  Swept {len(results)} generation(s): "
+              f"{n_complete} complete, {n_partial} partial, {n_pending} still pending.")
+        sys.exit(0)
+
+    if args.calibrate:
+        import importlib.util, pathlib
+        _spec = importlib.util.spec_from_file_location(
+            "calibration_report",
+            pathlib.Path(__file__).parent / "scripts" / "calibration_report.py",
+        )
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        run_calibration_report = _mod.run_calibration_report
+        from db.generation import sweep_pending_evaluations
+        swept = sweep_pending_evaluations()
+        n_new = sum(1 for r in swept if r.get("evaluation_status") == "complete")
+        if n_new:
+            print(f"  Swept {n_new} newly completed evaluation(s).")
+        run_calibration_report()
+        sys.exit(0)
 
     if args.freeze_active:
         from backend.freeze import freeze_active_coupons, freeze_recently_expired
