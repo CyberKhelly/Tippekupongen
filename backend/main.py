@@ -1587,17 +1587,21 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
             mkt_map[fid][mk][sel] = mr["odds"]
 
     # Load NT Oddsen snapshots (Playwright scraper, max 6h old)
-    _nt_map:      dict[str, dict[str, float]] = {}
-    _nt_btts_map: dict[str, dict[str, float]] = {}
-    _nt_ou_map:   dict[str, dict[str, float]] = {}
+    _nt_map:       dict[str, dict[str, float]] = {}
+    _nt_btts_map:  dict[str, dict[str, float]] = {}
+    _nt_ou15_map:  dict[str, dict[str, float]] = {}
+    _nt_ou_map:    dict[str, dict[str, float]] = {}
+    _nt_ou35_map:  dict[str, dict[str, float]] = {}
     _nt_norm = None
     try:
         from ingestion.nt_oddsen_playwright import (
             load_nt_odds_bulk, load_nt_market_bulk, normalize_team_name as _nt_norm_fn,
         )
         _nt_map      = load_nt_odds_bulk(conn)
-        _nt_btts_map = load_nt_market_bulk(conn, "BTTS",           {"YES", "NO"})
-        _nt_ou_map   = load_nt_market_bulk(conn, "OVER_UNDER_2_5", {"OVER", "UNDER"})
+        _nt_btts_map = load_nt_market_bulk(conn, "BTTS",            {"YES", "NO"})
+        _nt_ou15_map = load_nt_market_bulk(conn, "OVER_UNDER_1_5",  {"OVER", "UNDER"})
+        _nt_ou_map   = load_nt_market_bulk(conn, "OVER_UNDER_2_5",  {"OVER", "UNDER"})
+        _nt_ou35_map = load_nt_market_bulk(conn, "OVER_UNDER_3_5",  {"OVER", "UNDER"})
         _nt_norm     = _nt_norm_fn
     except Exception:
         pass
@@ -1661,6 +1665,10 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                 pass
         return None
 
+    # NT fixture key deduplication: prevents two DB fixture IDs for the same match
+    # (e.g. one from NT coupon + one inserted by enrichment) from generating duplicate bets.
+    _processed_nt_keys: set[str] = set()
+
     # Rejection counters
     reject_bad_odds          = 0
     reject_no_enr_1x2        = 0
@@ -1677,12 +1685,12 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
     reject_no_nt_btts_ou     = 0  # nt_only mode: no NT odds found for BTTS/O/U
     n_evaluated              = 0
     tier_counts              = {"a": 0, "b": 0, "c": 0}
-    bets_by_market           = {"1x2": 0, "btts": 0, "over_2.5": 0}
+    bets_by_market           = {"1x2": 0, "btts": 0, "over_1.5": 0, "over_2.5": 0, "over_3.5": 0}
 
     # Diagnostics
     rejected_candidates: list[dict]       = []
     _market_edge_data:   dict[str, list]  = {}
-    n_nt_matched         = {"1x2": 0, "btts": 0, "over_2.5": 0}
+    n_nt_matched         = {"1x2": 0, "btts": 0, "over_1.5": 0, "over_2.5": 0, "over_3.5": 0}
 
     def _tier(ep: float) -> str:
         return "tier_a" if ep >= 8 else ("tier_b" if ep >= 5 else "tier_c")
@@ -1742,6 +1750,10 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
         tier_counts[t.split("_")[1]] += 1
         bets_by_market[market] = bets_by_market.get(market, 0) + 1
 
+    # Sort enriched fixtures before un-enriched ones so the deduplication guard
+    # below retains the fixture with real data when two IDs share the same NT key.
+    fixtures_to_eval.sort(key=lambda f: (enr_map.get(f["fixture_id"]) is None, f["fixture_id"]))
+
     for fix in fixtures_to_eval:
         fid       = fix["fixture_id"]
         odds_h    = fix["odds_h"]
@@ -1756,6 +1768,13 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
         if not (odds_h and odds_u and odds_b and odds_h > 1 and odds_u > 1 and odds_b > 1):
             reject_bad_odds += 1
             continue
+
+        # Skip if this NT fixture key was already processed by a different DB fixture ID
+        if _nt_norm:
+            _nt_fkey = f"{_nt_norm(home_name)}|{_nt_norm(away_name)}|{(kickoff or '')[:10]}"
+            if _nt_fkey in _processed_nt_keys:
+                continue
+            _processed_nt_keys.add(_nt_fkey)
 
         bookmaker = odds_src.split(":")[-1] if ":" in odds_src else odds_src
 
@@ -1853,11 +1872,14 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
             btts_mkt = mkt.get("BTTS", {})
             ou_mkt   = mkt.get("OVER_UNDER", {})
 
+            xg_h = xg_a = None   # set in each quality branch; used for all O/U lines
+
             if enr:
                 poisson  = market_probs_from_enrichment(enr)
                 has_data = poisson.get("has_data", False)
                 if has_data:
                     qual_ou    = "full_model"
+                    xg_h, xg_a = poisson["xg_home"], poisson["xg_away"]
                     btts_yes_p = poisson["btts_yes"]
                     over_p     = poisson["over_2_5"]
                     xg_label   = f"xG {poisson['xg_home']}-{poisson['xg_away']}"
@@ -1873,6 +1895,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                     })
                 elif pxg:
                     qual_ou    = "af_supported"
+                    xg_h, xg_a = pxg[0], pxg[1]
                     btts_yes_p = btts_probability(pxg[0], pxg[1])
                     over_p, _  = over_under_probability(pxg[0], pxg[1])
                     xg_label   = f"xG {pxg[0]:.2f}-{pxg[1]:.2f} (AF)"
@@ -1890,6 +1913,7 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                     qual_ou = "generic_prior"
             elif pxg:
                 qual_ou    = "af_supported"
+                xg_h, xg_a = pxg[0], pxg[1]
                 btts_yes_p = btts_probability(pxg[0], pxg[1])
                 over_p, _  = over_under_probability(pxg[0], pxg[1])
                 xg_label   = f"xG {pxg[0]:.2f}-{pxg[1]:.2f} (AF)"
@@ -1998,7 +2022,6 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                     mep_under = round((under_p - under_impl) * 100, 1)
 
                     if not _is_plaus(oa, ob):
-                        # Placeholder/error price — log both legs and skip
                         reject_nt_placeholder += 1
                         _reject_candidate(match_name, "over_2.5", "over", bkm_ou, oa,
                                           over_impl, over_p, mep_over,
@@ -2027,6 +2050,86 @@ def generate_global_bet_candidates(min_edge_pp: float = 5.0, nt_only: bool = Fal
                                   league, kickoff, qual_ou, debug_json=dbg_ou25)
                 elif not (oa and ob) and bkm_ou is not None:
                     reject_no_btts_ou_odds += 1
+
+                # ── O/U 1.5 ── NT Oddsen odds only (no AF fallback)
+                _nt_ou15 = _nt_find(_nt_ou15_map, home_name, away_name, kickoff)
+                if _nt_ou15:
+                    o15a, o15b = _nt_ou15["OVER"], _nt_ou15["UNDER"]
+                    n_nt_matched["over_1.5"] += 1
+                    over_15_p, under_15_p = over_under_probability(xg_h, xg_a, line=1.5)
+                    total_inv_15 = 1/o15a + 1/o15b
+                    over15_impl  = 1/o15a / total_inv_15
+                    under15_impl = 1/o15b / total_inv_15
+                    ep_o15 = round((over_15_p  - over15_impl)  * 100, 1)
+                    ep_u15 = round((under_15_p - under15_impl) * 100, 1)
+                    if not _is_plaus(o15a, o15b):
+                        reject_nt_placeholder += 1
+                        _reject_candidate(match_name, "over_1.5", "over", "NT Oddsen", o15a,
+                                          over15_impl, over_15_p, ep_o15,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                        _reject_candidate(match_name, "over_1.5", "under", "NT Oddsen", o15b,
+                                          under15_impl, under_15_p, ep_u15,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                    else:
+                        dbg_ou15 = _json.dumps({
+                            **_json.loads(dbg_ou),
+                            "nt_odds":        {"OVER": o15a, "UNDER": o15b},
+                            "nt_implied_prob": {"OVER": round(over15_impl, 4), "UNDER": round(under15_impl, 4)},
+                            "odds_source":    "NT Oddsen",
+                            "market":         "over_1.5",
+                        })
+                        _make_bet(fid, match_name, "over_1.5", "over", "NT Oddsen", o15a,
+                                  over15_impl, over_15_p, ep_o15,
+                                  f"Poisson over 1,5 mal {over_15_p*100:.1f}% vs NT Oddsen {over15_impl*100:.1f}% "
+                                  f"(+{ep_o15:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_ou15)
+                        _make_bet(fid, match_name, "over_1.5", "under", "NT Oddsen", o15b,
+                                  under15_impl, under_15_p, ep_u15,
+                                  f"Poisson under 1,5 mal {under_15_p*100:.1f}% vs NT Oddsen {under15_impl*100:.1f}% "
+                                  f"(+{ep_u15:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_ou15)
+                elif nt_only:
+                    reject_no_nt_btts_ou += 1
+
+                # ── O/U 3.5 ── NT Oddsen odds only (no AF fallback)
+                _nt_ou35 = _nt_find(_nt_ou35_map, home_name, away_name, kickoff)
+                if _nt_ou35:
+                    o35a, o35b = _nt_ou35["OVER"], _nt_ou35["UNDER"]
+                    n_nt_matched["over_3.5"] += 1
+                    over_35_p, under_35_p = over_under_probability(xg_h, xg_a, line=3.5)
+                    total_inv_35 = 1/o35a + 1/o35b
+                    over35_impl  = 1/o35a / total_inv_35
+                    under35_impl = 1/o35b / total_inv_35
+                    ep_o35 = round((over_35_p  - over35_impl)  * 100, 1)
+                    ep_u35 = round((under_35_p - under35_impl) * 100, 1)
+                    if not _is_plaus(o35a, o35b):
+                        reject_nt_placeholder += 1
+                        _reject_candidate(match_name, "over_3.5", "over", "NT Oddsen", o35a,
+                                          over35_impl, over_35_p, ep_o35,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                        _reject_candidate(match_name, "over_3.5", "under", "NT Oddsen", o35b,
+                                          under35_impl, under_35_p, ep_u35,
+                                          "nt_placeholder_odds", qual_ou, league, kickoff)
+                    else:
+                        dbg_ou35 = _json.dumps({
+                            **_json.loads(dbg_ou),
+                            "nt_odds":        {"OVER": o35a, "UNDER": o35b},
+                            "nt_implied_prob": {"OVER": round(over35_impl, 4), "UNDER": round(under35_impl, 4)},
+                            "odds_source":    "NT Oddsen",
+                            "market":         "over_3.5",
+                        })
+                        _make_bet(fid, match_name, "over_3.5", "over", "NT Oddsen", o35a,
+                                  over35_impl, over_35_p, ep_o35,
+                                  f"Poisson over 3,5 mal {over_35_p*100:.1f}% vs NT Oddsen {over35_impl*100:.1f}% "
+                                  f"(+{ep_o35:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_ou35)
+                        _make_bet(fid, match_name, "over_3.5", "under", "NT Oddsen", o35b,
+                                  under35_impl, under_35_p, ep_u35,
+                                  f"Poisson under 3,5 mal {under_35_p*100:.1f}% vs NT Oddsen {under35_impl*100:.1f}% "
+                                  f"(+{ep_u35:.1f}pp).{xg_str}{qual_tag}",
+                                  league, kickoff, qual_ou, debug_json=dbg_ou35)
+                elif nt_only:
+                    reject_no_nt_btts_ou += 1
 
         except Exception:
             reject_error += 1

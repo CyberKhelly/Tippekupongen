@@ -56,20 +56,29 @@ print(f"\n  Scraping NT Oddsen (1X2 + BTTS + O/U 2.5)...")
 from ingestion.nt_oddsen_playwright import scrape_nt_oddsen_playwright
 scrape_result = scrape_nt_oddsen_playwright(verbose=False)
 
-n_1x2   = scrape_result.get("n_stored",   0)
-n_btts  = scrape_result.get("n_btts",     0)
-n_ou25  = scrape_result.get("n_ou25",     0)
-n_fix   = scrape_result.get("n_fixtures", 0)
+n_fix   = scrape_result.get("n_fixtures",    0)
+n_rows  = scrape_result.get("n_rows_stored", 0)
+n_btts  = scrape_result.get("n_btts",        0)
+n_ou15  = scrape_result.get("n_ou15",        0)
+n_ou25  = scrape_result.get("n_ou25",        0)
+n_ou35  = scrape_result.get("n_ou35",        0)
+n_dnb   = scrape_result.get("n_dnb",         0)
 scrape_err = scrape_result.get("error")
 
-if scrape_err:
+if scrape_err and n_fix == 0:
     print(f"  ERROR in NT scrape: {scrape_err}")
     sys.exit(1)
+if scrape_err:
+    print(f"  WARNING in NT scrape: {scrape_err}")
 
 print(f"    NT fixtures scraped  : {n_fix}")
-print(f"    1X2 rows stored      : {n_1x2}")
-print(f"    BTTS rows stored     : {n_btts}")
-print(f"    O/U 2.5 rows stored  : {n_ou25}")
+print(f"    Total rows stored    : {n_rows}")
+print(f"    BTTS fixtures found  : {n_btts}")
+print(f"    O/U 1.5 found        : {n_ou15}")
+print(f"    O/U 2.5 found        : {n_ou25}")
+print(f"    O/U 3.5 found        : {n_ou35}")
+if n_dnb:
+    print(f"    DNB found            : {n_dnb}")
 
 # ── Step 2.5: enrich NT Oddsen fixtures missing enrichment rows ──────────────
 print(f"\n  Enriching NT Oddsen fixtures (API-Football standings + form + goals)...")
@@ -109,12 +118,16 @@ print(f"{'='*W}")
 print(f"\n  NT Oddsen fixture matches:")
 print(f"    1X2 matched          : {nm.get('1x2', 0)}")
 print(f"    BTTS matched         : {nm.get('btts', 0)}")
+print(f"    O/U 1.5 matched      : {nm.get('over_1.5', 0)}")
 print(f"    O/U 2.5 matched      : {nm.get('over_2.5', 0)}")
+print(f"    O/U 3.5 matched      : {nm.get('over_3.5', 0)}")
 
 print(f"\n  New bets generated: {n_new}")
 print(f"    1X2                  : {bm.get('1x2', 0)}")
 print(f"    BTTS                 : {bm.get('btts', 0)}")
+print(f"    O/U 1.5              : {bm.get('over_1.5', 0)}")
 print(f"    O/U 2.5              : {bm.get('over_2.5', 0)}")
+print(f"    O/U 3.5              : {bm.get('over_3.5', 0)}")
 
 if ms:
     print(f"\n  Edge statistics (NT-matched only, all evaluated):")

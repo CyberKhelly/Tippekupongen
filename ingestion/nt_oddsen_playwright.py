@@ -332,10 +332,15 @@ def _dismiss_cookie(page) -> None:
 
 def _extract_btts_ou(frame) -> dict:
     """
-    Extract BTTS (Begge lag scorer) and O/U 2.5 from an event detail iframe.
+    Extract BTTS and O/U 1.5 / 2.5 / 3.5 from an event detail iframe.
     Returns a dict with keys present only when found:
       btts_yes, btts_no  — odds for Ja / Nei
+      over_15, under_15  — odds for Over 1.5 / Under 1.5
       over_25, under_25  — odds for Over 2.5 / Under 2.5
+      over_35, under_35  — odds for Over 3.5 / Under 3.5
+    First-half markets (containing "omgang") are excluded.
+    DNB market captured when present:
+      dnb_home, dnb_away — odds for Home / Away (Uavgjort tilbakebetales)
     """
     result: dict[str, float] = {}
     try:
@@ -343,7 +348,7 @@ def _extract_btts_ou(frame) -> dict:
     except Exception:
         return result
     for g in (groups or []):
-        mkt = g.get("market", "")
+        mkt  = g.get("market", "")
         sels = []
         for s in g.get("sels", []):
             aria = s.get("aria", "")
@@ -359,40 +364,173 @@ def _extract_btts_ou(frame) -> dict:
             if yes_ and no_:
                 result["btts_yes"] = yes_
                 result["btts_no"]  = no_
+        elif "uavgjort tilbakebetales" in t:
+            # Draw No Bet: exactly 2 selections (Home / Away); reject if more
+            if len(sels) == 2:
+                result["dnb_home"] = sels[0]["odds"]
+                result["dnb_away"] = sels[1]["odds"]
+                result["dnb_home_label"] = sels[0]["label"]
+                result["dnb_away_label"] = sels[1]["label"]
+        elif "omgang" not in t and ("1,5" in t or "1.5" in t):
+            ov = next((s["odds"] for s in sels if "over"  in s["label"].lower()), None)
+            un = next((s["odds"] for s in sels if "under" in s["label"].lower()), None)
+            if ov and un:
+                result["over_15"]  = ov
+                result["under_15"] = un
         elif "2,5" in t or "2.5" in t:
             ov = next((s["odds"] for s in sels if "over"  in s["label"].lower()), None)
             un = next((s["odds"] for s in sels if "under" in s["label"].lower()), None)
             if ov and un:
                 result["over_25"]  = ov
                 result["under_25"] = un
+        elif "omgang" not in t and ("3,5" in t or "3.5" in t):
+            ov = next((s["odds"] for s in sels if "over"  in s["label"].lower()), None)
+            un = next((s["odds"] for s in sels if "under" in s["label"].lower()), None)
+            if ov and un:
+                result["over_35"]  = ov
+                result["under_35"] = un
     return result
+
+
+# ---- Scraper helpers --------------------------------------------------------
+
+def _dump_debug_info(page, frame, attempt: int, verbose: bool) -> None:
+    """Save screenshot + rendered HTML when 0 fixtures found. No-ops silently on error."""
+    import pathlib
+    debug_dir = pathlib.Path("logs")
+    try:
+        debug_dir.mkdir(exist_ok=True)
+    except Exception:
+        return
+    ts     = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    prefix = f"nt_oddsen_debug_{ts}_attempt{attempt}"
+
+    try:
+        ss = str(debug_dir / f"{prefix}.png")
+        page.screenshot(path=ss, full_page=False)
+        if verbose:
+            print(f"[NT Playwright]   screenshot -> {ss}")
+    except Exception as exc:
+        if verbose:
+            print(f"[NT Playwright]   screenshot failed: {exc}")
+
+    try:
+        ht = str(debug_dir / f"{prefix}.html")
+        with open(ht, "w", encoding="utf-8") as fh:
+            fh.write(page.content())
+        if verbose:
+            print(f"[NT Playwright]   page html  -> {ht}")
+    except Exception as exc:
+        if verbose:
+            print(f"[NT Playwright]   html save failed: {exc}")
+
+    try:
+        iframe_n = len(page.query_selector_all("iframe"))
+        btn_n    = len(frame.query_selector_all(_BTN_MORE)) if frame else -1
+        sel_n    = len(frame.query_selector_all("[data-for^='selection-event-']")) if frame else -1
+        if verbose:
+            print(
+                f"[NT Playwright]   diagnostics: "
+                f"url={page.url!r}  iframes={iframe_n}  btns={btn_n}  sel_divs={sel_n}"
+            )
+    except Exception:
+        pass
+
+
+def _wait_for_real_odds(frame, timeout_ms: int = 20_000) -> bool:
+    """
+    Stall until at least one selection div carries a real odds value in its
+    aria-label (e.g. "Spain, odds 1.33").  The divs appear immediately as
+    skeletons; the WebSocket fills them seconds later.  Returns True on
+    success, False on timeout.
+    """
+    try:
+        frame.wait_for_function(
+            r"""() => {
+                const divs = document.querySelectorAll('[data-for^="selection-event-"]');
+                for (const d of divs) {
+                    const a = d.getAttribute('aria-label') || '';
+                    if (/odds\s+[\d.]+/.test(a)) return true;
+                }
+                return false;
+            }""",
+            timeout=timeout_ms,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _extract_1x2(frame) -> tuple[list[dict], list[dict]]:
+    """Return (meta_list, selections) from the sportsbook iframe."""
+    containers = frame.query_selector_all("[class*='EventContainer']")
+    meta_list: list[dict] = []
+    for c in containers:
+        try:
+            team_els = c.query_selector_all("[class*='ParticipantNameItem']")
+            teams    = [(t.inner_text() or "").strip() for t in team_els]
+            if len(teams) < 2:
+                continue
+            kickoff_raw = ""
+            dt = c.query_selector("[class*='DateContainer']")
+            if dt:
+                kickoff_raw = (dt.inner_text() or "").strip()
+            league_str = ""
+            lg = c.query_selector("[class*='TournamentNameItem']")
+            if lg:
+                league_str = (lg.inner_text() or "").strip()
+            meta_list.append({
+                "home": teams[0], "away": teams[1],
+                "kickoff_raw": kickoff_raw, "league": league_str,
+            })
+        except Exception:
+            pass
+
+    sel_divs   = frame.query_selector_all("[data-for^='selection-event-']")
+    selections: list[dict] = []
+    for div in sel_divs:
+        aria     = div.get_attribute("aria-label") or ""
+        data_for = div.get_attribute("data-for")   or ""
+        mv = _ARIA_ODDS_RE.search(aria)
+        if not mv:
+            continue
+        odds_v = float(mv.group(1))
+        if not (1.01 <= odds_v <= 99.0):
+            continue
+        selections.append({
+            "label": aria.split(",")[0].strip(),
+            "odds":  odds_v,
+            "data_for": data_for,
+        })
+    return meta_list, selections
 
 
 # ---- Scraper ----------------------------------------------------------------
 
 def scrape_nt_oddsen_playwright(
-    verbose: bool = True,
-    settle_ms: int = 5_000,
-    timeout_ms: int = 30_000,
+    verbose:     bool = True,
+    settle_ms:   int  = 5_000,
+    timeout_ms:  int  = 30_000,
+    max_retries: int  = 3,
 ) -> dict:
     """
-    Scrape NT Oddsen football 1X2 odds via headless Playwright Chromium.
+    Scrape NT Oddsen football 1X2 + BTTS + O/U 2.5 via headless Playwright Chromium.
 
-    Navigates to https://www.norsk-tipping.no/sport/oddsen, switches into
-    the sportsbook iframe, waits for selection-event divs to appear, then
-    extracts team names, kickoff times, leagues, and H/U/B odds.
+    Retries the main-page 1X2 extraction up to max_retries times.  On each
+    failure a screenshot and rendered HTML are saved to logs/ for diagnosis.
 
     Returns:
         {
-          "n_matches":     int,
-          "n_rows_stored": int,
-          "scraped_at":    ISO str,
-          "matches":       list of match dicts,
+          "n_matches":     int,   # fixtures with 1X2 odds extracted
+          "n_fixtures":    int,   # alias for n_matches
+          "n_btts":        int,   # fixtures with BTTS odds extracted
+          "n_ou25":        int,   # fixtures with O/U 2.5 odds extracted
+          "n_rows_stored": int,   # total DB rows written (all markets)
+          "n_stored":      int,   # alias for n_rows_stored
+          "scraped_at":    str,   # ISO UTC timestamp
+          "matches":       list,
           "error":         str | None,
         }
-
-    If playwright is not installed, returns {"error": "playwright_not_installed"}.
-    All errors are caught; the function never raises.
     """
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -400,17 +538,20 @@ def scrape_nt_oddsen_playwright(
         msg = "playwright not installed -- run: pip install playwright && python -m playwright install chromium"
         if verbose:
             print(f"[NT Playwright] {msg}")
-        return {"error": "playwright_not_installed", "message": msg,
-                "n_matches": 0, "n_rows_stored": 0, "matches": []}
+        return {
+            "error": "playwright_not_installed", "message": msg,
+            "n_matches": 0, "n_fixtures": 0, "n_rows_stored": 0, "n_stored": 0,
+            "n_btts": 0, "n_ou25": 0, "matches": [],
+        }
 
     scraped_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     if verbose:
-        print(f"[NT Playwright] Scraping {NT_SPORTSBOOK_URL}...")
+        print(f"[NT Playwright] Scraping {NT_SPORTSBOOK_URL} (max_retries={max_retries})...")
 
-    matches_extracted: list[dict] = []
-    btts_ou_results:   dict[str, dict] = {}   # fixture_key → {btts_yes, btts_no, over_25, under_25}
-    error_msg: str | None = None
+    matches_extracted: list[dict]       = []
+    btts_ou_results:   dict[str, dict]  = {}
+    error_msg: str | None               = None
 
     try:
         with sync_playwright() as pw:
@@ -428,114 +569,144 @@ def scrape_nt_oddsen_playwright(
                 locale="nb-NO",
             )
             page = ctx.new_page()
-
-            # Navigate
             page.goto(NT_SPORTSBOOK_URL, wait_until="domcontentloaded", timeout=30_000)
 
-            # Find sportsbook iframe
-            try:
-                page.wait_for_selector("iframe#sportsbookid", timeout=15_000)
-            except PWTimeout:
-                raise RuntimeError("iframe#sportsbookid not found after 15s")
+            sb_frame = None
 
-            el = page.query_selector("iframe#sportsbookid")
-            if not el:
-                raise RuntimeError("iframe#sportsbookid element returned None")
+            # ── 1X2 extraction with retry ─────────────────────────────────────
+            for attempt in range(1, max_retries + 1):
+                if attempt > 1:
+                    if verbose:
+                        print(f"[NT Playwright] Retry {attempt}/{max_retries}: reloading page...")
+                    try:
+                        page.reload(wait_until="domcontentloaded", timeout=30_000)
+                    except Exception:
+                        pass
+                    page.wait_for_timeout(3_000)
 
-            sb_frame = el.content_frame()
-            if not sb_frame:
-                raise RuntimeError("iframe has no content frame")
+                # Dismiss cookie overlay before any selection/rendering
+                _dismiss_cookie(page)
 
-            # Wait for selection divs to appear in the iframe
-            try:
-                sb_frame.wait_for_selector(
-                    "[data-for^='selection-event-']",
-                    timeout=timeout_ms,
-                )
-            except PWTimeout:
-                raise RuntimeError(f"No selection-event divs after {timeout_ms//1000}s")
-
-            # Let WebSocket data settle
-            page.wait_for_timeout(settle_ms)
-
-            # Extract metadata (teams/kickoff/league) from EventContainers
-            containers = sb_frame.query_selector_all("[class*='EventContainer']")
-            meta_list: list[dict] = []
-            for c in containers:
+                # Acquire sportsbook iframe
                 try:
-                    team_els = c.query_selector_all("[class*='ParticipantNameItem']")
-                    teams    = [(t.inner_text() or "").strip() for t in team_els]
-                    if len(teams) < 2:
-                        continue
-                    kickoff_raw = ""
-                    dt = c.query_selector("[class*='DateContainer']")
-                    if dt:
-                        kickoff_raw = (dt.inner_text() or "").strip()
-                    league_str = ""
-                    lg = c.query_selector("[class*='TournamentNameItem']")
-                    if lg:
-                        league_str = (lg.inner_text() or "").strip()
-                    meta_list.append({
-                        "home": teams[0],
-                        "away": teams[1],
-                        "kickoff_raw": kickoff_raw,
-                        "league": league_str,
-                    })
+                    page.wait_for_selector("iframe#sportsbookid", timeout=15_000)
+                except PWTimeout:
+                    if verbose:
+                        print(f"[NT Playwright] Attempt {attempt}: iframe#sportsbookid not found after 15s")
+                    _dump_debug_info(page, None, attempt, verbose)
+                    continue
+
+                el = page.query_selector("iframe#sportsbookid")
+                if not el:
+                    if verbose:
+                        print(f"[NT Playwright] Attempt {attempt}: iframe element is None")
+                    continue
+                sb_frame = el.content_frame()
+                if not sb_frame:
+                    if verbose:
+                        print(f"[NT Playwright] Attempt {attempt}: iframe has no content frame")
+                    continue
+
+                # Wait for selection divs to exist
+                try:
+                    sb_frame.wait_for_selector("[data-for^='selection-event-']", timeout=timeout_ms)
+                except PWTimeout:
+                    if verbose:
+                        print(
+                            f"[NT Playwright] Attempt {attempt}: "
+                            f"no selection-event divs after {timeout_ms // 1000}s"
+                        )
+                    _dump_debug_info(page, sb_frame, attempt, verbose)
+                    continue
+
+                # Wait for WebSocket odds to fill the aria-labels (not loading skeletons)
+                if not _wait_for_real_odds(sb_frame, timeout_ms=20_000):
+                    if verbose:
+                        print(
+                            f"[NT Playwright] Attempt {attempt}: "
+                            "selection divs present but no real odds in aria-labels after 20s"
+                        )
+                    _dump_debug_info(page, sb_frame, attempt, verbose)
+                    continue
+
+                # Additional WebSocket settle
+                page.wait_for_timeout(settle_ms)
+
+                # Log diagnostics on every successful load
+                try:
+                    _iframe_n = len(page.query_selector_all("iframe"))
+                    _btn_n    = len(sb_frame.query_selector_all(_BTN_MORE))
+                    if verbose:
+                        print(
+                            f"[NT Playwright] Attempt {attempt}: "
+                            f"url={page.url!r}  iframes={_iframe_n}  btns={_btn_n}"
+                        )
                 except Exception:
                     pass
 
-            # Extract all selections in DOM order
-            sel_divs = sb_frame.query_selector_all("[data-for^='selection-event-']")
-            selections: list[dict[str, Any]] = []
-            for div in sel_divs:
-                aria    = div.get_attribute("aria-label") or ""
-                data_for = div.get_attribute("data-for") or ""
-                m2 = _ARIA_ODDS_RE.search(aria)
-                if not m2:
+                # Extract metadata + selections
+                meta_list, selections = _extract_1x2(sb_frame)
+                if verbose:
+                    print(
+                        f"[NT Playwright] Attempt {attempt}: "
+                        f"containers={len(meta_list)}  sel_divs={len(selections)}"
+                    )
+
+                # Assemble match records
+                n_meta = len(meta_list)
+                candidate: list[dict] = []
+                for i, gs in enumerate(range(0, len(selections) - 2, 3)):
+                    trio = selections[gs:gs + 3]
+                    if len(trio) < 3:
+                        break
+                    if i < n_meta:
+                        home   = meta_list[i]["home"]
+                        away   = meta_list[i]["away"]
+                        ko_raw = meta_list[i]["kickoff_raw"]
+                        league = meta_list[i]["league"]
+                    else:
+                        home   = trio[0]["label"]
+                        away   = trio[2]["label"]
+                        ko_raw = ""
+                        league = ""
+                    ko_iso  = _parse_nt_kickoff(ko_raw)
+                    ko_date = (ko_iso or "")[:10]
+                    candidate.append({
+                        "home_team":    home,
+                        "away_team":    away,
+                        "league":       league,
+                        "kickoff_raw":  ko_raw,
+                        "kickoff_iso":  ko_iso,
+                        "kickoff_date": ko_date,
+                        "fixture_key":  make_fixture_key(home, away, ko_date),
+                        "odds_h":       trio[0]["odds"],
+                        "odds_u":       trio[1]["odds"],
+                        "odds_b":       trio[2]["odds"],
+                        "sel_labels":   [s["label"] for s in trio],
+                    })
+
+                if not candidate:
+                    if verbose:
+                        print(
+                            f"[NT Playwright] Attempt {attempt}: "
+                            f"0 matches assembled (containers={len(meta_list)}, sels={len(selections)})"
+                        )
+                    _dump_debug_info(page, sb_frame, attempt, verbose)
                     continue
-                odds_v = float(m2.group(1))
-                if not (1.01 <= odds_v <= 99.0):
-                    continue
-                label = aria.split(",")[0].strip()
-                selections.append({"label": label, "odds": odds_v, "data_for": data_for})
 
-            # Group selections into triples (H, U, B per match, in DOM order)
-            n_meta = len(meta_list)
-            for i, group_start in enumerate(range(0, len(selections) - 2, 3)):
-                trio = selections[group_start:group_start + 3]
-                if len(trio) < 3:
-                    break
+                matches_extracted = candidate
+                if verbose:
+                    print(
+                        f"[NT Playwright] Attempt {attempt}: "
+                        f"{len(matches_extracted)} matches -- OK"
+                    )
+                break  # success
 
-                if i < n_meta:
-                    home    = meta_list[i]["home"]
-                    away    = meta_list[i]["away"]
-                    ko_raw  = meta_list[i]["kickoff_raw"]
-                    league  = meta_list[i]["league"]
-                else:
-                    home    = trio[0]["label"]
-                    away    = trio[2]["label"]
-                    ko_raw  = ""
-                    league  = ""
+            if not matches_extracted and verbose:
+                print(f"[NT Playwright] 1X2 extraction failed after {max_retries} attempts")
 
-                ko_iso  = _parse_nt_kickoff(ko_raw)
-                ko_date = (ko_iso or "")[:10]
-
-                matches_extracted.append({
-                    "home_team":    home,
-                    "away_team":    away,
-                    "league":       league,
-                    "kickoff_raw":  ko_raw,
-                    "kickoff_iso":  ko_iso,
-                    "kickoff_date": ko_date,
-                    "fixture_key":  make_fixture_key(home, away, ko_date),
-                    "odds_h":       trio[0]["odds"],
-                    "odds_u":       trio[1]["odds"],
-                    "odds_b":       trio[2]["odds"],
-                    "sel_labels":   [s["label"] for s in trio],
-                })
-
-            # Navigate to each event detail to extract BTTS and O/U 2.5
-            if matches_extracted:
+            # ── BTTS / O/U 2.5 (per-event navigation) ────────────────────────
+            if matches_extracted and sb_frame:
                 _dismiss_cookie(page)
                 page.wait_for_timeout(500)
                 _sbf = sb_frame
@@ -569,11 +740,11 @@ def scrape_nt_oddsen_playwright(
                             _sbf = (_el.content_frame() if _el else _sbf) or _sbf
                             if not _sbf.query_selector_all(_BTN_MORE):
                                 if verbose:
-                                    print(f"[NT Playwright] history.back() failed at idx {idx}, stopping detail nav")
+                                    print(f"[NT Playwright] history.back() lost btn list at idx {idx}, stopping")
                                 break
                     except Exception as _ev_exc:
                         if verbose:
-                            print(f"[NT Playwright] event {idx} detail error: {_ev_exc!s:.60}")
+                            print(f"[NT Playwright] event {idx} detail error: {_ev_exc!s:.80}")
                         break
 
             browser.close()
@@ -584,13 +755,20 @@ def scrape_nt_oddsen_playwright(
             print(f"[NT Playwright] ERROR: {exc}")
 
     n_btts_extracted = sum(1 for v in btts_ou_results.values() if v.get("btts_yes"))
-    n_ou_extracted   = sum(1 for v in btts_ou_results.values() if v.get("over_25"))
+    n_ou15_extracted = sum(1 for v in btts_ou_results.values() if v.get("over_15"))
+    n_ou25_extracted = sum(1 for v in btts_ou_results.values() if v.get("over_25"))
+    n_ou35_extracted = sum(1 for v in btts_ou_results.values() if v.get("over_35"))
+    n_dnb_extracted  = sum(1 for v in btts_ou_results.values() if v.get("dnb_home"))
 
     if verbose and matches_extracted:
-        print(f"[NT Playwright] Extracted {len(matches_extracted)} matches")
-        print(f"[NT Playwright] BTTS/O/U: {n_btts_extracted} BTTS, {n_ou_extracted} O/U 2.5 out of {len(matches_extracted)} matches")
+        print(
+            f"[NT Playwright] Extracted {len(matches_extracted)} matches  "
+            f"BTTS={n_btts_extracted}  "
+            f"OU1.5={n_ou15_extracted}  OU2.5={n_ou25_extracted}  OU3.5={n_ou35_extracted}  "
+            f"DNB={n_dnb_extracted}"
+        )
 
-    # Build DB rows and store
+    # ── Build DB rows and store ───────────────────────────────────────────────
     rows: list[dict] = []
     for m in matches_extracted:
         fk = m["fixture_key"]
@@ -604,7 +782,6 @@ def scrape_nt_oddsen_playwright(
             "kickoff_iso":      m["kickoff_iso"],
             "confidence_score": 1.0,
         }
-        # 1X2
         raw_1x2 = json.dumps({
             "home": m["home_team"], "away": m["away_team"],
             "league": m["league"], "kickoff_raw": m["kickoff_raw"],
@@ -614,18 +791,27 @@ def scrape_nt_oddsen_playwright(
         rows.append({**base_1x2, "selection": "H", "odds": m["odds_h"]})
         rows.append({**base_1x2, "selection": "U", "odds": m["odds_u"]})
         rows.append({**base_1x2, "selection": "B", "odds": m["odds_b"]})
-        # BTTS / O/U 2.5
         ou = btts_ou_results.get(fk, {})
         if ou.get("btts_yes") and ou.get("btts_no"):
             raw_btts = json.dumps({"yes": ou["btts_yes"], "no": ou["btts_no"]})
             base_btts = {**base_common, "market": "BTTS", "raw_json": raw_btts}
             rows.append({**base_btts, "selection": "YES", "odds": ou["btts_yes"]})
             rows.append({**base_btts, "selection": "NO",  "odds": ou["btts_no"]})
+        if ou.get("over_15") and ou.get("under_15"):
+            raw_ou15 = json.dumps({"over": ou["over_15"], "under": ou["under_15"]})
+            base_ou15 = {**base_common, "market": "OVER_UNDER_1_5", "raw_json": raw_ou15}
+            rows.append({**base_ou15, "selection": "OVER",  "odds": ou["over_15"]})
+            rows.append({**base_ou15, "selection": "UNDER", "odds": ou["under_15"]})
         if ou.get("over_25") and ou.get("under_25"):
             raw_ou = json.dumps({"over": ou["over_25"], "under": ou["under_25"]})
             base_ou = {**base_common, "market": "OVER_UNDER_2_5", "raw_json": raw_ou}
             rows.append({**base_ou, "selection": "OVER",  "odds": ou["over_25"]})
             rows.append({**base_ou, "selection": "UNDER", "odds": ou["under_25"]})
+        if ou.get("over_35") and ou.get("under_35"):
+            raw_ou35 = json.dumps({"over": ou["over_35"], "under": ou["under_35"]})
+            base_ou35 = {**base_common, "market": "OVER_UNDER_3_5", "raw_json": raw_ou35}
+            rows.append({**base_ou35, "selection": "OVER",  "odds": ou["over_35"]})
+            rows.append({**base_ou35, "selection": "UNDER", "odds": ou["under_35"]})
 
     n_stored = 0
     if rows:
@@ -642,13 +828,18 @@ def scrape_nt_oddsen_playwright(
             error_msg = error_msg or str(exc)
 
     if verbose and n_stored:
-        print(f"[NT Playwright] Stored {n_stored} rows ({len(matches_extracted)} matches)")
+        print(f"[NT Playwright] Stored {n_stored} rows ({len(matches_extracted)} matches × 1X2 + BTTS/OU)")
 
     return {
         "n_matches":     len(matches_extracted),
+        "n_fixtures":    len(matches_extracted),   # alias
         "n_btts":        n_btts_extracted,
-        "n_ou25":        n_ou_extracted,
+        "n_ou15":        n_ou15_extracted,
+        "n_ou25":        n_ou25_extracted,
+        "n_ou35":        n_ou35_extracted,
+        "n_dnb":         n_dnb_extracted,
         "n_rows_stored": n_stored,
+        "n_stored":      n_stored,                 # alias
         "scraped_at":    scraped_at,
         "matches":       matches_extracted,
         "error":         error_msg,
