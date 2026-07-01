@@ -29,15 +29,30 @@ def _best_odds(r: dict) -> tuple[float, float, float, str]:
 
     Priority:
       1. Bookmaker odds from the odds table (pinnacle, norsk_tipping, etc.)
-      2. Equal-probability placeholder 3.0/3.0/3.0 when no bookmaker odds.
+      2. Estimated-prior converted to implied odds — better than 3/3/3 when
+         the fixture has NT expert percentages + AF enrichment data.
+      3. Equal-probability placeholder 3.0/3.0/3.0 — explicit fallback of
+         last resort; downstream model treats this as low-confidence and the
+         data_quality field will be set to "estimated_prior"/"nt_expert_only"
+         so the UI can show a warning.
 
-    NT expert tips are NOT used as synthetic odds — they must not influence
-    model probability. Use build_matches()/load_matches() estimated_prior
-    override for a better no-odds base when AF enrichment is available.
+    NT expert tips are NOT used as synthetic odds directly — estimated_prior
+    is a blended prior (NT expert 60% + stats 40%) computed by estimated_prior.py
+    and is acceptable as a substitute prior when no bookmaker odds exist.
     """
     if r.get("odds_h") is not None:
         src = r.get("source") or "bookmaker"
         return float(r["odds_h"]), float(r["odds_u"]), float(r["odds_b"]), src
+
+    # estimated_prior: convert probability → implied decimal odds
+    if r.get("estimated_h") is not None:
+        try:
+            oh = round(1.0 / float(r["estimated_h"]), 4)
+            ou = round(1.0 / float(r["estimated_u"]), 4)
+            ob = round(1.0 / float(r["estimated_b"]), 4)
+            return oh, ou, ob, "estimated_prior"
+        except (ZeroDivisionError, TypeError, ValueError):
+            pass
 
     return 3.0, 3.0, 3.0, "placeholder"
 

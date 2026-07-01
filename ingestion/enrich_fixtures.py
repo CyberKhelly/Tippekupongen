@@ -640,28 +640,52 @@ def enrich_active_fixtures(
         season = f["af_season"]
         status = f["af_status"]
 
-        if status == "not_covered" or lid is None:
+        if status == "not_covered":
             n_skipped += 1
             continue
 
-        from_d, to_d = _date_range(f["kick_date"])
-        cache_key = (lid, season, from_d, to_d)
+        # If competition is unknown or has no mapped league, skip to date-based fallback below
+        if lid is None:
+            matched_af = None
+            confidence = 0.0
+        else:
+            from_d, to_d = _date_range(f["kick_date"])
+            cache_key = (lid, season, from_d, to_d)
 
-        if cache_key not in af_fix_cache:
-            try:
-                af_fix_cache[cache_key] = get_fixtures(
-                    league_id=lid, season=season, from_date=from_d, to_date=to_d
-                )
-            except Exception as exc:
+            if cache_key not in af_fix_cache:
+                try:
+                    af_fix_cache[cache_key] = get_fixtures(
+                        league_id=lid, season=season, from_date=from_d, to_date=to_d
+                    )
+                except Exception as exc:
+                    if verbose:
+                        print(f"  [WARN] AF fixtures fetch failed (league {lid}): {exc}")
+                    af_fix_cache[cache_key] = []
+
+            matched_af, confidence = _match_to_af(
+                f["home_name"], f["away_name"], af_fix_cache[cache_key]
+            )
+
+        # When competition-map match fails, try date-based cross-league fallback
+        if not matched_af and status in ("unknown", "probe"):
+            fb_fix, fb_conf, fb_lid, fb_season, fb_league, fb_country = _search_af_fixture_fallback(
+                f["home_name"], f["away_name"], f["kick_date"], verbose=verbose
+            )
+            if fb_fix:
+                matched_af = fb_fix
+                confidence = fb_conf
+                # Carry fallback league data so the link below uses the right IDs
+                lid    = fb_lid
+                season = fb_season
+                f["_fallback_league"]  = fb_league
+                f["_fallback_country"] = fb_country
+                f["_link_source"]      = "auto_link_fallback"
+            else:
+                n_failed += 1
                 if verbose:
-                    print(f"  [WARN] AF fixtures fetch failed (league {lid}): {exc}")
-                af_fix_cache[cache_key] = []
-
-        matched_af, confidence = _match_to_af(
-            f["home_name"], f["away_name"], af_fix_cache[cache_key]
-        )
-
-        if not matched_af:
+                    print(f"  [MISS] {f['home_name']:<22} vs {f['away_name']:<22}  (no competition map + fallback miss)")
+                continue
+        elif not matched_af:
             n_failed += 1
             if verbose:
                 print(f"  [MISS] {f['home_name']:<22} vs {f['away_name']:<22}  (league {lid})")
@@ -678,13 +702,16 @@ def enrich_active_fixtures(
         away_logo  = matched_af["teams"]["away"].get("logo")
 
         upsert_fixture_link(
-            fixture_id=f["fixture_id"],
-            af_fixture_id=af_fix_id,
-            af_league_id=lid,
-            af_season=season,
-            af_home_team_id=af_home_id,
-            af_away_team_id=af_away_id,
-            match_confidence=confidence,
+            fixture_id      = f["fixture_id"],
+            af_fixture_id   = af_fix_id,
+            af_league_id    = lid,
+            af_season       = season,
+            af_home_team_id = af_home_id,
+            af_away_team_id = af_away_id,
+            match_confidence = confidence,
+            link_source     = f.get("_link_source", "competition_map"),
+            af_league_name  = f.get("_fallback_league"),
+            af_country      = f.get("_fallback_country"),
         )
 
         try:
@@ -1003,4 +1030,264 @@ def enrich_nt_oddsen_fixtures(
         "n_fetched_new":      n_fetched_new,
         "n_no_af_link":       n_no_af_link,
         "n_failed":           n_failed,
+    }
+
+
+# ── Auto-link fallback: date-based cross-league fixture search ────────────────
+
+def _score_match_fallback(home_en: str, away_en: str, af_home: str, af_away: str) -> float:
+    """
+    Score a team-name pair match 0.0–1.0.
+    Combines exact, substring, and token-overlap checks.
+    Used for the date-based fallback when the competition is not in _NT_COMPETITION_MAP.
+    """
+    def _sim(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        if a == b:
+            return 1.0
+        if len(a) >= 4 and a in b:
+            return 0.90
+        if len(b) >= 4 and b in a:
+            return 0.90
+        # Token-set overlap
+        ta = set(a.split())
+        tb = set(b.split())
+        if ta and tb:
+            overlap = len(ta & tb) / max(len(ta), len(tb))
+            if overlap >= 0.5:
+                return 0.70
+        # 4-char prefix
+        if len(a) >= 4 and len(b) >= 4 and a[:4] == b[:4]:
+            return 0.60
+        return 0.0
+
+    h = _sim(home_en, af_home)
+    a = _sim(away_en, af_away)
+    if h == 0.0 and a == 0.0:
+        return 0.0
+    return (h + a) / 2.0
+
+
+def _search_af_fixture_fallback(
+    nt_home:    str,
+    nt_away:    str,
+    kick_date:  str,         # YYYY-MM-DD local date
+    verbose:    bool = False,
+) -> tuple[dict | None, float, int | None, int | None, str | None, str | None]:
+    """
+    Search for an AF fixture by date across ALL leagues when no competition mapping exists.
+
+    Calls GET /fixtures?date=YYYY-MM-DD (returns all fixtures on that date globally),
+    then fuzzy-matches team names.
+
+    Returns:
+        (af_fixture, confidence, af_league_id, af_season, league_name, country)
+        or (None, 0.0, None, None, None, None) if no match above threshold.
+    """
+    from ingestion.api_football import get_fixtures, translate_team_name
+
+    home_en = translate_team_name(nt_home)
+    away_en = translate_team_name(nt_away)
+
+    # Try kick_date and the day before (CEST offset can push UTC date back)
+    dates_to_try: list[str] = [kick_date]
+    try:
+        from datetime import date as _date, timedelta
+        d = _date.fromisoformat(kick_date)
+        dates_to_try = [(d - timedelta(days=1)).isoformat(), kick_date]
+    except (ValueError, TypeError):
+        pass
+
+    best_fixture:     dict | None = None
+    best_score:       float       = 0.0
+    best_league_id:   int | None  = None
+    best_season:      int | None  = None
+    best_league_name: str | None  = None
+    best_country:     str | None  = None
+    seen: set[int] = set()
+
+    for date_str in dates_to_try:
+        try:
+            fixtures = get_fixtures(date=date_str)
+        except Exception as exc:
+            if verbose:
+                print(f"  [FALLBACK] date fetch failed ({date_str}): {exc}")
+            continue
+
+        for af in fixtures:
+            af_id = af.get("fixture", {}).get("id")
+            if af_id in seen:
+                continue
+            seen.add(af_id)
+
+            af_home = translate_team_name(af.get("teams", {}).get("home", {}).get("name", ""))
+            af_away = translate_team_name(af.get("teams", {}).get("away", {}).get("name", ""))
+
+            score = _score_match_fallback(home_en, away_en, af_home, af_away)
+            if score > best_score:
+                best_score       = score
+                best_fixture     = af
+                best_league_id   = af.get("league", {}).get("id")
+                best_season      = af.get("league", {}).get("season")
+                best_league_name = af.get("league", {}).get("name")
+                best_country     = af.get("league", {}).get("country")
+
+    _FALLBACK_THRESHOLD = 0.80
+    if best_score >= _FALLBACK_THRESHOLD:
+        if verbose:
+            home_n = best_fixture["teams"]["home"]["name"]
+            away_n = best_fixture["teams"]["away"]["name"]
+            print(
+                f"  [FALLBACK OK]  '{nt_home}' vs '{nt_away}' -> "
+                f"'{home_n}' vs '{away_n}'  "
+                f"league={best_league_id} ({best_league_name}, {best_country})  "
+                f"score={best_score:.2f}"
+            )
+        return best_fixture, best_score, best_league_id, best_season, best_league_name, best_country
+
+    if verbose and best_score > 0:
+        home_n = best_fixture["teams"]["home"]["name"] if best_fixture else "?"
+        away_n = best_fixture["teams"]["away"]["name"] if best_fixture else "?"
+        print(
+            f"  [FALLBACK MISS]  '{nt_home}' vs '{nt_away}' "
+            f"best={best_score:.2f} ('{home_n}' vs '{away_n}') — below threshold"
+        )
+    return None, 0.0, None, None, None, None
+
+
+def auto_link_unresolved_coupon_fixtures(
+    week:    int,
+    year:    int,
+    verbose: bool = True,
+) -> dict:
+    """
+    For each NT coupon fixture that has no AF link and no valid competition mapping,
+    attempt a date-based cross-league search on API-Football.
+
+    On success:
+    - Inserts api_football_fixture_links with link_source='auto_link_fallback'
+    - Runs _fetch_enrichment() to populate fixture_stat_enrichment
+    - Returns a summary dict
+
+    Fixtures with unknown opponents (W80 pattern) are classified and skipped.
+    """
+    from config import API_FOOTBALL_KEY
+    if not API_FOOTBALL_KEY:
+        return {"error": "API_FOOTBALL_KEY not set"}
+
+    from db.connection import get_conn
+    from db.coupon import list_coupons, get_coupon_matches
+    from db.enrichment import upsert_fixture_link, upsert_stat_enrichment
+    from ingestion.api_football import map_nt_competition
+    import re
+
+    coupons = list_coupons(week=week, year=year)
+    if not coupons:
+        return {"error": f"No coupons for week {week}/{year}"}
+
+    # Build a set of fixture_ids that already have AF links
+    with get_conn() as _c:
+        linked_fids = {
+            r[0] for r in _c.execute(
+                "SELECT fixture_id FROM api_football_fixture_links"
+            ).fetchall()
+        }
+
+    standings_cache:  dict = {}
+    stats_cache:      dict = {}
+    recent_cache:     dict = {}
+    fix_stats_cache:  dict = {}
+
+    n_total       = 0
+    n_already     = 0
+    n_skipped     = 0
+    n_auto_linked = 0
+    n_enriched    = 0
+    n_failed      = 0
+    unresolved:   list[str] = []
+
+    for coupon in coupons:
+        for m in get_coupon_matches(coupon["coupon_id"]):
+            fid = m["fixture_id"]
+            n_total += 1
+
+            # Already linked — skip
+            if fid in linked_fids:
+                n_already += 1
+                continue
+
+            home = m.get("home_name", "") or ""
+            away = m.get("away_name", "") or ""
+            arr  = m.get("arrangement_name") or m.get("competition_id") or ""
+            ko   = (m.get("kickoff_utc") or "")[:10]  # YYYY-MM-DD
+
+            # Unknown opponent pattern (W80, W81, … = TBD WC/tournament bracket slot)
+            away_id = m.get("away_team_id") or ""
+            if re.match(r"^w\d+", away_id.lower()):
+                n_skipped += 1
+                if verbose:
+                    print(f"  [SKIP]  {home} vs {away} — unknown opponent ({away_id})")
+                continue
+
+            # Check if competition is "not_covered" (known unmappable league)
+            _, _, status = map_nt_competition(arr)
+            if status == "not_covered":
+                # Still try date fallback — "not_covered" means the competition map
+                # has no entry but the fixture may exist in AF under a different league
+                pass
+
+            if verbose:
+                print(f"  [TRY]  {home} vs {away}  ({arr}, {ko})")
+
+            af_fix, conf, af_lid, af_season, league_name, country = _search_af_fixture_fallback(
+                home, away, ko, verbose=verbose
+            )
+
+            if af_fix is None:
+                n_failed += 1
+                unresolved.append(f"{home} vs {away} ({arr})")
+                if verbose:
+                    print(f"  [UNRESOLVED]  {home} vs {away}")
+                continue
+
+            af_fix_id  = af_fix["fixture"]["id"]
+            af_home_id = af_fix["teams"]["home"]["id"]
+            af_away_id = af_fix["teams"]["away"]["id"]
+
+            upsert_fixture_link(
+                fixture_id      = fid,
+                af_fixture_id   = af_fix_id,
+                af_league_id    = af_lid,
+                af_season       = af_season,
+                af_home_team_id = af_home_id,
+                af_away_team_id = af_away_id,
+                match_confidence = conf,
+                link_source     = "auto_link_fallback",
+                af_league_name  = league_name,
+                af_country      = country,
+            )
+            linked_fids.add(fid)
+            n_auto_linked += 1
+
+            try:
+                enrichment = _fetch_enrichment(
+                    af_fix_id, af_lid, af_season, af_home_id, af_away_id,
+                    standings_cache, stats_cache, recent_cache, fix_stats_cache,
+                )
+                upsert_stat_enrichment(fid, **enrichment)
+                n_enriched += 1
+            except Exception as exc:
+                n_failed += 1
+                if verbose:
+                    print(f"  [ERR]  enrichment for {home} vs {away}: {exc}")
+
+    return {
+        "n_total":       n_total,
+        "n_already":     n_already,
+        "n_skipped":     n_skipped,
+        "n_auto_linked": n_auto_linked,
+        "n_enriched":    n_enriched,
+        "n_failed":      n_failed,
+        "unresolved":    unresolved,
     }

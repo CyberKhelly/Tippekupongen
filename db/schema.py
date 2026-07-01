@@ -596,6 +596,22 @@ def _add_phase13_columns(conn) -> None:
             pass  # column already exists
 
 
+# Auto-link fallback — link_source distinguishes competition-map links from date-search auto-links
+_AF_LINK_AUTOLINK_COLUMNS: list[tuple[str, str]] = [
+    ("api_football_fixture_links", "link_source TEXT DEFAULT 'competition_map'"),
+    ("api_football_fixture_links", "af_league_name TEXT"),
+    ("api_football_fixture_links", "af_country TEXT"),
+]
+
+
+def _add_af_link_autolink_columns(conn) -> None:
+    for table, col_def in _AF_LINK_AUTOLINK_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists
+
+
 # Phase 14 — Oddstips: multi-market odds storage + paper bet tracking
 # odds_markets uses a row-per-selection design:
 #   one row per (fixture_id, market_key, selection)
@@ -788,6 +804,7 @@ def init_db() -> None:
         _add_phase11_columns(conn)
         _add_phase12_columns(conn)
         _add_phase13_columns(conn)
+        _add_af_link_autolink_columns(conn)
         _migrate_phase14_odds_markets(conn)
         conn.executescript(_DDL_PHASE14_TABLES)
         conn.executescript(_DDL_PREDICTIONS)

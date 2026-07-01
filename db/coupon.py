@@ -276,8 +276,11 @@ def list_active_coupons() -> list[dict]:
 def get_coupon_matches(coupon_id: str) -> list[dict]:
     """
     Return enriched match rows for a coupon ordered by match_number.
-    Includes home/away display names, best available odds, and tips percentages.
+    Includes home/away display names, best available odds, estimated_prior fallback,
+    and a data_quality classification per fixture.
     """
+    import re
+
     with get_conn() as conn:
         rows = conn.execute(
             """SELECT cf.match_number,
@@ -293,11 +296,15 @@ def get_coupon_matches(coupon_id: str) -> list[dict]:
                       th.name_canonical AS home_name_en,
                       ta.name_canonical AS away_name_en,
                       th.nt_team_id    AS home_nt_team_id,
-                      ta.nt_team_id    AS away_nt_team_id
+                      ta.nt_team_id    AS away_nt_team_id,
+                      ep.estimated_h, ep.estimated_u, ep.estimated_b,
+                      ep.source        AS estimated_source,
+                      ep.confidence    AS estimated_confidence
                FROM coupon_fixtures cf
                JOIN fixtures f ON f.fixture_id = cf.fixture_id
                JOIN teams th   ON th.team_id   = f.home_team_id
                JOIN teams ta   ON ta.team_id   = f.away_team_id
+               LEFT JOIN fixture_estimated_prior ep ON ep.fixture_id = f.fixture_id
                WHERE cf.coupon_id = ?
                ORDER BY cf.match_number""",
             (coupon_id,),
@@ -325,6 +332,27 @@ def get_coupon_matches(coupon_id: str) -> list[dict]:
             else:
                 rd["odds_h"] = rd["odds_u"] = rd["odds_b"] = None
                 rd["source"] = None
+
+            # Classify data quality so callers can warn or guard downstream
+            away_id = rd.get("away_team_id") or ""
+            if re.match(r"^w\d+", away_id.lower()):
+                rd["data_quality"] = "unknown_opponent"
+            elif rd["odds_h"] is not None:
+                has_enr = conn.execute(
+                    "SELECT has_api_football_data FROM fixture_stat_enrichment WHERE fixture_id=?",
+                    (rd["fixture_id"],),
+                ).fetchone()
+                if has_enr and has_enr[0]:
+                    rd["data_quality"] = "full_model"
+                else:
+                    rd["data_quality"] = "odds_only"
+            elif rd.get("estimated_h") is not None:
+                rd["data_quality"] = "estimated_prior"
+            elif rd.get("expert_h") is not None:
+                rd["data_quality"] = "nt_expert_only"
+            else:
+                rd["data_quality"] = "unresolved"
+
             result.append(rd)
 
     return result

@@ -95,6 +95,18 @@ _NT_COMPETITION_MAP: list[tuple[str, int | None, int | None, str]] = [
     ("IRL First Division",              358,    2026,   "ok"),
     # Finland — AF 244 = Veikkausliiga, season 2026 confirmed via /leagues
     ("FIN Veikkausliiga",               244,    2026,   "ok"),
+    # Finland — second tier (Ykkonen); AF ID unverified — probe, date-fallback handles miss
+    ("FIN 1. divisjon",                 484,    2026,   "probe"),
+    # Faroe Islands — Betri Deildin; AF ID unverified — probe
+    ("FAR Betri Deildin",               271,    2026,   "probe"),
+    ("Betri Deildin",                   271,    2026,   "probe"),
+    # Estonia — Meistriliiga; AF ID unverified — probe
+    ("EST Meistriliiga",                324,    2026,   "probe"),
+    ("Meistriliiga",                    324,    2026,   "probe"),
+    # UEFA U19 European Championship — AF ID unverified; date-fallback handles miss
+    ("U19 EM",                          None,   None,   "not_covered"),
+    ("INT U19 EM",                      None,   None,   "not_covered"),
+    ("U-19 European Championship",      None,   None,   "not_covered"),
 ]
 
 # Norwegian team name (lower-cased, pre-normalised) → English (for API-Football matching).

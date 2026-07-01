@@ -24,6 +24,9 @@ def upsert_fixture_link(
     af_home_team_id:    int | None,
     af_away_team_id:    int | None,
     match_confidence:   float,
+    link_source:        str = "competition_map",
+    af_league_name:     str | None = None,
+    af_country:         str | None = None,
 ) -> None:
     with get_conn() as conn:
         # If this af_fixture_id is already owned by a different fixture (e.g. a shadow
@@ -41,8 +44,9 @@ def upsert_fixture_link(
             """INSERT INTO api_football_fixture_links
                (fixture_id, api_football_fixture_id, api_football_league_id,
                 api_football_season, api_football_home_team_id,
-                api_football_away_team_id, match_confidence, matched_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                api_football_away_team_id, match_confidence, matched_at,
+                link_source, af_league_name, af_country)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(fixture_id) DO UPDATE SET
                    api_football_fixture_id   = excluded.api_football_fixture_id,
                    api_football_league_id    = excluded.api_football_league_id,
@@ -50,9 +54,13 @@ def upsert_fixture_link(
                    api_football_home_team_id = excluded.api_football_home_team_id,
                    api_football_away_team_id = excluded.api_football_away_team_id,
                    match_confidence          = excluded.match_confidence,
-                   matched_at                = excluded.matched_at""",
+                   matched_at                = excluded.matched_at,
+                   link_source               = excluded.link_source,
+                   af_league_name            = excluded.af_league_name,
+                   af_country                = excluded.af_country""",
             (fixture_id, af_fixture_id, af_league_id, af_season,
-             af_home_team_id, af_away_team_id, match_confidence, _now()),
+             af_home_team_id, af_away_team_id, match_confidence, _now(),
+             link_source, af_league_name, af_country),
         )
 
 

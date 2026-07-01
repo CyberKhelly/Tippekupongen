@@ -513,6 +513,10 @@ _SCAN_LEAGUES: list[tuple[int, int]] = [
     (357, 2026),   # IRL Premier Division
     (358, 2026),   # IRL First Division
     (72,  2026),   # BRA Série B
+    # Additional NT coupon leagues (IDs unverified — probe; removed if AF returns 0 fixtures)
+    (271, 2026),   # Faroe Islands Betri Deildin (probe)
+    (324, 2026),   # Estonia Meistriliiga (probe)
+    (484, 2026),   # Finland Ykkonen / 1. divisjon (probe)
 ]
 
 
