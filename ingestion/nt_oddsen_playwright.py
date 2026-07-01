@@ -505,6 +505,154 @@ def _extract_1x2(frame) -> tuple[list[dict], list[dict]]:
     return meta_list, selections
 
 
+# ---- Multi-category helpers -------------------------------------------------
+
+_CAT_PREFIX    = "navigation_verticalsportlist_sport_selection_"
+_CAT_NUMERIC   = re.compile(r"^\d+\.\d+$")
+
+
+def _assemble_matches(meta_list: list[dict], selections: list[dict]) -> list[dict]:
+    """Convert (meta_list, selections) from _extract_1x2 into match records."""
+    matches: list[dict] = []
+    n_meta = len(meta_list)
+    for i, gs in enumerate(range(0, len(selections) - 2, 3)):
+        trio = selections[gs:gs + 3]
+        if len(trio) < 3:
+            break
+        if i < n_meta:
+            home   = meta_list[i]["home"]
+            away   = meta_list[i]["away"]
+            ko_raw = meta_list[i]["kickoff_raw"]
+            league = meta_list[i]["league"]
+        else:
+            home   = trio[0]["label"]
+            away   = trio[2]["label"]
+            ko_raw = ""
+            league = ""
+        ko_iso  = _parse_nt_kickoff(ko_raw)
+        ko_date = (ko_iso or "")[:10]
+        matches.append({
+            "home_team":    home,
+            "away_team":    away,
+            "league":       league,
+            "kickoff_raw":  ko_raw,
+            "kickoff_iso":  ko_iso,
+            "kickoff_date": ko_date,
+            "fixture_key":  make_fixture_key(home, away, ko_date),
+            "odds_h":       trio[0]["odds"],
+            "odds_u":       trio[1]["odds"],
+            "odds_b":       trio[2]["odds"],
+            "sel_labels":   [s["label"] for s in trio],
+        })
+    return matches
+
+
+def _discover_categories(frame, page, verbose: bool = True) -> list[dict]:
+    """
+    Discover all football sub-category items from the left sidebar.
+    Returns [{"data_id": str, "label": str, "count": int|None}, ...] in DOM order.
+    Only returns numeric tournament IDs (e.g. 66748.1), not sport-level entries.
+    """
+    def _read(f) -> list[dict]:
+        cats: list[dict] = []
+        try:
+            items = f.query_selector_all(f'[data-id^="{_CAT_PREFIX}"]')
+            for item in items:
+                did    = item.get_attribute("data-id") or ""
+                suffix = did[len(_CAT_PREFIX):]
+                if not _CAT_NUMERIC.match(suffix):
+                    continue
+                label_raw = (item.inner_text() or "").strip()
+                m = re.match(r"^(.*?)\s*\((\d+)\)\s*$", label_raw)
+                if m:
+                    label = m.group(1).strip().lower()
+                    count = int(m.group(2))
+                else:
+                    label = label_raw.lower()
+                    count = None
+                cats.append({"data_id": did, "label": label, "count": count})
+        except Exception:
+            pass
+        return cats
+
+    cats = _read(frame)
+    if not cats:
+        # Sub-menu may be collapsed — click Fotball top-level to expand
+        try:
+            btn = frame.query_selector(f'[data-id="{_CAT_PREFIX}Fotball"]')
+            if btn:
+                btn.click()
+                page.wait_for_timeout(1_500)
+                cats = _read(frame)
+        except Exception:
+            pass
+    return cats
+
+
+def _extract_btts_ou_for_matches(
+    frame, page,
+    cat_matches:    list[dict],
+    settle_ms:      int,
+    btts_ou_results: dict,
+    cat_label:      str,
+    verbose:        bool,
+) -> int:
+    """
+    Per-event BTTS/OU extraction for all matches in cat_matches.
+    Always does history.back() after each event (including the last) so the
+    caller is left on the category match listing, ready for the next category.
+    Returns the number of events where at least one market was extracted.
+    """
+    n_ok  = 0
+    _sbf  = frame
+    for idx in range(len(cat_matches)):
+        try:
+            _el   = page.query_selector("iframe#sportsbookid")
+            _sbf  = (_el.content_frame() if _el else _sbf) or _sbf
+            _btns = _sbf.query_selector_all(_BTN_MORE)
+            if len(_btns) <= idx:
+                break
+            _btns[idx].scroll_into_view_if_needed()
+            _btns[idx].click()
+            page.wait_for_timeout(settle_ms)
+            _el   = page.query_selector("iframe#sportsbookid")
+            _sbf  = (_el.content_frame() if _el else _sbf) or _sbf
+            _mkt  = _extract_btts_ou(_sbf)
+            fk    = cat_matches[idx]["fixture_key"]
+            if _mkt:
+                btts_ou_results[fk] = _mkt
+                n_ok += 1
+            # Always navigate back (even last event) so the next category click works
+            _sbf.evaluate("window.history.back()")
+            page.wait_for_timeout(2_000)
+            _el   = page.query_selector("iframe#sportsbookid")
+            _sbf  = (_el.content_frame() if _el else _sbf) or _sbf
+            is_last = (idx == len(cat_matches) - 1)
+            if not is_last:
+                try:
+                    _sbf.wait_for_selector(_SEL_DIV, timeout=12_000)
+                except Exception:
+                    pass
+                page.wait_for_timeout(settle_ms // 2)
+                _el   = page.query_selector("iframe#sportsbookid")
+                _sbf  = (_el.content_frame() if _el else _sbf) or _sbf
+                if not _sbf.query_selector_all(_BTN_MORE):
+                    if verbose:
+                        print(
+                            f"[NT Playwright] [{cat_label}] "
+                            f"history.back() lost btn list at idx {idx}, stopping BTTS/OU"
+                        )
+                    break
+        except Exception as ev_exc:
+            if verbose:
+                print(
+                    f"[NT Playwright] [{cat_label}] "
+                    f"event {idx} BTTS/OU error: {ev_exc!s:.80}"
+                )
+            break
+    return n_ok
+
+
 # ---- Scraper ----------------------------------------------------------------
 
 def scrape_nt_oddsen_playwright(
@@ -552,6 +700,7 @@ def scrape_nt_oddsen_playwright(
     matches_extracted: list[dict]       = []
     btts_ou_results:   dict[str, dict]  = {}
     error_msg: str | None               = None
+    cat_stats: list[dict]               = []
 
     try:
         with sync_playwright() as pw:
@@ -653,37 +802,7 @@ def scrape_nt_oddsen_playwright(
                     )
 
                 # Assemble match records
-                n_meta = len(meta_list)
-                candidate: list[dict] = []
-                for i, gs in enumerate(range(0, len(selections) - 2, 3)):
-                    trio = selections[gs:gs + 3]
-                    if len(trio) < 3:
-                        break
-                    if i < n_meta:
-                        home   = meta_list[i]["home"]
-                        away   = meta_list[i]["away"]
-                        ko_raw = meta_list[i]["kickoff_raw"]
-                        league = meta_list[i]["league"]
-                    else:
-                        home   = trio[0]["label"]
-                        away   = trio[2]["label"]
-                        ko_raw = ""
-                        league = ""
-                    ko_iso  = _parse_nt_kickoff(ko_raw)
-                    ko_date = (ko_iso or "")[:10]
-                    candidate.append({
-                        "home_team":    home,
-                        "away_team":    away,
-                        "league":       league,
-                        "kickoff_raw":  ko_raw,
-                        "kickoff_iso":  ko_iso,
-                        "kickoff_date": ko_date,
-                        "fixture_key":  make_fixture_key(home, away, ko_date),
-                        "odds_h":       trio[0]["odds"],
-                        "odds_u":       trio[1]["odds"],
-                        "odds_b":       trio[2]["odds"],
-                        "sel_labels":   [s["label"] for s in trio],
-                    })
+                candidate = _assemble_matches(meta_list, selections)
 
                 if not candidate:
                     if verbose:
@@ -705,8 +824,150 @@ def scrape_nt_oddsen_playwright(
             if not matches_extracted and verbose:
                 print(f"[NT Playwright] 1X2 extraction failed after {max_retries} attempts")
 
-            # ── BTTS / O/U 2.5 (per-event navigation) ────────────────────────
+            # ── Multi-category loop ───────────────────────────────────────────
+            did_per_category = False
+            cat_stats: list[dict] = []
+
             if matches_extracted and sb_frame:
+                # ── BTTS/OU for initial default-view matches ──────────────────
+                # Run while still on the initial view (before any category nav).
+                # This ensures WC/default fixtures get BTTS/OU even if their
+                # category fails to reload below.
+                _dismiss_cookie(page)
+                page.wait_for_timeout(300)
+                _n_init_btts = _extract_btts_ou_for_matches(
+                    sb_frame, page, list(matches_extracted),
+                    settle_ms, btts_ou_results, "initial", verbose,
+                )
+                if verbose:
+                    print(
+                        f"[NT Playwright] Initial BTTS/OU: "
+                        f"{_n_init_btts}/{len(matches_extracted)} events"
+                    )
+
+                categories_found = _discover_categories(sb_frame, page, verbose)
+                if verbose:
+                    print(
+                        f"[NT Playwright] Categories discovered: {len(categories_found)}  "
+                        + "  ".join(
+                            f"[{c['label']}={c['count']}]" for c in categories_found
+                        )
+                    )
+
+                if categories_found:
+                    # Seed with the initial extraction so that fixtures from
+                    # categories that fail to load (e.g. internasjonal reloading
+                    # slowly) are never dropped from the final output.
+                    all_cat_matches: list[dict] = list(matches_extracted)
+                    seen_keys: set[str]         = {m["fixture_key"] for m in matches_extracted}
+
+                    for cat in categories_found:
+                        cat_label = cat["label"]
+                        cat_stat: dict = {
+                            "label":     cat_label,
+                            "n_fixtures": 0,
+                            "n_btts_ou":  0,
+                            "error":      None,
+                        }
+                        try:
+                            # Click category nav item via JS (bypasses Playwright
+                            # actionability checks; sidebar items pass DOM-ready
+                            # but may fail Playwright's visible/stable guards)
+                            _el   = page.query_selector("iframe#sportsbookid")
+                            _sbf2 = (_el.content_frame() if _el else sb_frame) or sb_frame
+                            did_escaped = cat["data_id"].replace("'", "\\'")
+                            clicked = _sbf2.evaluate(
+                                f"() => {{ "
+                                f"  const el = document.querySelector('[data-id=\"{did_escaped}\"]'); "
+                                f"  if (!el) return false; "
+                                f"  el.click(); "
+                                f"  return true; "
+                                f"}}"
+                            )
+                            if not clicked:
+                                raise RuntimeError("category button not found in iframe")
+                            page.wait_for_timeout(2_000)
+
+                            _el   = page.query_selector("iframe#sportsbookid")
+                            _sbf2 = (_el.content_frame() if _el else sb_frame) or sb_frame
+
+                            if not _wait_for_real_odds(_sbf2, timeout_ms=15_000):
+                                raise RuntimeError("no real odds after 15 s")
+                            page.wait_for_timeout(settle_ms)
+
+                            _el   = page.query_selector("iframe#sportsbookid")
+                            _sbf2 = (_el.content_frame() if _el else sb_frame) or sb_frame
+
+                            meta_list, selections = _extract_1x2(_sbf2)
+                            cat_matches = _assemble_matches(meta_list, selections)
+
+                            # Dedup by fixture_key across categories
+                            new_matches = [
+                                m for m in cat_matches
+                                if m["fixture_key"] not in seen_keys
+                            ]
+                            n_dupes = len(cat_matches) - len(new_matches)
+                            for m in new_matches:
+                                seen_keys.add(m["fixture_key"])
+                            all_cat_matches.extend(new_matches)
+                            cat_stat["n_fixtures"] = len(new_matches)
+
+                            if verbose:
+                                print(
+                                    f"[NT Playwright] [{cat_label}] "
+                                    f"{len(new_matches)} fixtures"
+                                    + (f"  ({n_dupes} dupes skipped)" if n_dupes else "")
+                                )
+
+                            # BTTS/OU for this category's new fixtures
+                            if new_matches:
+                                _dismiss_cookie(page)
+                                page.wait_for_timeout(300)
+                                n_ok = _extract_btts_ou_for_matches(
+                                    _sbf2, page, new_matches,
+                                    settle_ms, btts_ou_results,
+                                    cat_label, verbose,
+                                )
+                                cat_stat["n_btts_ou"] = n_ok
+
+                        except Exception as cat_exc:
+                            cat_stat["error"] = str(cat_exc)[:120]
+                            if verbose:
+                                print(
+                                    f"[NT Playwright] [{cat_label}] FAILED: "
+                                    f"{cat_exc!s:.120}"
+                                )
+
+                        cat_stats.append(cat_stat)
+
+                    if all_cat_matches:
+                        matches_extracted  = all_cat_matches
+                        did_per_category   = True
+
+                        if verbose:
+                            ok_cats   = sum(1 for c in cat_stats if not c["error"])
+                            fail_cats = len(cat_stats) - ok_cats
+                            print(
+                                f"[NT Playwright] Category summary: "
+                                f"{ok_cats}/{len(cat_stats)} OK  "
+                                f"{len(matches_extracted)} unique fixtures  "
+                                f"failures={fail_cats}"
+                            )
+                            for c in cat_stats:
+                                status = "OK" if not c["error"] else f"FAIL({c['error'][:40]})"
+                                print(
+                                    f"  [{c['label']:20}] "
+                                    f"fixtures={c['n_fixtures']:3}  "
+                                    f"btts_ou={c['n_btts_ou']:3}  "
+                                    f"{status}"
+                                )
+
+            # ── BTTS / O/U 2.5 (fallback: per-event navigation) ──────────────
+            # Only runs when matches_extracted is set but the initial BTTS/OU
+            # block above was skipped (matches_extracted was empty at that point,
+            # meaning the initial view produced 0 results AND category discovery
+            # also produced nothing).  In practice: first cold start only.
+            if not did_per_category and not btts_ou_results and matches_extracted and sb_frame:
                 _dismiss_cookie(page)
                 page.wait_for_timeout(500)
                 _sbf = sb_frame
@@ -831,16 +1092,17 @@ def scrape_nt_oddsen_playwright(
         print(f"[NT Playwright] Stored {n_stored} rows ({len(matches_extracted)} matches × 1X2 + BTTS/OU)")
 
     return {
-        "n_matches":     len(matches_extracted),
-        "n_fixtures":    len(matches_extracted),   # alias
-        "n_btts":        n_btts_extracted,
-        "n_ou15":        n_ou15_extracted,
-        "n_ou25":        n_ou25_extracted,
-        "n_ou35":        n_ou35_extracted,
-        "n_dnb":         n_dnb_extracted,
-        "n_rows_stored": n_stored,
-        "n_stored":      n_stored,                 # alias
-        "scraped_at":    scraped_at,
-        "matches":       matches_extracted,
-        "error":         error_msg,
+        "n_matches":        len(matches_extracted),
+        "n_fixtures":       len(matches_extracted),   # alias
+        "n_btts":           n_btts_extracted,
+        "n_ou15":           n_ou15_extracted,
+        "n_ou25":           n_ou25_extracted,
+        "n_ou35":           n_ou35_extracted,
+        "n_dnb":            n_dnb_extracted,
+        "n_rows_stored":    n_stored,
+        "n_stored":         n_stored,                 # alias
+        "scraped_at":       scraped_at,
+        "matches":          matches_extracted,
+        "category_stats":   cat_stats,
+        "error":            error_msg,
     }
